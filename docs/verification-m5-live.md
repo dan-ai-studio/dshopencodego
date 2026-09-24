@@ -74,7 +74,8 @@ POST /zen/go/v1/chat/completions  200  session=session-06f83ac8-c93b-4303-8fbb-b
 
 - 页面初始化有一条 console error：`cannot get property "remote.session" without inject`（`Proxy.directoryFor`）。DSH 自己的 `ui-model-selection` 在相同位置做同样调用（`directoryFor(sessionId)`），故不是本插件的用法问题；未复现出功能影响。
 - DSH 的 profile 模板在 `pnpm-workspace.yaml` 留下 `allowBuilds` 占位文本（`set this to true or false`），使首次 `dsh plugin add` 因 `ERR_PNPM_IGNORED_BUILDS` 退出 1，并**跳过 bundle 自动登记**（`reconcile` 只在成功运行的“新增依赖”上登记）。把 `@google/genai` / `protobufjs` 显式设为 `false` 后重跑即可；本次另按 runbook 的备选路径手工登记了 `dsh.profile.bundles`。这解释了 handoff 里“`dsh plugin add` 可能不登记 bundle”的一个成因。
-- Release 资产名问题照旧：v0.1.3 的资产仍叫 `dan-ai-studio-dshopencodego-0.1.0.tgz`（`package.json` 未 bump）。
+- Release 资产名问题：v0.1.0–v0.1.3 的资产都叫 `dan-ai-studio-dshopencodego-0.1.0.tgz`（`package.json` 一直未 bump）；从 v0.1.4 起资产名与 tag 一致。
+- **CI 此前从未跑通（本次修复）**：`ci` / `release` 的历史 run 全部失败，根因是 `package-lock.json` 与依赖树不同步——`vitest@4 → vite@8` 要求 `esbuild@^0.27 || ^0.28`，而 root 固定 `^0.25.0`，npm 的 dedupe 出无效树，`npm ci` 报 `Missing: esbuild@0.28.2 from lock file`。v0.1.0–v0.1.3 的 Release 资产因此实为手工上传（与 plan/handoff 中“CI 发 Release tarball”的说法不符）。修复：root 的 `esbuild` 升到 `^0.28.0` 并同步 lock（提交 `0b280c2`），本地复跑 `npm ci` + 测试通过后重发 v0.1.4；**v0.1.4 是本项目第一个由 CI 产出的 Release**。
 
 ## 未覆盖
 
