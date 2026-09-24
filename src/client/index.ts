@@ -25,6 +25,7 @@ import { usageRemote } from '../usage/contract.ts'
 import type { TypertDisposer } from '@deepseek-ai/dsh-typert-protocol'
 import { en, zh } from './locales.ts'
 import type { OpencodeGoKey } from './locales.ts'
+import { Section, SectionController } from './Section.tsx'
 import { UsagePill } from './UsagePill.tsx'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -61,6 +62,22 @@ export function apply(ctx: ClientContext): void {
     })
     return () => { void dispose?.() }
   }, 'dshopencodego: usage Remote')
+  ctx.inject(['remote.opencodeGoCatalog', 'remote.credentials'], (scope) => {
+    const controller = new SectionController({ remote: scope.remote })
+    const translate = scope.locale.bind(NS)
+    scope.effect(() => () => { controller.dispose() })
+    scope.slots.inject('settings.section', () => scope.slots.register({
+      name: 'settings.section',
+      id: 'dshopencodego',
+      order: 20,
+      label: () => translate('nav'),
+      inject: () => ({
+        controller,
+        t: (key: string) => translate(key as OpencodeGoKey),
+        getLocale: () => scope.locale.getLocale().active,
+      }),
+    }, Section))
+  })
   ctx.inject(['modelDirectories', 'remote.opencodeGoUsage'], (scope) => {
     const translate = scope.locale.bind(NS)
     scope.slots.inject('conversation.input.right', () => scope.slots.register({
