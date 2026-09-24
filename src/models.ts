@@ -1,0 +1,70 @@
+/**
+ * The settings-facing model summary and its visibility rules.
+ *
+ * The adapter's `listModels` and the settings page both need the same facts and
+ * the same answer to "is this model offered right now", so the rule lives here
+ * once: a model nobody can configure is never offered, an explicit switch
+ * always wins, and a deprecated model defaults to off.
+ *
+ * @module @dan-ai-studio/dshopencodego/models
+ */
+
+import type { ProtocolSource } from './catalog/protocol.ts'
+
+/** One model as the settings page and the picker describe it. */
+export interface ModelSummary {
+  readonly id: string
+  readonly name: string
+  readonly contextWindow?: number
+  readonly maxTokens?: number
+  /** models.dev marks the model as retained for compatibility only. */
+  readonly deprecated?: boolean
+  /** Release date when models.dev states one. */
+  readonly releaseDate?: string
+  /** Which ladder level decided this model's protocol. */
+  readonly protocolSource?: ProtocolSource
+  /** True when a capacity came from the route default rather than a source. */
+  readonly assumedLimits?: boolean
+  /** Advertised by the gateway but not configurable, with the reason. */
+  readonly configurationMissing?: string
+}
+
+/**
+ * Whether the picker offers one model.
+ * @param model - the summary under test.
+ * @param visibility - per-model switches; an absent entry keeps the default.
+ * @returns true when the model should be selectable.
+ */
+export function isModelEnabled(
+  model: Pick<ModelSummary, 'id' | 'deprecated' | 'configurationMissing'>,
+  visibility?: Readonly<Record<string, boolean>>,
+): boolean {
+  if (model.configurationMissing !== undefined) return false
+  const explicit = visibility !== undefined && Object.hasOwn(visibility, model.id)
+    ? visibility[model.id]
+    : undefined
+  return typeof explicit === 'boolean' ? explicit : model.deprecated !== true
+}
+
+/** A calendar date as models.dev states it, without a timezone. */
+export function validReleaseDate(value: unknown): value is string {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value
+}
+
+/** Whether a model shipped within the last week. */
+export function isNewModel(model: ModelSummary, now = Date.now()): boolean {
+  if (model.deprecated === true || !validReleaseDate(model.releaseDate)) return false
+  const days = Math.floor(now / 86_400_000) - Date.parse(model.releaseDate) / 86_400_000
+  return days >= 0 && days < 7
+}
+
+/**
+ * Order models for display: newly shipped first, then the rest, then deprecated.
+ * Newest releases come first within the first group.
+ */
+export function sortModels(models: readonly ModelSummary[], now = Date.now()): ModelSummary[] {
+  const rank = (model: ModelSummary): number => model.deprecated === true ? 2 : isNewModel(model, now) ? 0 : 1
+  return [...models].sort((left, right) => rank(left) - rank(right)
+    || (isNewModel(left, now) && isNewModel(right, now) ? right.releaseDate!.localeCompare(left.releaseDate!) : 0))
+}
