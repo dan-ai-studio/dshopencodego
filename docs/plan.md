@@ -17,6 +17,19 @@
 - 不移植 DSH 对 pi-ai 的"工具参数增量解析"补丁（记入风险，后续按实测决定）。
 - 不做运行时协议探测，不做跨会话按日期汇总，不发布 npm。
 
+## 2a. 开发边界（用户约束）
+
+**所有开发产物只写在本仓库 `D:\prj\dshopencodego` 内。** 目录外的任何写入都需要先获得明确批准，验证结束后要清理干净。
+
+已发生的历史写入（截至 2026-09-24，均已处理）：
+
+- 为"安装冒烟"曾在 `~/.dsh/profiles/` 下新建过两个一次性 profile（`dshsmoke`、`dshheadless`）。**这两个 profile 已不存在**（由用户删除）。
+- 曾在 `%TEMP%` 留下 `dshopencodego-v01{1,2,3}.tgz` 与 `activate-check.yml`，**已删除**。
+- 只读访问过 `D:\git\deepseek-harness`（定位源码）与 `D:\git\dsh-opencode-go`（对比旧插件）；两个工作树均无本次开发的改动。
+- 仓库外的远端产物：GitHub 上的 `dan-ai-studio/dshopencodego` 与其 4 个 Release（v0.1.0–v0.1.3）——这是交付物本身，若需撤回由用户决定。
+
+今后若某项验证必须在仓库外进行（例如装进某个 profile 启动真实 Harness），先征得同意并约定清理方式。
+
 ## 3. 决策一览
 
 | 决策 | 结论 | 依据 |
