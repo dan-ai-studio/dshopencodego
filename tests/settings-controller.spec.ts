@@ -27,7 +27,7 @@ interface Harness {
   readonly failRefresh: () => void
 }
 
-function harness(options: { withScope?: boolean; rejectWrites?: boolean } = {}): Harness {
+function harness(options: { withScope?: boolean; rejectWrites?: boolean; rejectFirstWrite?: boolean } = {}): Harness {
   const writes: Array<{ field: string; value: unknown }> = []
   let writable = true
   let visibility: Record<string, boolean> = { 'glm-5': true }
@@ -43,7 +43,9 @@ function harness(options: { withScope?: boolean; rejectWrites?: boolean } = {}):
     subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener) } },
     set: async (field, value) => {
       writes.push({ field, value })
-      return options.rejectWrites === true ? false : true
+      if (options.rejectWrites === true) return false
+      if (options.rejectFirstWrite === true && writes.length === 1) return false
+      return true
     },
   }
   const services: SectionServices = {
@@ -113,27 +115,41 @@ describe('settings controller', () => {
     expect(test.writes.at(-1)).toEqual({ field: 'modelVisibility', value: { 'glm-5': false, 'glm-5.3': true } })
   })
 
-  it('select-all and select-none write every configurable model', async () => {
+  it('select-all skips deprecated models and select-none clears everything', async () => {
     const test = harness()
     const controller = new SectionController(test.services)
     await settle()
+    // A deprecated model arrives switched off; select-all must leave it off.
+    test.setVisibilityValue({ 'glm-5': false })
     controller.setAllVisibility(true)
     await flushWrites()
-    expect(test.writes.at(-1)).toEqual({ field: 'modelVisibility', value: { 'glm-5': true, 'glm-5.3': true } })
+    expect(test.writes.at(-1)).toEqual({ field: 'modelVisibility', value: { 'glm-5': false, 'glm-5.3': true } })
     controller.setAllVisibility(false)
     await flushWrites()
     expect(test.writes.at(-1)).toEqual({ field: 'modelVisibility', value: { 'glm-5': false, 'glm-5.3': false } })
   })
 
-  it('surfaces a rejected write instead of reporting it as saved', async () => {
+  it('retries a refused write once and reports it only if the retry fails too', async () => {
     const test = harness({ rejectWrites: true })
     const controller = new SectionController(test.services)
     await settle()
     controller.setVisibility('glm-5.3', true)
     await flushWrites()
-    expect(test.writes).toHaveLength(1)
-    expect(controller.snapshot().writeFailure).toBe('the settings write was rejected')
+    // The original attempt plus the settle-the-race retry.
+    expect(test.writes).toHaveLength(2)
+    expect(controller.snapshot().writeFailure).toEqual({ kind: 'rejected' })
     expect(controller.snapshot().saving).toBe(false)
+  })
+
+  it('clears the failure when the retry lands', async () => {
+    const test = harness({ rejectFirstWrite: true })
+    const controller = new SectionController(test.services)
+    await settle()
+    controller.setVisibility('glm-5.3', true)
+    await flushWrites()
+    expect(test.writes).toHaveLength(2)
+    expect(controller.snapshot().writeFailure).toBeUndefined()
+    expect(controller.snapshot().settings?.modelVisibility).toEqual({ 'glm-5': true, 'glm-5.3': true })
   })
 
   it('refuses an out-of-range refresh interval without writing', async () => {

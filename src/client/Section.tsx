@@ -54,6 +54,11 @@ export interface SectionServices {
   readonly scope: SettingsScopeLike | undefined
 }
 
+/** Why a settings write did not land, in a form the page can translate. */
+export type WriteFailure =
+  | { readonly kind: 'rejected' }
+  | { readonly kind: 'failed'; readonly message: string }
+
 /** What the page renders. Fields are explicit about absence so a partial
  * update can clear one under `exactOptionalPropertyTypes`. */
 export interface SectionState {
@@ -63,7 +68,7 @@ export interface SectionState {
   /** Catalog-side trouble (read or refresh). */
   readonly failure: string | undefined
   /** Settings-write trouble, kept apart from the catalog's own status line. */
-  readonly writeFailure: string | undefined
+  readonly writeFailure: WriteFailure | undefined
   /** Set after a successful key write, so the button can confirm. */
   readonly saved: boolean | undefined
   readonly settings: SectionSettings | undefined
@@ -206,7 +211,11 @@ export class SectionController {
 
   /**
    * Set every configurable model at once (select-all / select-none).
-   * @param enabled - the state each configurable model should take.
+   *
+   * Select-all leaves deprecated models alone — they arrive switched off, and
+   * a bulk action must not quietly re-enable a discontinued model. Select-none
+   * clears everything, deprecated included.
+   * @param enabled - the state the affected models should take.
    */
   setAllVisibility(enabled: boolean): void {
     const reading = this.state.reading
@@ -214,6 +223,7 @@ export class SectionController {
     const patch: Record<string, boolean> = {}
     for (const model of reading.models) {
       if (model.configurationMissing !== undefined) continue
+      if (enabled && model.deprecated === true) continue
       patch[model.id] = enabled
     }
     this.mergeVisibility(patch)
@@ -231,7 +241,15 @@ export class SectionController {
     this.visibilityTimer = setTimeout(() => { void this.flushVisibility(scope) }, VISIBILITY_WRITE_DELAY_MS)
   }
 
-  /** Write the pending dict once; a refusal rolls the local dict back. */
+  /**
+   * Write the pending dict once.
+   *
+   * A refusal is usually a revision conflict with another client — the form
+   * has already reloaded the namespace by then — so one immediate retry
+   * settles a lost race before the page tells a human something went wrong.
+   * A persistent refusal, or a thrown call, surfaces as a failure and rolls
+   * the optimistic dict back to what the Host reports.
+   */
   private async flushVisibility(scope: SettingsScopeLike): Promise<void> {
     if (this.visibilityTimer !== undefined) {
       clearTimeout(this.visibilityTimer)
@@ -242,10 +260,13 @@ export class SectionController {
     if (value === undefined) return
     this.set({ saving: true })
     try {
-      const result = await scope.set('modelVisibility', value)
-      if (result === false) this.set({ writeFailure: 'the settings write was rejected' })
+      let result = await scope.set('modelVisibility', value)
+      if (result === false) result = await scope.set('modelVisibility', value)
+      if (result === false) this.set({ writeFailure: { kind: 'rejected' } })
     } catch (error: unknown) {
-      this.set({ writeFailure: error instanceof Error ? error.message : 'the settings write failed' })
+      this.set({
+        writeFailure: { kind: 'failed', message: error instanceof Error ? error.message : '' },
+      })
       // The optimistic dict was never saved; go back to what the Host reports.
       this.set({ settings: settingsOf(scope.getSnapshot().value) })
     } finally {
@@ -390,7 +411,13 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
         />
         <span className={css.hint}>{t('refreshHint')}</span>
       </div>
-      {state.writeFailure !== undefined && <p className={css.warn}>{state.writeFailure}</p>}
+      {state.writeFailure !== undefined && <p className={css.warn}>
+        {state.writeFailure.kind === 'rejected'
+          ? t('writeRejected')
+          : state.writeFailure.message.length === 0
+            ? t('writeFailed')
+            : `${t('writeFailed')}: ${state.writeFailure.message}`}
+      </p>}
       {reading !== undefined && <table className={css.table}>
         <tbody>
           {reading.models.map(model => {
