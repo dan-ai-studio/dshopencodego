@@ -40,6 +40,29 @@ PATH=/v1/chat/completions  STATUS=200 SESSION=session-livecheck-0001 UA=deepseek
 - **推理回放成立**：终态 `finish` 带 `kind: pi-ai, version: 2` 的 replay 信封，逐块签名（reasoning 的 `reasoning_content` 与 text）被保留。
 - **用量成立**：该次调用回传 91 输入 / 19 输出 token，被计量器记录。
 
+## 真实 Harness 进程内的激活验证（2026-09-24，第二轮）
+
+之前 headless 无输出的原因查清了：`dsh plugin add` 给新 profile 建的是**裸 profile**，`dsh.profile.bundles` 里只有 `@deepseek-ai/dsh-base`（库包），没有 app 包，因此 `dsh --profile <裸profile> "hi"` 既无输出也不发请求。
+
+改用官方模板重建后验证通过：
+
+```sh
+dsh --profile dshheadless --from-default-profile headless --dump-config   # bundles: dsh-base + dsh-headless
+dsh plugin --profile dshheadless add <本地 tarball>                        # 远程 URL 会命中 ERR_PNPM_MISSING_TARBALL_INTEGRITY，见下
+dsh --profile dshheadless --dump-config | grep dshopencodego              # 组合里出现该条目
+dsh --profile dshheadless --patch <不存在的模型> "hi"
+```
+
+输出：
+
+```
+dsh: UNKNOWN_MODEL: opencode-go has no model "definitely-not-a-real-model"
+```
+
+这条错误由**本插件的适配器**抛出（`adapter.ts` 的 `UNKNOWN_MODEL`），因此它证明：插件已加载、`apply()` 已执行、`opencode-go` 路由已注册（凭证解析成功）、目录已从真实网关取回，且 Harness 的 agent 循环确实调到了本适配器。故意用一个不存在的模型，使激活验证**零额度消耗**。
+
+已知安装怪癖：把 Release 的 **远程 tarball URL** 装进一个**已有缓存的 profile** 会报 `ERR_PNPM_MISSING_TARBALL_INTEGRITY`（pnpm 要求 lockfile 有 integrity，而本机缓存命中时不会补写）。解法：下载到本地后按路径安装（`dsh plugin add <绝对路径>`），或在全新 profile 中首次安装。
+
 ## 未覆盖
 
 - **发布产物的独立导入失败（发布级风险，未解决）**：把 Release tarball 装进隔离 profile 后，用独立 `node` 直接导入 `@dan-ai-studio/dshopencodego` 会抛
