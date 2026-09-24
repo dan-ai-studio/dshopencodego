@@ -42,6 +42,10 @@ PATH=/v1/chat/completions  STATUS=200 SESSION=session-livecheck-0001 UA=deepseek
 
 ## 未覆盖
 
+- **发布产物的独立导入失败（发布级风险，未解决）**：把 Release tarball 装进隔离 profile 后，用独立 `node` 直接导入 `@dan-ai-studio/dshopencodego` 会抛
+  `SyntaxError: The requested module '@deepseek-ai/dsh-llm' does not provide an export named 'IMAGE_OFFLOAD_REQUIRED_CODE'`。
+  原因是 profile 的 `node_modules` 里 hoist 了一份更旧的已发布 `dsh-llm`（npm 上该包的 `latest` 标签是 `0.0.1-rc.1`），而 `src/conversion/context.ts` 对 0.1.6+ 才有的导出用了**具名导入**。真实 Harness 由自己的 loader 提供 `dsh-llm`，因此运行时预期不受影响，但这一点**尚未在真实 Harness 进程里验证过**（本轮只验证了 `--dump-config` 的组合结果，它不激活插件代码）。
+  修法（下一轮做）：对版本敏感的导出改用命名空间访问（`import * as llm from '@deepseek-ai/dsh-llm'` 后读 `llm.IMAGE_OFFLOAD_REQUIRED_CODE`），参考实现正是为此采用该写法；随后在真实 Harness 进程内验证插件激活。
 - 全流程 `dsh` 交互式运行：headless 调用在本机挂起（无输出、无请求到达代理），原因未查清；本次用构建产物直接驱动适配器，绕过了 DSH 的 agent 循环与交互层。
 - `openai-responses` 协议的端到端（mock 与真实均未跑）。
 - 图片输入（需要带附件的真实会话）。
