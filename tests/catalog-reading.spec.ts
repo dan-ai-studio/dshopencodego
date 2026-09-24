@@ -60,8 +60,9 @@ describe('settings catalog reading', () => {
     try {
       const catalog = new OpencodeGoCatalog({ baseURL: server.baseURL, refreshMs: 60_000, defaults: DEFAULTS, overrides: {} })
       await catalog.snapshot()
-      await server.close()
-      gateways.splice(gateways.indexOf(server), 1)
+      // Fail the live listing rather than closing the socket: a closed port
+      // races the HTTP client's keep-alive pool and occasionally completes.
+      server.setListingStatus(500)
       const stale = await catalog.snapshot(true)
       const reading = catalogReading(stale, {}, 'the live model listing is unreachable')
       expect(reading.stale).toBe(true)

@@ -47,6 +47,12 @@ export interface MockGateway {
   readonly requests: RecordedRequest[]
   /** Replace the advertised ids for the next listing read. */
   setListing(ids: readonly string[]): void
+  /**
+   * Change the status the listing answers with. Failing a live server is the
+   * deterministic way to test an outage: closing the socket instead races the
+   * HTTP client's keep-alive pool, which may still complete one more request.
+   */
+  setListingStatus(status: number): void
   close(): Promise<void>
 }
 
@@ -143,6 +149,7 @@ async function readBody(request: IncomingMessage): Promise<unknown> {
  */
 export async function startMockGateway(options: MockGatewayOptions = {}): Promise<MockGateway> {
   let listing = [...options.listing ?? ['glm-5.3', 'kimi-k3', 'deepseek-v4.1-flash']]
+  let listingStatus = options.listingStatus ?? 200
   const requests: RecordedRequest[] = []
   const server: Server = createServer((request, response) => {
     void (async () => {
@@ -159,8 +166,7 @@ export async function startMockGateway(options: MockGatewayOptions = {}): Promis
         return
       }
       if (path.endsWith('/models')) {
-        const status = options.listingStatus ?? 200
-        response.writeHead(status, { 'content-type': 'application/json' })
+        response.writeHead(listingStatus, { 'content-type': 'application/json' })
         response.end(JSON.stringify({
           object: 'list',
           data: listing.map(id => ({ id, object: 'model', created: 0, owned_by: 'opencode' })),
@@ -209,6 +215,7 @@ export async function startMockGateway(options: MockGatewayOptions = {}): Promis
     baseURL: `http://127.0.0.1:${address.port}/v1`,
     requests,
     setListing: (ids) => { listing = [...ids] },
+    setListingStatus: (status) => { listingStatus = status },
     close: () => new Promise<void>((resolve, reject) => {
       // The SDKs pool keep-alive sockets; waiting for them to drain would hang
       // teardown, so open connections are dropped before closing.

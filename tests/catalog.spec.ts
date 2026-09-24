@@ -224,8 +224,9 @@ describe('live catalog', () => {
     try {
       const catalog = catalogFor(server.baseURL, {}, { onFallback: (detail: unknown) => fallbacks.push(detail) })
       await catalog.snapshot()
-      await server.close()
-      gateways.splice(gateways.indexOf(server), 1)
+      // Fail the live listing instead of closing the socket: a closed port
+      // races the HTTP client's keep-alive pool and occasionally completes.
+      server.setListingStatus(500)
       const stale = await catalog.snapshot(true)
       expect(stale.live).toBe(false)
       expect([...stale.facts.keys()]).toEqual(['glm-5.3'])
