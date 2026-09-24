@@ -13,19 +13,18 @@
  *   and encoded-byte budgets, and follow the host's offload protocol instead of
  *   dropping content locally.
  *
+ * The image helpers are reached through a namespace import on purpose: they are
+ * newer additions to the LLM seam, and a named import of one that a host build
+ * does not export fails at module instantiation — taking the whole plugin down
+ * before it can report anything. A namespace read fails only when the feature is
+ * actually used.
+ *
  * @module @dan-ai-studio/dshopencodego/conversion/context
  */
 
 import { brandString } from '@deepseek-ai/dsh-brand'
-import {
-  contentHasImage,
-  IMAGE_OFFLOAD_REQUIRED_CODE,
-  LlmError,
-  offloadedImageText,
-  projectOffloadedImages,
-  requestImageHandleText,
-  requiredImageOffload,
-} from '@deepseek-ai/dsh-llm'
+import * as llm from '@deepseek-ai/dsh-llm'
+import { contentHasImage, LlmError, requestImageHandleText } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
   GenerateOptions,
@@ -174,10 +173,11 @@ function projectImagesForRequest(
   images: PiImageRequestContext,
   requestImages: ReadonlyMap<AttachmentId, RequestImageAttachment>,
 ): readonly RequestMessage[] {
+  const offloadedImageText = llm.offloadedImageText
   const placeholder = (ref: ImageAttachmentRef): string =>
     offloadedImageText(ref, images.resolveImageAccess(ref) as ImageAttachmentAccess | undefined)
   if (images.maxRequestImageBytes !== undefined) {
-    const over = requiredImageOffload(
+    const over = llm.requiredImageOffload(
       messages,
       { representation: 'base64', maxBytes: images.maxRequestImageBytes, byteQuantum: 1 },
       block => (requestImages.get(block.attachment.attachmentId) as RequestImageAttachment).bytes,
@@ -186,12 +186,12 @@ function projectImagesForRequest(
       throw new LlmError(
         `request images exceed the ${images.maxRequestImageBytes}-byte base64 bound;`
         + ` ${over} more oldest occurrence(s) must be offloaded`,
-        IMAGE_OFFLOAD_REQUIRED_CODE,
+        llm.IMAGE_OFFLOAD_REQUIRED_CODE,
         { offloadImages: over },
       )
     }
   }
-  return projectOffloadedImages(messages, placeholder)
+  return llm.projectOffloadedImages(messages, placeholder)
 }
 
 /**

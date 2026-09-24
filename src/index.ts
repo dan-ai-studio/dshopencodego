@@ -31,7 +31,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
-import { assertUsableApiKey, LlmError, resolveImageAttachmentAccess } from '@deepseek-ai/dsh-llm'
+import * as llm from '@deepseek-ai/dsh-llm'
+import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { AdapterRegistrationHandle, LlmModelDiscoveryRequest } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-fs'
 import { OpencodeGoAdapter } from './adapter.ts'
@@ -88,7 +89,7 @@ export function apply(ctx: Context, raw?: unknown): void {
       // Without the credentials seam the process environment is the whole
       // credential plane.
       : launchEnvironmentOf(ctx).get(ref)?.value
-    if (hit !== undefined && hit.length > 0) return assertUsableApiKey(hit, name, ref)
+    if (hit !== undefined && hit.length > 0) return llm.assertUsableApiKey(hit, name, ref)
     throw new LlmError(
       `dshopencodego: no credential; the profile resolves ${ref}, which is not set — store ${ref} through the`
       + ' credentials service (the Web Models page writes it) or export it',
@@ -102,7 +103,7 @@ export function apply(ctx: Context, raw?: unknown): void {
     resolveApiKey,
     imageAccess: {
       resolveAttachments: () => ctx.get('attachments'),
-      resolveImageAccess: (attachments, ref) => resolveImageAttachmentAccess(
+      resolveImageAccess: (attachments, ref) => llm.resolveImageAttachmentAccess(
         attachments,
         hostPath => ctx.get('fs')?.processPathFromHostPath(hostPath),
         ref,
