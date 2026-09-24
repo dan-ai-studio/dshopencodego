@@ -186,23 +186,34 @@ export class SectionController {
     const scope = this.services.scope
     const current = this.state.settings
     if (scope === undefined || current === undefined || !this.state.writable) return
-    await this.write(() => scope.set('modelVisibility', { ...current.modelVisibility, [id]: enabled }))
+    const modelVisibility = { ...current.modelVisibility, [id]: enabled }
+    // Merge the intent locally before the Host echoes the write back: two
+    // switches flipped in quick succession must not lose the first one.
+    await this.write(
+      () => scope.set('modelVisibility', modelVisibility),
+      () => this.set({ settings: { ...current, modelVisibility } }),
+    )
   }
 
   /** Set the catalog cache lifetime, clamped to the schema's own bounds. */
   async setRefreshMinutes(minutes: number): Promise<void> {
     const scope = this.services.scope
-    if (scope === undefined || !this.state.writable) return
+    const current = this.state.settings
+    if (scope === undefined || current === undefined || !this.state.writable) return
     if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 7 * 24 * 60) return
-    await this.write(() => scope.set('refreshMinutes', minutes))
+    await this.write(
+      () => scope.set('refreshMinutes', minutes),
+      () => this.set({ settings: { ...current, refreshMinutes: minutes } }),
+    )
   }
 
-  private async write(operation: () => Promise<void | boolean>): Promise<void> {
+  private async write(operation: () => Promise<void | boolean>, onAccepted?: () => void): Promise<void> {
     this.set({ saving: true })
     try {
       const result = await operation()
       // A `false` answer is a rejected write, not a saved one.
       if (result === false) this.set({ failure: 'the settings write was rejected' })
+      else onAccepted?.()
     } finally {
       this.set({ saving: false })
     }
