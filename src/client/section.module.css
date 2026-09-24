@@ -100,3 +100,22 @@
 .badge {
   color: var(--dsw-alias-brand-primary);
 }
+
+.number {
+  width: 5rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 0.35rem;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.toggle {
+  width: 2rem;
+}
+
+.toggle input {
+  accent-color: var(--dsw-alias-brand-primary);
+}

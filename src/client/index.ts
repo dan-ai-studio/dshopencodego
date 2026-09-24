@@ -26,6 +26,7 @@ import type { TypertDisposer } from '@deepseek-ai/dsh-typert-protocol'
 import { en, zh } from './locales.ts'
 import type { OpencodeGoKey } from './locales.ts'
 import { Section, SectionController } from './Section.tsx'
+import type { SettingsScopeLike } from './Section.tsx'
 import { UsagePill } from './UsagePill.tsx'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -62,8 +63,15 @@ export function apply(ctx: ClientContext): void {
     })
     return () => { void dispose?.() }
   }, 'dshopencodego: usage Remote')
-  ctx.inject(['remote.opencodeGoCatalog', 'remote.credentials'], (scope) => {
-    const controller = new SectionController({ remote: scope.remote })
+  ctx.inject(['configForms', 'remote.opencodeGoCatalog', 'remote.credentials'], (scope) => {
+    // 0.1.7 keeps profile-entry forms on `configForms`; the entry id is this
+    // plugin's, and a composition without the form renders the page read-only.
+    const forms = scope.get('configForms') as
+      { get(id: string): SettingsScopeLike | undefined } | undefined
+    const controller = new SectionController({
+      remote: scope.remote,
+      scope: forms?.get('dshopencodego'),
+    })
     const translate = scope.locale.bind(NS)
     scope.effect(() => () => { controller.dispose() })
     scope.slots.inject('settings.section', () => scope.slots.register({

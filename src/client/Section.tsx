@@ -4,7 +4,9 @@
  * It answers three questions in one place: is the route usable (credential
  * state), what does the gateway serve right now (the catalog reading, with the
  * refresh that bypasses the runtime cache), and how is each model called (the
- * protocol source, so an inferred guess is visible rather than silent).
+ * protocol source, so an inferred guess is visible rather than silent). The
+ * per-model switches and the refresh interval are written back through the
+ * settings scope, which the page degrades out of when a composition has none.
  *
  * @module @dan-ai-studio/dshopencodego/client/Section
  */
@@ -16,6 +18,24 @@ import css from './section.module.css'
 
 /** Credential reference the route resolves. */
 export const API_KEY_REF = 'OPENCODE_GO_API_KEY'
+
+/** The settings fields this page owns. */
+export interface SectionSettings {
+  readonly modelVisibility: Record<string, boolean>
+  readonly refreshMinutes: number
+}
+
+/** The read/write contract of the settings scope, structurally typed. */
+export interface SettingsScopeLike {
+  getSnapshot(): {
+    readonly status: 'loading' | 'ready' | 'unavailable'
+    readonly value: unknown
+    readonly revision: number | undefined
+    readonly writable: boolean
+  }
+  subscribe(listener: () => void): () => void
+  set(field: string, value: unknown): Promise<void | boolean>
+}
 
 /** The subset of the client context this page uses. */
 export interface SectionServices {
@@ -30,6 +50,8 @@ export interface SectionServices {
       unset(ref: string): Promise<void>
     }
   }
+  /** Absent in a composition without a settings surface: the page turns read-only. */
+  readonly scope: SettingsScopeLike | undefined
 }
 
 /** What the page renders. Fields are explicit about absence so a partial
@@ -41,6 +63,9 @@ export interface SectionState {
   readonly failure: string | undefined
   /** Set after a successful key write, so the button can confirm. */
   readonly saved: boolean | undefined
+  readonly settings: SectionSettings | undefined
+  readonly writable: boolean
+  readonly saving: boolean
 }
 
 const INITIAL: SectionState = {
@@ -49,16 +74,44 @@ const INITIAL: SectionState = {
   keyConfigured: undefined,
   failure: undefined,
   saved: undefined,
+  settings: undefined,
+  writable: false,
+  saving: false,
 }
 
-/** Owns the page's state and talks to the Host Remotes. */
+/** Read the two fields this page owns out of a settings snapshot value. */
+function settingsOf(value: unknown): SectionSettings | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const visibility = record['modelVisibility']
+  const minutes = record['refreshMinutes']
+  if (visibility === null || typeof visibility !== 'object' || typeof minutes !== 'number') return undefined
+  const entries = Object.entries(visibility as Record<string, unknown>)
+    .filter(([, enabled]) => typeof enabled === 'boolean')
+  return {
+    modelVisibility: Object.fromEntries(entries) as Record<string, boolean>,
+    refreshMinutes: minutes,
+  }
+}
+
+/** Owns the page's state and talks to the Host Remotes and the settings scope. */
 export class SectionController {
   private state: SectionState = INITIAL
   private readonly listeners = new Set<() => void>()
   private readonly services: SectionServices
+  private readonly disposers: Array<() => void> = []
 
   constructor(services: SectionServices) {
     this.services = services
+    const scope = services.scope
+    if (scope !== undefined) {
+      const sync = (): void => {
+        const snapshot = scope.getSnapshot()
+        this.set({ settings: settingsOf(snapshot.value), writable: snapshot.writable })
+      }
+      sync()
+      this.disposers.push(scope.subscribe(sync))
+    }
     void this.load(false)
     void this.loadKey()
   }
@@ -70,9 +123,10 @@ export class SectionController {
 
   snapshot = (): SectionState => this.state
 
-  /** Drop every listener; the slot's effect calls this on teardown. */
+  /** Drop every listener and scope subscription; the slot's effect calls this. */
   dispose(): void {
     this.listeners.clear()
+    for (const dispose of this.disposers.splice(0)) dispose()
   }
 
   private set(next: Partial<SectionState>): void {
@@ -121,6 +175,38 @@ export class SectionController {
     this.set({ saved: false })
     await this.loadKey()
   }
+
+  /**
+   * Flip one model's switch, keeping every other entry.
+   *
+   * The whole dict is written because the field is a dict: a partial write
+   * would drop the switches this page did not touch.
+   */
+  async setVisibility(id: string, enabled: boolean): Promise<void> {
+    const scope = this.services.scope
+    const current = this.state.settings
+    if (scope === undefined || current === undefined || !this.state.writable) return
+    await this.write(() => scope.set('modelVisibility', { ...current.modelVisibility, [id]: enabled }))
+  }
+
+  /** Set the catalog cache lifetime, clamped to the schema's own bounds. */
+  async setRefreshMinutes(minutes: number): Promise<void> {
+    const scope = this.services.scope
+    if (scope === undefined || !this.state.writable) return
+    if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 7 * 24 * 60) return
+    await this.write(() => scope.set('refreshMinutes', minutes))
+  }
+
+  private async write(operation: () => Promise<void | boolean>): Promise<void> {
+    this.set({ saving: true })
+    try {
+      const result = await operation()
+      // A `false` answer is a rejected write, not a saved one.
+      if (result === false) this.set({ failure: 'the settings write was rejected' })
+    } finally {
+      this.set({ saving: false })
+    }
+  }
 }
 
 /** Everything the slot injects into the page. */
@@ -131,12 +217,19 @@ export interface SectionInjected {
 }
 
 /** How a protocol decision is labelled for a human. */
-function protocolLabel(reading: CatalogReading, id: string, t: (key: string) => string): string | undefined {
-  const model = reading.models.find(entry => entry.id === id)
-  if (model?.configurationMissing !== undefined) return t('catalogUnconfigured')
-  if (model?.protocolSource === 'inferred') return t('catalogInferred')
-  if (model?.assumedLimits === true) return t('catalogAssumed')
-  return undefined
+function badgeFor(model: CatalogReading['models'][number], t: (key: string) => string): string {
+  if (model.configurationMissing !== undefined) return `${t('catalogUnconfigured')}: ${model.configurationMissing}`
+  if (model.protocolSource === 'inferred') return t('catalogInferred')
+  if (model.assumedLimits === true) return t('catalogAssumed')
+  if (model.deprecated === true) return t('catalogDeprecated')
+  return ''
+}
+
+/** Whether one model is offered right now, under the switches in force. */
+function isOffered(model: CatalogReading['models'][number], visibility: Record<string, boolean>): boolean {
+  if (model.configurationMissing !== undefined) return false
+  const explicit = Object.hasOwn(visibility, model.id) ? visibility[model.id] : undefined
+  return typeof explicit === 'boolean' ? explicit : model.deprecated !== true
 }
 
 /** The settings page. */
@@ -157,6 +250,8 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
   useEffect(() => { setKeyDraft('') }, [state.saved])
 
   const reading = state.reading
+  const visibility = state.settings?.modelVisibility ?? {}
+  const editable = state.writable && state.settings !== undefined
   return <section className={css.root}>
     <h2 className={css.title}>{t('nav')}</h2>
     <p className={css.hint}>{t('intro')}</p>
@@ -180,7 +275,7 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
         />
         <button type="button" className={css.button} disabled={busy || keyDraft.trim().length === 0}
           onClick={() => { void act(async () => { await controller.saveKey(keyDraft) }) }}>
-          {state.saved ? t('keySaved') : t('keySave')}
+          {state.saved === true ? t('keySaved') : t('keySave')}
         </button>
         <button type="button" className={css.button} disabled={busy || state.keyConfigured !== true}
           onClick={() => { void act(async () => { await controller.clearKey() }) }}>
@@ -193,10 +288,9 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
       <div className={css.row}>
         <strong>{t('catalogTitle')}</strong>
         <span className={css.hint}>
-          {reading === undefined ? '—' : `${reading.counts.total} ${t('catalogCountUnit')}`}
-          {reading === undefined ? '' : ` · ${reading.counts.enabled} ✓`}
-          {reading === undefined || reading.counts.inferred === 0 ? '' : ` · ${reading.counts.inferred} ${t('catalogInferred')}`}
-          {reading === undefined || reading.counts.unconfigured === 0 ? '' : ` · ${reading.counts.unconfigured} ${t('catalogUnconfigured')}`}
+          {reading === undefined ? '—' : `${reading.counts.total} ${t('catalogCountUnit')} · ${reading.counts.enabled} ✓`
+            + (reading.counts.inferred === 0 ? '' : ` · ${reading.counts.inferred} ${t('catalogInferred')}`)
+            + (reading.counts.unconfigured === 0 ? '' : ` · ${reading.counts.unconfigured} ${t('catalogUnconfigured')}`)}
         </span>
         <button type="button" className={css.button} disabled={busy || state.loading}
           onClick={() => { void act(async () => { await controller.load(true) }) }}>
@@ -205,19 +299,39 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
       </div>
       {state.failure !== undefined && <p className={css.warn}>{t('catalogStale')}: {state.failure}</p>}
       {reading !== undefined && reading.stale && state.failure === undefined && <p className={css.warn}>{t('catalogStale')}</p>}
+      <div className={css.row}>
+        <label className={css.hint} htmlFor="dshopencodego-refresh">{t('refreshLabel')}</label>
+        <input
+          id="dshopencodego-refresh"
+          className={css.number}
+          type="number"
+          min={1}
+          max={7 * 24 * 60}
+          disabled={!editable || state.saving}
+          value={state.settings?.refreshMinutes ?? ''}
+          onChange={event => { void controller.setRefreshMinutes(Number(event.target.value)) }}
+        />
+        <span className={css.hint}>{t('refreshHint')}</span>
+      </div>
       {reading !== undefined && <table className={css.table}>
         <tbody>
           {reading.models.map(model => {
-            const badge = protocolLabel(reading, model.id, t)
+            const badge = badgeFor(model, t)
+            const offered = isOffered(model, visibility)
             return <tr key={model.id}>
+              <td className={css.toggle}>
+                <input
+                  type="checkbox"
+                  aria-label={`${t('catalogTitle')}: ${model.name}`}
+                  checked={offered}
+                  disabled={!editable || model.configurationMissing !== undefined || state.saving}
+                  onChange={event => { void controller.setVisibility(model.id, event.target.checked) }}
+                />
+              </td>
               <td className={css.name}>{model.name}</td>
               <td className={css.mono}>{model.id}</td>
               <td className={css.hint}>{model.contextWindow === undefined ? '—' : model.contextWindow.toLocaleString(getLocale?.())}</td>
-              <td className={badge === undefined ? css.hint : css.badge}>
-                {badge === undefined
-                  ? model.deprecated === true ? t('catalogDeprecated') : ''
-                  : `${badge}${model.configurationMissing === undefined ? '' : `: ${model.configurationMissing}`}`}
-              </td>
+              <td className={badge.length === 0 ? css.hint : css.badge}>{badge}</td>
             </tr>
           })}
         </tbody>
