@@ -28,6 +28,7 @@ import type {
   LlmModelInfo,
   LlmResolvedModelInfo,
   StreamChunk,
+  TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
@@ -80,6 +81,12 @@ export interface OpencodeGoAdapterOptions {
   readonly onUnconfigured?: (detail: { id: string; reason: string }[]) => void
   /** Observe assistant history degrading to provider-neutral conversion. */
   readonly onReplayDegrade?: (reason: string) => void
+  /**
+   * Observe the provider's own usage for one completed call. This is the only
+   * honest source of token counts: the gateway's `/usage` endpoint reports
+   * account percentages, not tokens.
+   */
+  readonly onUsage?: (detail: { model: string; usage: TokenUsage }) => void
 }
 
 /** The catalog and the configuration facts it was built from. */
@@ -267,6 +274,9 @@ export class OpencodeGoAdapter extends LlmAdapter {
           if (result.done) {
             exhausted = true
             return
+          }
+          if (result.value.type === 'usage') {
+            this.options.onUsage?.({ model: options.model, usage: result.value.usage })
           }
           yield result.value
         }

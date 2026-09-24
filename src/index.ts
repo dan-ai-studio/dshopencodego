@@ -38,6 +38,8 @@ import { OpencodeGoAdapter } from './adapter.ts'
 import { DISPLAY_NAME, PROVIDER_ID, discoverCatalogModels } from './catalog/index.ts'
 import { assertBaseURL, PlainConfig, readConfig } from './config.ts'
 import type { LiveConfig, OpencodeGoConfig } from './config.ts'
+import { registerRemotes } from './remotes.ts'
+import { OpencodeGoUsageService, UsageMeter } from './usage/index.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
@@ -94,6 +96,7 @@ export function apply(ctx: Context, raw?: unknown): void {
     )
   }
 
+  const meter = new UsageMeter()
   const adapter = new OpencodeGoAdapter({
     config: current,
     resolveApiKey,
@@ -115,6 +118,16 @@ export function apply(ctx: Context, raw?: unknown): void {
     onReplayDegrade: (reason) => {
       ctx.logger.warn(`dshopencodego: unusable replay state on assistant history; sending provider-neutral content (${reason})`)
     },
+    onUsage: ({ model, usage }) => { meter.record(model, usage) },
+  })
+
+  // The usage Remote is mounted before the route so a picker can read it even
+  // while the route is withdrawn for a missing credential.
+  registerRemotes(ctx)
+  ctx.plugin(OpencodeGoUsageService, {
+    baseURL: () => current().baseURL,
+    resolveApiKey,
+    meter,
   })
 
   let registration: AdapterRegistrationHandle | undefined
