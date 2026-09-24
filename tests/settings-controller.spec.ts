@@ -1,10 +1,11 @@
 /**
- * Settings-page controller: the write path, its refusals, and its read-only
- * degradation. These are the behaviours a human would notice as "it saved" or
- * "it lied", so they are asserted against fake remotes rather than a browser.
+ * Settings-page controller: the write path, its coalescing, its refusals, and
+ * its read-only degradation. These are the behaviours a human would notice as
+ * "it saved", "it lagged" or "it lied", so they are asserted against fake
+ * remotes rather than a browser.
  */
-import { describe, expect, it } from 'vitest'
-import { SectionController, API_KEY_REF } from '../src/client/Section.tsx'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { SectionController, API_KEY_REF, VISIBILITY_WRITE_DELAY_MS } from '../src/client/Section.tsx'
 import type { SectionServices, SettingsScopeLike } from '../src/client/Section.tsx'
 import type { CatalogReading } from '../src/catalog/contract.ts'
 
@@ -77,26 +78,61 @@ function harness(options: { withScope?: boolean; rejectWrites?: boolean } = {}):
 }
 
 /** Let the controller's constructor-time reads settle. */
-const settle = (): Promise<void> => new Promise(resolve => { setTimeout(resolve, 0) })
+const settle = (): Promise<void> => vi.advanceTimersByTimeAsync(0)
+
+/** Drive the coalescing window so the pending write reaches the fake scope. */
+const flushWrites = (): Promise<void> => vi.advanceTimersByTimeAsync(VISIBILITY_WRITE_DELAY_MS + 50)
+
+beforeEach(() => { vi.useFakeTimers() })
+afterEach(() => { vi.useRealTimers() })
 
 describe('settings controller', () => {
+  it('publishes a flip immediately and coalesces a burst into one write', async () => {
+    const test = harness()
+    const controller = new SectionController(test.services)
+    await settle()
+    controller.setVisibility('glm-5.3', true)
+    // The switch state is visible before any write happens.
+    expect(controller.snapshot().settings?.modelVisibility).toEqual({ 'glm-5': true, 'glm-5.3': true })
+    expect(test.writes).toHaveLength(0)
+    controller.setVisibility('glm-5', false)
+    await flushWrites()
+    // One write carrying the final dict, not one per click.
+    expect(test.writes).toEqual([{ field: 'modelVisibility', value: { 'glm-5': false, 'glm-5.3': true } }])
+  })
+
   it('writes the whole visibility dict so untouched switches survive', async () => {
     const test = harness()
     const controller = new SectionController(test.services)
     await settle()
-    await controller.setVisibility('glm-5.3', true)
+    controller.setVisibility('glm-5.3', true)
+    await flushWrites()
     expect(test.writes).toEqual([{ field: 'modelVisibility', value: { 'glm-5': true, 'glm-5.3': true } }])
-    await controller.setVisibility('glm-5', false)
+    controller.setVisibility('glm-5', false)
+    await flushWrites()
     expect(test.writes.at(-1)).toEqual({ field: 'modelVisibility', value: { 'glm-5': false, 'glm-5.3': true } })
+  })
+
+  it('select-all and select-none write every configurable model', async () => {
+    const test = harness()
+    const controller = new SectionController(test.services)
+    await settle()
+    controller.setAllVisibility(true)
+    await flushWrites()
+    expect(test.writes.at(-1)).toEqual({ field: 'modelVisibility', value: { 'glm-5': true, 'glm-5.3': true } })
+    controller.setAllVisibility(false)
+    await flushWrites()
+    expect(test.writes.at(-1)).toEqual({ field: 'modelVisibility', value: { 'glm-5': false, 'glm-5.3': false } })
   })
 
   it('surfaces a rejected write instead of reporting it as saved', async () => {
     const test = harness({ rejectWrites: true })
     const controller = new SectionController(test.services)
     await settle()
-    await controller.setVisibility('glm-5.3', true)
+    controller.setVisibility('glm-5.3', true)
+    await flushWrites()
     expect(test.writes).toHaveLength(1)
-    expect(controller.snapshot().failure).toBe('the settings write was rejected')
+    expect(controller.snapshot().writeFailure).toBe('the settings write was rejected')
     expect(controller.snapshot().saving).toBe(false)
   })
 
@@ -118,8 +154,10 @@ describe('settings controller', () => {
     await settle()
     expect(controller.snapshot().writable).toBe(false)
     expect(controller.snapshot().settings).toBeUndefined()
-    await controller.setVisibility('glm-5.3', true)
+    controller.setVisibility('glm-5.3', true)
+    controller.setAllVisibility(true)
     await controller.setRefreshMinutes(30)
+    await flushWrites()
     expect(test.writes).toHaveLength(0)
   })
 

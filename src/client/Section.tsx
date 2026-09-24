@@ -60,7 +60,10 @@ export interface SectionState {
   readonly loading: boolean
   readonly reading: CatalogReading | undefined
   readonly keyConfigured: boolean | undefined
+  /** Catalog-side trouble (read or refresh). */
   readonly failure: string | undefined
+  /** Settings-write trouble, kept apart from the catalog's own status line. */
+  readonly writeFailure: string | undefined
   /** Set after a successful key write, so the button can confirm. */
   readonly saved: boolean | undefined
   readonly settings: SectionSettings | undefined
@@ -68,11 +71,15 @@ export interface SectionState {
   readonly saving: boolean
 }
 
+/** How long a burst of switch flips is coalesced before one settings write. */
+export const VISIBILITY_WRITE_DELAY_MS = 250
+
 const INITIAL: SectionState = {
   loading: true,
   reading: undefined,
   keyConfigured: undefined,
   failure: undefined,
+  writeFailure: undefined,
   saved: undefined,
   settings: undefined,
   writable: false,
@@ -100,6 +107,10 @@ export class SectionController {
   private readonly listeners = new Set<() => void>()
   private readonly services: SectionServices
   private readonly disposers: Array<() => void> = []
+  /** Latest visibility dict awaiting its coalesced write. */
+  private pendingVisibility: Record<string, boolean> | undefined
+  /** Timer of the coalescing window, when one is armed. */
+  private visibilityTimer: ReturnType<typeof setTimeout> | undefined
 
   constructor(services: SectionServices) {
     this.services = services
@@ -127,6 +138,9 @@ export class SectionController {
   dispose(): void {
     this.listeners.clear()
     for (const dispose of this.disposers.splice(0)) dispose()
+    // A coalesced write that is still waiting must reach the Host.
+    const scope = this.services.scope
+    if (this.visibilityTimer !== undefined && scope !== undefined) void this.flushVisibility(scope)
   }
 
   private set(next: Partial<SectionState>): void {
@@ -180,22 +194,63 @@ export class SectionController {
   }
 
   /**
-   * Flip one model's switch, keeping every other entry.
+   * Flip one model's switch.
    *
-   * The whole dict is written because the field is a dict: a partial write
-   * would drop the switches this page did not touch.
+   * The switch is published immediately and the write itself is coalesced, so
+   * the UI never waits on the Host round trip and a burst of clicks becomes a
+   * single write of the final dict.
    */
-  async setVisibility(id: string, enabled: boolean): Promise<void> {
+  setVisibility(id: string, enabled: boolean): void {
+    this.mergeVisibility({ [id]: enabled })
+  }
+
+  /**
+   * Set every configurable model at once (select-all / select-none).
+   * @param enabled - the state each configurable model should take.
+   */
+  setAllVisibility(enabled: boolean): void {
+    const reading = this.state.reading
+    if (reading === undefined) return
+    const patch: Record<string, boolean> = {}
+    for (const model of reading.models) {
+      if (model.configurationMissing !== undefined) continue
+      patch[model.id] = enabled
+    }
+    this.mergeVisibility(patch)
+  }
+
+  /** Publish the merged dict locally, then schedule one coalesced write. */
+  private mergeVisibility(patch: Record<string, boolean>): void {
     const scope = this.services.scope
     const current = this.state.settings
     if (scope === undefined || current === undefined || !this.state.writable) return
-    const modelVisibility = { ...current.modelVisibility, [id]: enabled }
-    // Merge the intent locally before the Host echoes the write back: two
-    // switches flipped in quick succession must not lose the first one.
-    await this.write(
-      () => scope.set('modelVisibility', modelVisibility),
-      () => this.set({ settings: { ...current, modelVisibility } }),
-    )
+    const modelVisibility = { ...current.modelVisibility, ...patch }
+    this.set({ settings: { ...current, modelVisibility }, writeFailure: undefined })
+    this.pendingVisibility = modelVisibility
+    if (this.visibilityTimer !== undefined) clearTimeout(this.visibilityTimer)
+    this.visibilityTimer = setTimeout(() => { void this.flushVisibility(scope) }, VISIBILITY_WRITE_DELAY_MS)
+  }
+
+  /** Write the pending dict once; a refusal rolls the local dict back. */
+  private async flushVisibility(scope: SettingsScopeLike): Promise<void> {
+    if (this.visibilityTimer !== undefined) {
+      clearTimeout(this.visibilityTimer)
+      this.visibilityTimer = undefined
+    }
+    const value = this.pendingVisibility
+    this.pendingVisibility = undefined
+    if (value === undefined) return
+    this.set({ saving: true })
+    try {
+      const result = await scope.set('modelVisibility', value)
+      if (result === false) this.set({ writeFailure: 'the settings write was rejected' })
+    } catch (error: unknown) {
+      this.set({ writeFailure: error instanceof Error ? error.message : 'the settings write failed' })
+      // The optimistic dict was never saved; go back to what the Host reports.
+      this.set({ settings: settingsOf(scope.getSnapshot().value) })
+    } finally {
+      this.set({ saving: false })
+    }
   }
 
   /** Set the catalog cache lifetime, clamped to the schema's own bounds. */
@@ -306,6 +361,14 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
             + (reading.counts.inferred === 0 ? '' : ` · ${reading.counts.inferred} ${t('catalogInferred')}`)
             + (reading.counts.unconfigured === 0 ? '' : ` · ${reading.counts.unconfigured} ${t('catalogUnconfigured')}`)}
         </span>
+        <button type="button" className={css.button} disabled={!editable || reading === undefined}
+          onClick={() => { controller.setAllVisibility(true) }}>
+          {t('catalogSelectAll')}
+        </button>
+        <button type="button" className={css.button} disabled={!editable || reading === undefined}
+          onClick={() => { controller.setAllVisibility(false) }}>
+          {t('catalogSelectNone')}
+        </button>
         <button type="button" className={css.button} disabled={busy || state.loading}
           onClick={() => { void act(async () => { await controller.load(true) }) }}>
           {state.loading ? t('usageRefreshing') : t('catalogRefresh')}
@@ -327,6 +390,7 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
         />
         <span className={css.hint}>{t('refreshHint')}</span>
       </div>
+      {state.writeFailure !== undefined && <p className={css.warn}>{state.writeFailure}</p>}
       {reading !== undefined && <table className={css.table}>
         <tbody>
           {reading.models.map(model => {
@@ -338,8 +402,8 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
                   type="checkbox"
                   aria-label={`${t('catalogTitle')}: ${model.name}`}
                   checked={offered}
-                  disabled={!editable || model.configurationMissing !== undefined || state.saving}
-                  onChange={event => { void controller.setVisibility(model.id, event.target.checked) }}
+                  disabled={!editable || model.configurationMissing !== undefined}
+                  onChange={event => { controller.setVisibility(model.id, event.target.checked) }}
                 />
               </td>
               <td className={css.name}>{model.name}</td>
