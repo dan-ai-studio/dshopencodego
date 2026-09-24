@@ -54,9 +54,9 @@ function harness(options: { withScope?: boolean; rejectWrites?: boolean } = {}):
           : { ok: true, value: READING }),
       },
       credentials: {
-        describe: async () => ({ [API_KEY_REF]: { configured: true } }),
-        set: async () => {},
-        unset: async () => {},
+        describe: async () => ({ ok: true, value: { [API_KEY_REF]: { configured: true } } }),
+        set: async () => ({ ok: true, value: undefined }),
+        unset: async () => ({ ok: true, value: undefined }),
       },
     },
     scope: options.withScope === false ? undefined : scope,

@@ -21,6 +21,7 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { catalogRemote } from '../catalog/contract.ts'
 import { usageRemote } from '../usage/contract.ts'
 import type { TypertDisposer } from '@deepseek-ai/dsh-typert-protocol'
 import { en, zh } from './locales.ts'
@@ -55,7 +56,15 @@ export const inject = ['slots', 'locale', 'remote']
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dshopencodego: copy dictionaries')
-  const mounted = ctx.remote.$mount(usageRemote)
+  // One registry owns one contribution per package, so the catalog methods ride
+  // the same mount as usage: a separate `$mount` would leave
+  // `remote.opencodeGoCatalog` unregistered, and the settings section's inject
+  // would then never be satisfied. Mirrors the Host-side contribution in
+  // `src/remotes.ts`.
+  const mounted = ctx.remote.$mount({
+    package: usageRemote.package,
+    descriptors: [...usageRemote.descriptors, ...catalogRemote.descriptors],
+  })
   ctx.effect(() => {
     let dispose: TypertDisposer | undefined
     void mounted.then((next: TypertDisposer) => { dispose = next }).catch(() => {

@@ -45,9 +45,9 @@ export interface SectionServices {
       refresh(): Promise<RemoteResult<CatalogReading>>
     }
     readonly credentials: {
-      describe(refs: string[]): Promise<Record<string, { configured: boolean }>>
-      set(ref: string, value: string): Promise<void>
-      unset(ref: string): Promise<void>
+      describe(refs: string[]): Promise<RemoteResult<Record<string, { configured: boolean }>>>
+      set(ref: string, value: string): Promise<RemoteResult<unknown>>
+      unset(ref: string): Promise<RemoteResult<unknown>>
     }
   }
   /** Absent in a composition without a settings surface: the page turns read-only. */
@@ -155,7 +155,8 @@ export class SectionController {
   async loadKey(): Promise<void> {
     try {
       const described = await this.services.remote.credentials.describe([API_KEY_REF])
-      this.set({ keyConfigured: described[API_KEY_REF]?.configured === true })
+      if (!described.ok) throw described.error
+      this.set({ keyConfigured: described.value[API_KEY_REF]?.configured === true })
     } catch {
       // An undescribed credential is reported as unknown, never as absent.
       this.set({ keyConfigured: undefined })
@@ -165,13 +166,15 @@ export class SectionController {
   async saveKey(value: string): Promise<void> {
     const trimmed = value.trim()
     if (trimmed.length === 0) return
-    await this.services.remote.credentials.set(API_KEY_REF, trimmed)
+    const result = await this.services.remote.credentials.set(API_KEY_REF, trimmed)
+    if (!result.ok) throw result.error
     this.set({ saved: true })
     await this.loadKey()
   }
 
   async clearKey(): Promise<void> {
-    await this.services.remote.credentials.unset(API_KEY_REF)
+    const result = await this.services.remote.credentials.unset(API_KEY_REF)
+    if (!result.ok) throw result.error
     this.set({ saved: false })
     await this.loadKey()
   }
