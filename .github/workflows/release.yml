@@ -1,0 +1,29 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm test
+      - run: npm pack
+      - name: Publish the tarball as the release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Idempotent: a release created by hand for the same tag is completed
+        # with the freshly built tarball instead of failing the run.
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            && gh release upload "$GITHUB_REF_NAME" ./*.tgz --clobber \
+            || gh release create "$GITHUB_REF_NAME" ./*.tgz --generate-notes
