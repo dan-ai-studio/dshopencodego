@@ -40,6 +40,7 @@ import { DISPLAY_NAME, PROVIDER_ID, discoverCatalogModels } from './catalog/inde
 import { assertBaseURL, PlainConfig, readConfig } from './config.ts'
 import type { LiveConfig, OpencodeGoConfig } from './config.ts'
 import { registerRemotes } from './remotes.ts'
+import { OpencodeGoCatalogService } from './catalog/service.ts'
 import { OpencodeGoUsageService, UsageMeter } from './usage/index.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -129,6 +130,10 @@ export function apply(ctx: Context, raw?: unknown): void {
     baseURL: () => current().baseURL,
     resolveApiKey,
     meter,
+  })
+  ctx.plugin(OpencodeGoCatalogService, {
+    catalog: () => adapter.catalogOf(current()),
+    visibility: () => current().modelVisibility,
   })
 
   let registration: AdapterRegistrationHandle | undefined

@@ -136,6 +136,26 @@ describe('adapter on the wire', () => {
     }
   })
 
+  it('carries the session header on an OpenAI Responses request', async () => {
+    const server = await gateway({ listing: ['grok-4.7'] })
+    const stub = stubModelsDev(DOCUMENT)
+    try {
+      // The mock answers this protocol with a failed response, which is enough
+      // to prove the request was dispatched on the Responses path with the
+      // header: the error is delivered in-band, not as a throw.
+      const chunks = await collect(adapterFor(server).stream(options('grok-4.7', { sessionId: 'session-responses' as never })))
+      const request = server.requests.find(entry => entry.path.endsWith('/responses'))
+      expect(request).toBeDefined()
+      expect(request!.headers[SESSION_HEADER]).toBe('session-responses')
+      expect(request!.headers['user-agent']).toMatch(/^deepseek-harness\//)
+      expect(request!.headers.authorization).toBe('Bearer test-key')
+      expect(server.requests.some(entry => entry.path.endsWith('/chat/completions'))).toBe(false)
+      expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'error' } })
+    } finally {
+      stub.restore()
+    }
+  })
+
   it('gives each session-less request its own value', async () => {
     const server = await gateway({ listing: ['glm-5.3'] })
     const stub = stubModelsDev(DOCUMENT)
