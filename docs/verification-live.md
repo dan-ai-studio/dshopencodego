@@ -65,6 +65,8 @@ dsh: UNKNOWN_MODEL: opencode-go has no model "definitely-not-a-real-model"
 
 ## 未覆盖
 
+- **测试套件仍有未定位的偶发失败**：观察到 3 次（每次重跑即绿，约每 5–6 轮出现一次）。第一个原因已定位并修复：用"关掉 mock 服务器"模拟故障会与 HTTP 客户端 keep-alive 连接池竞态，偶尔仍能完成一次请求（已改为让 mock 按需返回 500，连续 6 轮 312 个用例全绿）。**修复后仍出现过一次失败**，未捕获到用例名。下一轮第一件事：用 `--reporter=verbose` 循环跑并在失败时保留完整输出，定位剩余来源；在定位前，"mock 契约层"不能声称完全确定性。
+
 - **发布产物的独立导入失败（发布级风险，未解决）**：把 Release tarball 装进隔离 profile 后，用独立 `node` 直接导入 `@dan-ai-studio/dshopencodego` 会抛
   `SyntaxError: The requested module '@deepseek-ai/dsh-llm' does not provide an export named 'IMAGE_OFFLOAD_REQUIRED_CODE'`。
   原因是 profile 的 `node_modules` 里 hoist 了一份更旧的已发布 `dsh-llm`（npm 上该包的 `latest` 标签是 `0.0.1-rc.1`），而 `src/conversion/context.ts` 对 0.1.6+ 才有的导出用了**具名导入**。真实 Harness 由自己的 loader 提供 `dsh-llm`，因此运行时预期不受影响，但这一点**尚未在真实 Harness 进程里验证过**（本轮只验证了 `--dump-config` 的组合结果，它不激活插件代码）。
