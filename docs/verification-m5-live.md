@@ -70,6 +70,43 @@ POST /zen/go/v1/chat/completions  200  session=session-06f83ac8-c93b-4303-8fbb-b
 
 两处修复后重新构建、装回 `m5web`、重启复验：分区出现、Key 显示「已配置」、写入路径正常。`npm run typecheck` 与 58 个用例全绿。
 
+## 追加验证：日常 `web` profile 上机（2026-09-25）
+
+隔离 profile 验证通过后，日常 `web` profile 完成替换并补跑以下项。
+
+### 5. 替换与上机
+
+- 卸载 `@dan-ai-studio/dsh-opencode-go@0.1.15`，改装 v0.1.4（依赖记为 Release URL，不是本地路径）；`--dump-config` 确认新插件层在、旧插件无残留；`agent-default-model` 指向 `opencode-go/deepseek-v4.1-flash` 无需改动（路由 id 相同）。
+- 替换前的现状快照存 `scratch/web-profile-*-20260925.*`。
+- `web` profile 的 `pnpm-workspace.yaml` 早已有 `allowBuilds: {'@google/genai': true, protobufjs: true}`，因此没有遇到新 profile 上的 `ERR_PNPM_IGNORED_BUILDS` 问题。
+
+### 6. 三种线协议的真实端到端
+
+| 协议 | 模型 | 结果 |
+|---|---|---|
+| openai-completions | deepseek-v4.1-flash | 回复 `pong` / `ok`（7 秒 / 4 秒） |
+| anthropic-messages | qwen3.8-flash | 回复 `ok`，10 秒 |
+| openai-responses | grok-4.7 | 回复 `ok`，1 分 27 秒（思考型模型较慢） |
+
+切换方式为 `--patch` 临时 overlay 覆盖 `agent-default-model`（不修改 profile 文件；验证后进程停掉即无痕）。**未用 UI 模型选择器切换**——新建会话时选择器的目录尚未就绪（只渲染当前项），实机操作放弃；overlay 方式不改变实际适配器路径，验证目标不受影响。
+
+顺带发现（非缺陷）：`reasoningEffort: "max"` 对 `qwen3.8-flash`（无 thinkingLevelMap）与 `grok-4.7`（映射里 `max: null`）不被支持，插件/宿主明确报 `UNSUPPORTED_REASONING_EFFORT` 而**不是静默降级**（日常模型 `deepseek-v4.1-flash` 支持 `max`）；overlay 去掉档位后两者均正常。
+
+### 7. 用量故障语义（陈旧保留）
+
+方法：`scratch/usage-fail-proxy.mjs`（宽限窗口内放行 `/usage`，之后故意 503）+ 临时给插件配置加 `baseURL`。
+
+- **同端点失败**：按钮显示 `Go · 5 小时 13% · 本周 47% · 陈旧`；面板保留三个窗口的数值与「更新于」时间戳，给出具体失败原因（`…answered HTTP 503`）与「重试」；**没有把不可用显示成 0**。
+- **端点变化时**（刚切到代理）：显示「不可用」而非「陈旧」，符合"账号或端点变化时不保留"的设计。
+- 失败期间客户端按间隔自动重试（代理日志可见多轮请求）。
+
+验证后已移除临时配置、停掉代理，并用直连重启冒烟（按钮显示实时数值、无陈旧标记）。
+
+### 8. Release 卫生
+
+- v0.1.0 的 Release 已删除（tag 保留）。
+- v0.1.4 是本项目第一个由 CI 产出的 Release（见下节）。
+
 ## 其他观察（未改代码）
 
 - 页面初始化有一条 console error：`cannot get property "remote.session" without inject`（`Proxy.directoryFor`）。DSH 自己的 `ui-model-selection` 在相同位置做同样调用（`directoryFor(sessionId)`），故不是本插件的用法问题；未复现出功能影响。
@@ -79,10 +116,8 @@ POST /zen/go/v1/chat/completions  200  session=session-06f83ac8-c93b-4303-8fbb-b
 
 ## 未覆盖
 
-- `openai-responses` / `anthropic-messages` 的真实端到端（仍仅 mock）。
-- 「保存 Key / 移除 Key」的实操（未触碰真实凭证；状态显示已由 `describe` 链验证）。
-- 用量端点故障时的陈旧/重试语义（未在实机上模拟网络故障）。
+- 设置页「保存 Key / 移除 Key」的实操：该写入作用于全局 `~/.dsh/.credentials.yaml`，无法隔离到临时 profile（插件的引用名固定为 `OPENCODE_GO_API_KEY`），为避免不可逆地改动真实凭证，**刻意不做**；只读的状态显示链（`credentials/describe`）已实机验证。
 
-## 证据文件（`scratch/`，不入库）
+## 证据文件
 
-`m5web-dump-before.txt`、`m5web-dump-after.txt`、`m5web-proxy.jsonl`、`m5web-install{,2,3,4}.log`、`m5web-stdout{,2,3,4}.log`、`web-profile-*.bak`、`dshopencodego-m5fix{,2}.tgz`。
+验证期间的中间产物（profile 快照、dump、代理日志、安装日志、临时 overlay 与代理脚本）放在 `scratch/`（不入库）；验证结束后已按约定清理。
