@@ -1,0 +1,48 @@
+# 验证：真实网关上的端到端证据
+
+日期：2026-09-24。目的：证明两条核心声明在**真实网关**上成立，而不是只在本插件的自我视角里成立。
+
+## 方法
+
+1. `npm run build` → `npm pack` → `dsh plugin --profile dshsmoke add <tgz>` 装进隔离 profile `dshsmoke`（`dsh.profile.bundles` 含 `@deepseek-ai/dshopencodego`，`--dump-config` 可见该条目）。
+2. 起一个**记录型反向代理** `tools/verify/recording-proxy.mjs`，把收到的请求原样转发到 `https://opencode.ai/zen/go`，并把收到的请求头写入 JSONL。
+3. `tools/verify/live-check.mjs` 用**构建产物** `lib/index.js` 里的适配器，凭证取自 Harness 凭证库的 `OPENCODE_GO_API_KEY` 引用，baseURL 指向代理，发**一次最小请求**（`deepseek-v4-flash`，prompt 为 "Reply with the single word: pong"）。
+
+代理只转发不篡改，因此抓到的就是真实 Harness 代码路径发出的字节。
+
+## 结果
+
+```
+catalog: 34 models advertised by the gateway
+has deepseek-v4-flash: true
+has a model the installed pi-ai catalog does not know: true     # deepseek-v4.1-flash
+reply: pong
+chunks: 14
+finish: {"type":"finish","reason":{"kind":"stop"},
+         "replayState":{"response":{"kind":"pi-ai","version":2,"api":"openai-completions",
+         "provider":"opencode-go","model":"deepseek-v4-flash",
+         "responseId":"router-6d9badf90f174df899a214df02a22296","stopReason":"stop"},
+         "blocks":[{"type":"reasoning","thinkingSignature":"reasoning_content"},{"type":"text"}]}}
+usage: [{"model":"deepseek-v4-flash","usage":{"inputTokens":91,"outputTokens":19,"totalTokens":110}}]
+```
+
+代理记录（`proxy-log.jsonl`）：
+
+```
+PATH=/v1/models            STATUS=200 SESSION=(none) UA=deepseek-harness/0.1.7-rc.1 (+https://github.com/deepseek-ai/deepseek-harness) AUTH=none
+PATH=/v1/chat/completions  STATUS=200 SESSION=session-livecheck-0001 UA=deepseek-harness/0.1.7-rc.1 (+https://github.com/deepseek-ai/deepseek-harness) AUTH=Bearer <set>
+```
+
+## 结论
+
+- **实时目录成立**：目录来自网关 `/v1/models`（34 个模型），包含 `deepseek-v4.1-flash` 这个 pi-ai 0.87.1 内置目录里没有的模型，说明不再依赖构建期快照。
+- **会话头成立**：推理请求携带 `x-opencode-session: session-livecheck-0001`，值与会话 id 完全一致；`user-agent` 为 Harness 归属头；凭证以 `Bearer` 发送。目录请求不带会话头（它不是推理请求），符合预期。
+- **推理回放成立**：终态 `finish` 带 `kind: pi-ai, version: 2` 的 replay 信封，逐块签名（reasoning 的 `reasoning_content` 与 text）被保留。
+- **用量成立**：该次调用回传 91 输入 / 19 输出 token，被计量器记录。
+
+## 未覆盖
+
+- 全流程 `dsh` 交互式运行：headless 调用在本机挂起（无输出、无请求到达代理），原因未查清；本次用构建产物直接驱动适配器，绕过了 DSH 的 agent 循环与交互层。
+- `openai-responses` 协议的端到端（mock 与真实均未跑）。
+- 图片输入（需要带附件的真实会话）。
+- 完整设置页 UI（本轮只交付了会话内用量按钮；设置页尚未实现）。

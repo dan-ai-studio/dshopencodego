@@ -1,0 +1,11 @@
+# Verification overlay: route the plugin through the recording proxy so the
+# exact bytes a real Harness process sends are captured while the answers still
+# come from the real gateway.
+- id: dshopencodego
+  config:
+    baseURL: http://127.0.0.1:8787/v1
+- id: agent-default-model
+  config:
+    provider: opencode-go
+    model: deepseek-v4-flash
+    reasoningEffort: high
