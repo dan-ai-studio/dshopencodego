@@ -96,6 +96,33 @@ function anthropicStream(text: string): string {
     + event('message_stop', { type: 'message_stop' })
 }
 
+/** OpenAI Responses SSE: one assistant message, then a terminal usage event. */
+function responsesStream(text: string): string {
+  const event = (name: string, payload: Record<string, unknown>): string =>
+    `event: ${name}\ndata: ${JSON.stringify(payload)}\n\n`
+  const message = (status: string, withContent: boolean): Record<string, unknown> => ({
+    id: 'msg_1', type: 'message', status, role: 'assistant',
+    content: withContent ? [{ type: 'output_text', text, annotations: [] }] : [],
+  })
+  return event('response.created', {
+    type: 'response.created',
+    response: { id: 'resp_1', object: 'response', status: 'in_progress', model: 'mock', output: [] },
+  })
+    + event('response.output_item.added', { type: 'response.output_item.added', output_index: 0, item: message('in_progress', false) })
+    + event('response.output_text.delta', {
+      type: 'response.output_text.delta', item_id: 'msg_1', output_index: 0, content_index: 0, delta: text,
+    })
+    + event('response.output_item.done', { type: 'response.output_item.done', output_index: 0, item: message('completed', true) })
+    + event('response.completed', {
+      type: 'response.completed',
+      response: {
+        id: 'resp_1', object: 'response', status: 'completed', model: 'mock',
+        output: [message('completed', true)],
+        usage: { input_tokens: 9, output_tokens: 4, total_tokens: 13, input_tokens_details: { cached_tokens: 3 } },
+      },
+    })
+}
+
 /** Read a request body as JSON, tolerating an empty body. */
 async function readBody(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = []
@@ -169,10 +196,7 @@ export async function startMockGateway(options: MockGatewayOptions = {}): Promis
       }
       if (path.endsWith('/responses')) {
         response.writeHead(200, SSE_HEADERS)
-        response.end(`event: response.failed\ndata: ${JSON.stringify({
-          type: 'response.failed',
-          response: { id: 'resp_1', status: 'failed', error: { code: 'mock', message: 'responses not mocked' } },
-        })}\n\n`)
+        response.end(responsesStream('hello from responses'))
         return
       }
       response.writeHead(404, { 'content-type': 'application/json' })

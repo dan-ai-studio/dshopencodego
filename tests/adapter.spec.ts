@@ -140,9 +140,6 @@ describe('adapter on the wire', () => {
     const server = await gateway({ listing: ['grok-4.7'] })
     const stub = stubModelsDev(DOCUMENT)
     try {
-      // The mock answers this protocol with a failed response, which is enough
-      // to prove the request was dispatched on the Responses path with the
-      // header: the error is delivered in-band, not as a throw.
       const chunks = await collect(adapterFor(server).stream(options('grok-4.7', { sessionId: 'session-responses' as never })))
       const request = server.requests.find(entry => entry.path.endsWith('/responses'))
       expect(request).toBeDefined()
@@ -150,7 +147,14 @@ describe('adapter on the wire', () => {
       expect(request!.headers['user-agent']).toMatch(/^deepseek-harness\//)
       expect(request!.headers.authorization).toBe('Bearer test-key')
       expect(server.requests.some(entry => entry.path.endsWith('/chat/completions'))).toBe(false)
-      expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'error' } })
+      // The Responses event vocabulary is translated like the other two:
+      // text arrives as deltas, and the terminal event carries usage.
+      expect(chunks.filter(chunk => chunk.type === 'text-delta').map(chunk => chunk.text).join(''))
+        .toBe('hello from responses')
+      expect(chunks.find(chunk => chunk.type === 'usage')).toMatchObject({
+        usage: { inputTokens: 6, outputTokens: 4, cacheReadTokens: 3 },
+      })
+      expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'stop' } })
     } finally {
       stub.restore()
     }
