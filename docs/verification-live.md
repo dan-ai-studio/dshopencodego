@@ -65,7 +65,7 @@ dsh: UNKNOWN_MODEL: opencode-go has no model "definitely-not-a-real-model"
 
 ## 未覆盖
 
-- **测试套件仍有未定位的偶发失败**：观察到 3 次（每次重跑即绿，约每 5–6 轮出现一次）。第一个原因已定位并修复：用"关掉 mock 服务器"模拟故障会与 HTTP 客户端 keep-alive 连接池竞态，偶尔仍能完成一次请求（已改为让 mock 按需返回 500，连续 6 轮 312 个用例全绿）。**修复后仍出现过一次失败**，未捕获到用例名。下一轮第一件事：用 `--reporter=verbose` 循环跑并在失败时保留完整输出，定位剩余来源；在定位前，"mock 契约层"不能声称完全确定性。
+- **测试套件偶发失败：已定位一个原因，剩余一次观测无法复现**。第一个原因已修复：用"关掉 mock 服务器"模拟故障会与 HTTP 客户端 keep-alive 连接池竞态，偶尔仍能完成一次请求（改为让 mock 按需返回 500）。修复后累计 **18 轮连续运行、936 个用例零失败**（含专门为复现而做的 12 轮循环）；修复刚落地时曾出现过一次失败，未能捕获用例名，此后无法复现，怀疑是编辑测试文件后立刻运行导致的陈旧转换状态。结论：当前视为已解决，但若再次出现，第一件事是用 verbose reporter 保留失败现场。
 
 - **发布产物的独立导入失败（发布级风险，未解决）**：把 Release tarball 装进隔离 profile 后，用独立 `node` 直接导入 `@dan-ai-studio/dshopencodego` 会抛
   `SyntaxError: The requested module '@deepseek-ai/dsh-llm' does not provide an export named 'IMAGE_OFFLOAD_REQUIRED_CODE'`。
