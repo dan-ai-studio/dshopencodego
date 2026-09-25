@@ -87,27 +87,16 @@ function rates(value: unknown): ModelCost {
 }
 
 /**
- * Transports whose request branch spells "thinking off" itself — DeepSeek's
- * separate thinking flag, for example — so an installed `off` marker is a
- * promise they can keep. Everywhere else the marker would ride the wire as
- * `reasoning_effort: "off"`.
- */
-export const DISABLES_THINKING_WHEN_UNSET: ReadonlySet<string> = new Set(['deepseek', 'zai', 'qwen', 'qwen-chat-template'])
-
-/**
- * The efforts the gateway accepts for a reasoning model whose document names
- * none. Measured 2026-09-25 on every such model that was available:
- * low/medium/high all stream, while "minimal" and "off" answer 400.
- */
-const UNDOCUMENTED_EFFORTS: readonly ModelThinkingLevel[] = ['low', 'medium', 'high']
-
-/**
  * Reasoning levels a model actually offers.
  *
- * An absent `reasoning_options` list is not "no levels": it means the document
- * does not describe them, so an installed entry's map is kept when there is
- * one. Levels the model does not offer stay `null`, which is what stops the
- * seam from offering a control the provider would ignore.
+ * Only what a source states becomes a level. An absent `reasoning_options`
+ * list is not "no levels": it means the document does not describe them, so an
+ * installed entry's map is kept when there is one. A `toggle` or
+ * `budget_tokens` option says the model can think, not how the wire spells a
+ * level, so it contributes none — inventing one would put a value on the wire
+ * that the gateway may reject. Levels the model does not offer stay `null`,
+ * which is what stops the seam from offering a control the provider would
+ * ignore.
  */
 function thinkingLevels(metadata: Record<string, unknown>, known: Model<Api> | undefined): ThinkingLevelMap | undefined {
   const options = metadata['reasoning_options']
@@ -115,37 +104,12 @@ function thinkingLevels(metadata: Record<string, unknown>, known: Model<Api> | u
   const map: ThinkingLevelMap = Object.fromEntries(LEVELS.map(level => [level, null]))
   for (const item of options) {
     const option = record(item)
-    if (option['type'] === 'toggle' || option['type'] === 'budget_tokens') {
-      // A switch exists but the document names no wire value; "high" is the
-      // one "on" spelling measured to work wherever this gateway offers such
-      // a switch. "off" is deliberately not invented here: some of these
-      // models answer `reasoning_effort: "off"` with a 400.
-      map.high ??= 'high'
-    }
     if (option['type'] !== 'effort' || !Array.isArray(option['values'])) continue
     for (const value of option['values']) {
       const level = value === 'none' ? 'off' : value
       if (typeof level === 'string' && (LEVELS as readonly string[]).includes(level)) {
         map[level as ModelThinkingLevel] = String(value)
       }
-    }
-  }
-  const format = (known?.compat as { thinkingFormat?: string } | undefined)?.thinkingFormat
-  // Only a transport that expresses "off" in its own convention may keep the
-  // marker; one that would send it as `reasoning_effort` must not promise a
-  // switch it cannot keep (measured: qwen3.7-max, qwen3.8-max and qwen3.8-flash
-  // all answer 400 to that value).
-  if (known?.reasoning === true && format !== undefined && DISABLES_THINKING_WHEN_UNSET.has(format) && known.thinkingLevelMap?.off !== null) {
-    map.off ??= known.thinkingLevelMap?.off ?? 'off'
-  }
-  if (options.length === 0) {
-    // "Reasoning, options undocumented" — the MiMo family and friends.
-    const installed = known?.thinkingLevelMap
-    if (installed !== undefined && LEVELS.some(level => typeof installed[level] === 'string')) return installed
-    // Without a format of its own the transport speaks plain reasoning_effort,
-    // so it offers exactly the measured trio.
-    if (format === undefined) {
-      for (const level of UNDOCUMENTED_EFFORTS) map[level] = level
     }
   }
   return map

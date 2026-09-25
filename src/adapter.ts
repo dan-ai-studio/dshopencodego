@@ -33,13 +33,20 @@ import type {
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { DISPLAY_NAME, PROVIDER_ID, OpencodeGoCatalog } from './catalog/index.ts'
-import { DISABLES_THINKING_WHEN_UNSET, toPiModel } from './catalog/metadata.ts'
+import { toPiModel } from './catalog/metadata.ts'
 import { assertBaseURL } from './config.ts'
 import type { OpencodeGoConfig, OpencodeGoModelLimits } from './config.ts'
 import { toPiContext, toStreamChunks } from './conversion/index.ts'
 import type { PiImageRequestContext } from './conversion/index.ts'
 import { isModelEnabled, recommendedIds } from './models.ts'
 import { providerHeaders } from './session-header.ts'
+
+/**
+ * pi-ai thinking formats that answer an unset effort with an explicit disable.
+ * Every other format omits the parameter and lets the provider decide, so only
+ * these need a default effort to avoid silently turning thinking off.
+ */
+const DISABLES_THINKING_WHEN_UNSET: ReadonlySet<string> = new Set(['deepseek', 'zai', 'qwen', 'qwen-chat-template'])
 
 /** Apply one request's configured capacities without touching the catalog. */
 function withModelLimit(model: Model<Api>, limits: OpencodeGoModelLimits): Model<Api> {

@@ -226,7 +226,7 @@ describe('adapter on the wire', () => {
     }
   })
 
-  it('offers and sends the measured trio for a MiMo model', async () => {
+  it('offers no reasoning control when the document names no levels', async () => {
     const server = await gateway({ listing: ['mimo-v2.6-flash'] })
     const stub = stubModelsDev(modelsDevDocument({
       'mimo-v2.6-flash': {
@@ -235,12 +235,8 @@ describe('adapter on the wire', () => {
       },
     }))
     try {
-      const adapter = adapterFor(server)
-      const info = await adapter.resolveModel('opencode-go', 'mimo-v2.6-flash')
-      expect(info.reasoning?.efforts.map(effort => effort.id)).toEqual(['low', 'medium', 'high'])
-      await collect(adapter.stream(options('mimo-v2.6-flash', { reasoningEffort: 'high' })))
-      const request = server.requests.find(entry => entry.path.endsWith('/chat/completions'))
-      expect((request!.body as { reasoning_effort?: string }).reasoning_effort).toBe('high')
+      const info = await adapterFor(server).resolveModel('opencode-go', 'mimo-v2.6-flash')
+      expect(info.reasoning).toBeUndefined()
     } finally {
       stub.restore()
     }

@@ -97,12 +97,10 @@ describe('online metadata parsing', () => {
     expect(facts.thinkingLevelMap).toMatchObject({ low: 'low', high: 'high', off: null })
   })
 
-  it('offers the measured effort trio for a model whose options are undocumented', () => {
-    // MiMo ships without a thinkingFormat and without an installed level map.
-    // models.dev documents no options, yet the gateway accepts the standard
-    // trio on these transports and rejects "minimal"/"off" with a 400
-    // (measured 2026-09-25 on mimo-v2.6-flash/pro, mimo-v2.5(-pro),
-    // minimax-m2.5, kimi-k2.6/k2.7-code and glm-5.1).
+  it('exposes no level the document does not state', () => {
+    // MiMo's document names no options at all. Inventing a level would put a
+    // value on the wire the gateway may reject, so the model offers none and
+    // the request carries no reasoning_effort.
     const builtin = new Map(getBuiltinModels('opencode-go').map(model => [model.id, model]))
     const { models } = readOnlineMetadata(modelsDevDocument({
       'mimo-v2.6-flash': {
@@ -111,19 +109,24 @@ describe('online metadata parsing', () => {
       },
     }), { ...sources, builtin })
     const facts = models.get('mimo-v2.6-flash')!
-    expect(facts.thinkingLevelMap).toMatchObject({ off: null, minimal: null, low: 'low', medium: 'medium', high: 'high' })
+    expect(facts.thinkingLevelMap).toMatchObject({ off: null, minimal: null, low: null, medium: null, high: null })
   })
 
-  it('does not invent a thinking switch the document only calls a toggle', () => {
-    // A toggle names no wire value. "high" is the measured "on" spelling;
-    // "off" must stay unsupported because some models answer that value 400.
+  it('takes levels only from stated effort values', () => {
+    // A toggle says the model can think, not how the wire spells a level, so
+    // it contributes nothing; the effort values beside it are kept verbatim.
     const { models } = readOnlineMetadata(modelsDevDocument({
-      'glm-5.1': {
-        name: 'GLM-5.1', reasoning: true,
+      'qwen3.8-max': {
+        name: 'Qwen3.8-Max', reasoning: true,
+        reasoning_options: [{ type: 'toggle' }, { type: 'effort', values: ['low', 'medium', 'xhigh'] }, { type: 'budget_tokens' }],
+      },
+      'qwen3.7-max': {
+        name: 'Qwen3.7-Max', reasoning: true,
         reasoning_options: [{ type: 'toggle' }, { type: 'budget_tokens' }],
       },
     }), sources)
-    expect(models.get('glm-5.1')?.thinkingLevelMap).toMatchObject({ off: null, high: 'high' })
+    expect(models.get('qwen3.8-max')?.thinkingLevelMap).toMatchObject({ off: null, low: 'low', medium: 'medium', xhigh: 'xhigh' })
+    expect(models.get('qwen3.7-max')?.thinkingLevelMap).toMatchObject({ off: null, low: null, medium: null, high: null })
   })
 
   it('marks a model whose capacities no source states as assumed', () => {

@@ -25,6 +25,12 @@ verification pass cannot quietly become a bill.
    produce no tokens, so acceptance-only checks (does the gateway validate this
    parameter?) are the cheapest kind of live call.
 
+**The code follows the interfaces, not these measurements.** A reasoning level
+exists only when models.dev or the installed catalog states one; a document that
+names none produces no control and no `reasoning_effort` on the wire. Nothing
+below feeds the implementation — it is a record, so a future question can be
+answered from evidence already paid for instead of a new probe.
+
 ## Measured gateway behaviour (2026-09-25)
 
 `reasoning_effort` acceptance, one streaming request each, max_tokens 16-64:
