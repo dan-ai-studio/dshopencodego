@@ -6,6 +6,7 @@
  * boundary, so these tests exercise the same code path a session does.
  */
 import { afterEach, describe, expect, it } from 'vitest'
+import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { OpencodeGoCatalog, discoverCatalogModels } from '../src/catalog/index.ts'
 import { readOnlineMetadata, toPiModel } from '../src/catalog/metadata.ts'
 import { decideProtocol, inferProtocol, protocolOfNpm } from '../src/catalog/protocol.ts'
@@ -94,6 +95,22 @@ describe('online metadata parsing', () => {
       supportsStore: false, maxTokensField: 'max_tokens', requiresReasoningContentOnAssistantMessages: true,
     })
     expect(facts.thinkingLevelMap).toMatchObject({ low: 'low', high: 'high', off: null })
+  })
+
+  it('does not promise a thinking switch the transport cannot express', () => {
+    // MiMo ships without a thinkingFormat and without an installed level map;
+    // the openai-shaped "off" would be sent as reasoning_effort and some
+    // gateways reject that parameter outright (measured: 400 Invalid request
+    // parameters on mimo-v2.6-flash).
+    const builtin = new Map(getBuiltinModels('opencode-go').map(model => [model.id, model]))
+    const { models } = readOnlineMetadata(modelsDevDocument({
+      'mimo-v2.6-flash': {
+        name: 'MiMo-V2.6-Flash', reasoning: true, reasoning_options: [],
+        limit: { context: 1_048_576, output: 131_072 },
+      },
+    }), { ...sources, builtin })
+    const facts = models.get('mimo-v2.6-flash')!
+    expect(facts.thinkingLevelMap).toMatchObject({ off: null })
   })
 
   it('marks a model whose capacities no source states as assumed', () => {

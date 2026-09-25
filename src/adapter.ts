@@ -200,7 +200,9 @@ export class OpencodeGoAdapter extends LlmAdapter {
 
   /** Validate an explicit effort against the model's own levels, without clamping. */
   private resolveReasoningLevel(model: Model<Api>, effort: GenerateOptions['reasoningEffort']): ModelThinkingLevel | undefined {
-    if (effort === undefined) return undefined
+    // "off" is not a level to validate: it is the absence of a request, exactly
+    // like an unset effort, and the caller drops both before the wire.
+    if (effort === undefined || effort === 'off') return undefined
     const supported = getSupportedThinkingLevels(model)
     if (supported.some(level => level === effort)) return effort as ModelThinkingLevel
     throw new LlmError(

@@ -113,8 +113,13 @@ function thinkingLevels(metadata: Record<string, unknown>, known: Model<Api> | u
     }
   }
   // An established transport may support disabling thinking on top of the
-  // advertised effort levels (DeepSeek's separate thinking flag, for example).
-  if (known?.reasoning === true && known.thinkingLevelMap?.off !== null) {
+  // advertised effort levels — but only one that has a way to *say* it: a
+  // thinkingFormat. Without one, the OpenAI-shaped spelling is
+  // `reasoning_effort: "off"`, and gateways that reject the parameter reject
+  // the whole request; the honest default there is to send nothing and let the
+  // provider decide.
+  const format = (known?.compat as { thinkingFormat?: string } | undefined)?.thinkingFormat
+  if (known?.reasoning === true && format !== undefined && known.thinkingLevelMap?.off !== null) {
     map.off ??= known.thinkingLevelMap?.off ?? 'off'
   }
   return map
