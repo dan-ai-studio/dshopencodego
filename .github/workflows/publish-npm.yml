@@ -1,26 +1,28 @@
-# Publish the package to npm — prepared, not yet enabled.
+# Publish the package to npm from GitHub Actions using trusted publishing (OIDC).
 #
-# This workflow is the only path that may publish to npm, and it is manual on
-# purpose: the package scope must exist on npm, and the repository must carry
-# an NPM_TOKEN secret with publish rights for @dan-ai-studio, before the first
-# run means anything. Until then this file sits here documented and inert.
+# There is no NPM_TOKEN here: npm accepts this workflow because the package's
+# Trusted Publisher setting names it, and GitHub mints a short-lived, run-scoped
+# OIDC token instead. Provenance attestations are generated automatically for a
+# public package from a public repository.
 #
-# To publish once those exist:
-#   1. create an npm automation/granular token with publish access for the
-#      scope and store it as the NPM_TOKEN repository secret;
-#   2. tag the release commit (v<version>, matching package.json) and push the
-#      tag, so the CI release job has produced the same content as an asset;
-#   3. run this workflow with that tag.
+# Settings on npm's side (package → Settings → Trusted Publisher). These fields
+# are fixed once created: to change one, delete the connection and add another.
+#   publisher      GitHub Actions
+#   organization   dan-ai-studio
+#   repository     dshopencodego
+#   workflow       publish-npm.yml      (exact filename, case-sensitive)
+#   environment    (empty)
+#   allowed        npm publish          (stage-only would require manual 2FA approval)
 #
-# `npm publish` here re-builds from the tagged commit, so the npm tarball and
-# the GitHub Release asset are built from identical sources by construction.
-# The provenance statement makes that visible on npmjs.com.
+# Requirements in this file:
+#   permissions.id-token: write         lets the runner request the OIDC token
+#   npm >= 11.5.1, node >= 22.14        trusted publishing needs a recent npm;
+#                                       Node 24 ships a new enough one
 #
-# To make publishing automatic on GitHub Releases instead, add
-#   release:
-#     types: [published]
-# to `on:` — do not do that before the token exists, or every release will
-# carry a failed run.
+# Run from the Actions tab, or:
+#   gh workflow run publish-npm --repo dan-ai-studio/dshopencodego -f tag=v<version>
+# The tag must equal v<package.json version>, and that version must not exist on
+# npm yet (registry versions are immutable).
 
 name: publish-npm
 
@@ -34,19 +36,20 @@ on:
 
 permissions:
   contents: read
-  id-token: write # npm provenance attestation
+  id-token: write # OIDC token for trusted publishing and provenance
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.tag }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: '24'
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false # never cache in release builds
       # `prepare` builds the bundle, so a broken build fails the install step.
       - run: npm ci
       - run: npm test
@@ -64,6 +67,5 @@ jobs:
             echo "::error::@dan-ai-studio/dshopencodego@$version already exists on npm"
             exit 1
           fi
-      - run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # OIDC authentication is detected automatically, and --provenance is implied.
+      - run: npm publish --access public
