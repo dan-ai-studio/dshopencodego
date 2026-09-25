@@ -69,6 +69,9 @@ function parseModel(value: unknown): ModelSummary {
       || row['protocolSource'] === 'inferred' || row['protocolSource'] === 'override'
       ? { protocolSource: row['protocolSource'] } : {},
     ...typeof row['assumedLimits'] === 'boolean' ? { assumedLimits: row['assumedLimits'] } : {},
+    ...typeof row['structuredOutput'] === 'boolean' ? { structuredOutput: row['structuredOutput'] } : {},
+    ...typeof row['temperature'] === 'boolean' ? { temperature: row['temperature'] } : {},
+    ...typeof row['openWeights'] === 'boolean' ? { openWeights: row['openWeights'] } : {},
     ...typeof row['configurationMissing'] === 'string' ? { configurationMissing: row['configurationMissing'] } : {},
   }
 }

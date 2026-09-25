@@ -114,3 +114,24 @@ export function visibleModels(
   })
   return sortRows(rows, filter.sort, visibility, locale)
 }
+
+/**
+ * The capabilities one model declares, in a fixed order.
+ *
+ * Only a stated "yes" becomes a label. A document that omits the capability and
+ * one that states "no" both contribute nothing, because the page marks what a
+ * model can do — it does not adjudicate what it cannot.
+ * @param model - the summary under test.
+ * @param t - the active translation for the capability words.
+ * @returns the declared labels; empty when the source states none.
+ */
+export function capabilityLabels(
+  model: Pick<ModelSummary, 'structuredOutput' | 'temperature' | 'openWeights'>,
+  t: (key: string) => string,
+): string[] {
+  const labels: string[] = []
+  if (model.structuredOutput === true) labels.push(t('capStructured'))
+  if (model.temperature === true) labels.push(t('capTemperature'))
+  if (model.openWeights === true) labels.push(t('capOpenWeights'))
+  return labels
+}

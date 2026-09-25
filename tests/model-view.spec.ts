@@ -3,7 +3,7 @@
  * which rows one filter shows, in which order.
  */
 import { describe, expect, it } from 'vitest'
-import { compactCount, INITIAL_FILTER, visibleModels } from '../src/client/model-view.ts'
+import { capabilityLabels, compactCount, INITIAL_FILTER, visibleModels } from '../src/client/model-view.ts'
 import type { ModelFilter } from '../src/client/model-view.ts'
 import type { ModelSummary } from '../src/models.ts'
 
@@ -82,6 +82,18 @@ describe('model view', () => {
   it('orders by input price, cheapest first, unpriced last', () => {
     expect(ids(visibleModels(MODELS, filter({ sort: 'price' }), {})))
       .toEqual(['alpha', 'bravo', 'charlie'])
+  })
+
+  it('labels only the capabilities a model declares', () => {
+    const t = (key: string): string => key
+    expect(capabilityLabels({ structuredOutput: true, temperature: true, openWeights: true }, t))
+      .toEqual(['capStructured', 'capTemperature', 'capOpenWeights'])
+    expect(capabilityLabels({ structuredOutput: true, openWeights: true }, t))
+      .toEqual(['capStructured', 'capOpenWeights'])
+    // A stated "no" and a silent document both stay unlabelled: the page marks
+    // what a model can do and never implies the rest is broken.
+    expect(capabilityLabels({ structuredOutput: false, temperature: false, openWeights: false }, t)).toEqual([])
+    expect(capabilityLabels({}, t)).toEqual([])
   })
 
   it('formats large counts compactly', () => {

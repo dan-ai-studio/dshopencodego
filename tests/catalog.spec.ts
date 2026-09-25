@@ -149,6 +149,26 @@ describe('online metadata parsing', () => {
     expect(models.get('glm-5')).toMatchObject({ deprecated: true, api: 'openai-completions' })
   })
 
+  it('keeps a declared capability, a declared "no", and silence apart', () => {
+    // Three different answers, and the page must not collapse them: a stated
+    // "yes" becomes a badge, a stated "no" is a fact worth carrying, and an
+    // omitted key means the document never spoke — which is not a denial.
+    const { models } = readOnlineMetadata(modelsDevDocument({
+      'kimi-k3': {
+        reasoning: true, structured_output: true, temperature: false, open_weights: true,
+        limit: { context: 1_000_000, output: 131_072 },
+      },
+      'mimo-v2.6-flash': { reasoning: true, temperature: true, limit: { context: 1_048_576, output: 131_072 } },
+      'silent-model': { reasoning: true, limit: { context: 1000, output: 100 } },
+    }), sources)
+    const declared = models.get('kimi-k3')!
+    expect([declared.structuredOutput, declared.temperature, declared.openWeights]).toEqual([true, false, true])
+    const partial = models.get('mimo-v2.6-flash')!
+    expect([partial.structuredOutput, partial.temperature, partial.openWeights]).toEqual([undefined, true, undefined])
+    const silent = models.get('silent-model')!
+    expect([silent.structuredOutput, silent.temperature, silent.openWeights]).toEqual([undefined, undefined, undefined])
+  })
+
   it('isolates a bad entry instead of discarding the document', () => {
     const { models, errors } = readOnlineMetadata(modelsDevDocument({
       good: { reasoning: true, limit: { context: 1000, output: 100 } },

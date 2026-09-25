@@ -78,6 +78,33 @@ describe('settings catalog reading', () => {
     }
   })
 
+  it('carries declared capabilities to the page and omits the unstated ones', async () => {
+    const server = await gateway({ listing: ['glm-5.3', 'kimi-k3'] })
+    const stub = stubModelsDev(modelsDevDocument({
+      'glm-5.3': {
+        name: 'GLM-5.3', reasoning: true, structured_output: true, temperature: true, open_weights: true,
+        limit: { context: 1000, output: 100 },
+      },
+      'kimi-k3': { name: 'Kimi K3', reasoning: true, temperature: false, limit: { context: 1000, output: 100 } },
+    }))
+    try {
+      const catalog = new OpencodeGoCatalog({
+        baseURL: server.baseURL, refreshMs: 60_000, defaults: DEFAULTS, overrides: {},
+      })
+      const reading = catalogReading(await catalog.snapshot(), {})
+      const declared = reading.models.find(model => model.id === 'glm-5.3')!
+      expect(declared).toMatchObject({ structuredOutput: true, temperature: true, openWeights: true })
+      // Silence travels as an absent key, not as `false`: the client asks for
+      // the key before it labels anything.
+      const partial = reading.models.find(model => model.id === 'kimi-k3')!
+      expect(partial.temperature).toBe(false)
+      expect(Object.hasOwn(partial, 'structuredOutput')).toBe(false)
+      expect(Object.hasOwn(partial, 'openWeights')).toBe(false)
+    } finally {
+      stub.restore()
+    }
+  })
+
   it('marks a retained reading stale and names the failure', async () => {
     const server = await gateway({ listing: ['glm-5.3'] })
     const stub = stubModelsDev(modelsDevDocument({

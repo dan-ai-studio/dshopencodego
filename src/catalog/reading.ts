@@ -71,6 +71,9 @@ export function catalogReading(
         },
         protocolSource: fact.protocolSource,
         assumedLimits: fact.assumedLimits,
+        ...fact.structuredOutput === undefined ? {} : { structuredOutput: fact.structuredOutput },
+        ...fact.temperature === undefined ? {} : { temperature: fact.temperature },
+        ...fact.openWeights === undefined ? {} : { openWeights: fact.openWeights },
       }
     }),
     ...[...snapshot.unavailable].map(([id, reason]) => ({ id, name: id, configurationMissing: reason })),

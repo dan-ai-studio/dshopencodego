@@ -15,7 +15,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { CatalogReading } from '../catalog/contract.ts'
 import { isModelEnabled } from '../models.ts'
-import { compactCount, INITIAL_FILTER, visibleModels } from './model-view.ts'
+import { capabilityLabels, compactCount, INITIAL_FILTER, visibleModels } from './model-view.ts'
 import type { ModelFilter, ModelSort } from './model-view.ts'
 import css from './section.module.css'
 
@@ -529,12 +529,14 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
               <th className={css.hint}>{t('headerIo')}</th>
               <th className={css.hint}>{t('headerPrice')}</th>
               <th className={css.hint}>{t('headerQuota')}</th>
+              <th className={css.hint}>{t('headerCapabilities')}</th>
               <th className={css.hint}>{t('headerNotes')}</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(model => {
               const badge = badgeFor(model, t)
+              const capabilities = capabilityLabels(model, t).join(' · ')
               const offered = isOffered(model, visibility)
               return <tr key={model.id}>
                 <td className={css.toggle}>
@@ -553,6 +555,7 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
                 <td className={css.hint}>{ioLabel(model, t)}</td>
                 <td className={css.hint}>{priceLabel(model)}</td>
                 <td className={css.hint}>{quotaLabel(model, t)}</td>
+                <td className={css.hint}>{capabilities.length === 0 ? '—' : capabilities}</td>
                 <td className={badge.length === 0 ? css.hint : css.badge}>{badge}</td>
               </tr>
             })}
@@ -561,6 +564,7 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
       </div> : <div className={css.list}>
         {rows.map(model => {
           const badge = badgeFor(model, t)
+          const capabilities = capabilityLabels(model, t).join(' · ')
           const offered = isOffered(model, visibility)
           return <div className={css.item} key={model.id}>
             <input
@@ -575,6 +579,7 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
                 <span className={css.name}>{model.name}</span>
                 <span className={css.mono}>{model.id}</span>
                 {model.releaseDate !== undefined && <span className={css.hint}>{model.releaseDate}</span>}
+                {capabilities.length > 0 && <span className={css.badge}>{capabilities}</span>}
                 {badge.length > 0 && <span className={css.badge}>{badge}</span>}
               </div>
               <div className={css.itemMeta}>

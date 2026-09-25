@@ -2,8 +2,8 @@
  * Online model metadata: how to call each advertised model.
  *
  * models.dev is the only source that knows about a model the day it ships, so
- * it supplies names, capacities, modalities, pricing, lifecycle, and the
- * protocol hint. The installed pi-ai catalog still wins where it knows the
+ * it supplies names, capacities, modalities, pricing, lifecycle, the declared
+ * capability facts, and the protocol hint. The installed pi-ai catalog still wins where it knows the
  * exact id, because its entries carry the wire quirks (`thinkingFormat`,
  * reasoning-content replay, affinity format) that a generic metadata document
  * cannot express.
@@ -36,6 +36,14 @@ export interface ModelFacts {
   readonly input: readonly ('text' | 'image')[]
   readonly reasoning: boolean
   readonly thinkingLevelMap: ThinkingLevelMap | undefined
+  /**
+   * Declared capability facts, exactly as models.dev states them. `undefined`
+   * means the document says nothing about the capability, which is not the
+   * same answer as `false` and must never be rendered as "unsupported".
+   */
+  readonly structuredOutput: boolean | undefined
+  readonly temperature: boolean | undefined
+  readonly openWeights: boolean | undefined
   readonly compat: Model<Api>['compat']
   readonly cost: ModelCost
   readonly deprecated: boolean
@@ -69,6 +77,11 @@ function positiveInteger(value: unknown): number | undefined {
 
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+/** A capability the document states as yes or no; silence stays silence. */
+function declaredBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
 }
 
 /** A calendar date models.dev states without a timezone. */
@@ -284,6 +297,9 @@ export function readOnlineMetadata(body: unknown, sources: MetadataSources): Onl
         input,
         reasoning,
         thinkingLevelMap: reasoning ? thinkingLevels(metadata, exact?.api === api ? exact : sibling) : undefined,
+        structuredOutput: declaredBoolean(metadata['structured_output']),
+        temperature: declaredBoolean(metadata['temperature']),
+        openWeights: declaredBoolean(metadata['open_weights']),
         compat: compatFor(api, metadata, exact, sibling),
         cost,
         deprecated: metadata['status'] === 'deprecated',

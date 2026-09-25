@@ -124,6 +124,7 @@ The "OpenCode Go" section shows the live gateway catalog (42+ models) with, per 
 
 - **context / max input / max output**, **release date**, **price per 1M tokens** (from models.dev), and **Go allowance**;
 - **Go allowance** comes from OpenCode's own documentation (the "usage limits / estimated requests" tables) — **no API exposes it**. It is a transcribed table (source URL and date in the `src/go-limits.ts` header); pricing or promotion changes require updating it and shipping a release;
+- **Capability marks**: the table's new "Capabilities" column labels **structured output / temperature control / open weights** exactly as models.dev declares them. Only a declared "yes" is marked — an unstated or declared "no" stays unmarked, the same rule the reasoning levels follow.
 - filtering (by name/id, enabled-only, show-deprecated — **deprecated hidden by default**), sorting (newest first, monthly requests, input price, context, name, enabled first), and a list/table view switch.
 
 **Default switches**: with no explicit `modelVisibility` entries at all, the **top five models by published monthly request estimate** are enabled (deprecated, unconfigurable, and training-"contributor" models never qualify). The first explicit entry switches the whole list to explicit values. The Host picker and the settings page compute this from one rule, so they never disagree.
