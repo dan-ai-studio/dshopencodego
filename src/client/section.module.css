@@ -100,10 +100,72 @@
   font-size: 0.8rem;
 }
 
+/* A two-state segmented control for the list / table view. */
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 0.35rem;
+  overflow: hidden;
+}
+
+.segment,
+.segmentActive {
+  padding: 0.25rem 0.6rem;
+  border: 0;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.segmentActive {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+
 /*
- * One model per two-line row: identity on the first line, the numbers on the
- * second. The Host's settings panel is a fixed 800px, so a wide table would
- * only ever be clipped or scrolled — a stacked row shows everything at once.
+ * The table view aligns the same fields into columns; the Host's settings
+ * panel is a fixed 800px, so this view scrolls inside its own frame instead
+ * of being clipped by the panel.
+ */
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 62rem;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.table th {
+  padding: 0.25rem 0.45rem;
+  color: var(--dsw-alias-label-secondary);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 0.28rem 0.45rem;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.toggle {
+  width: 2rem;
+}
+
+.toggle input {
+  accent-color: var(--dsw-alias-brand-primary);
+}
+
+/*
+ * The list view stacks each model into two lines — identity on the first,
+ * the numbers on the second — so everything is visible without scrolling.
  */
 .list {
   display: flex;

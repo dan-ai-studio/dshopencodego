@@ -16,6 +16,9 @@ import { monthlyRequestsRank } from '../go-limits.ts'
 /** How the model table is ordered. */
 export type ModelSort = 'default' | 'released' | 'name' | 'context' | 'enabled' | 'quota' | 'price'
 
+/** How the models are laid out. */
+export type ModelView = 'list' | 'table'
+
 /** Everything the human narrowed the table with. */
 export interface ModelFilter {
   /** Case-insensitive match against the model id and name. */
@@ -25,6 +28,8 @@ export interface ModelFilter {
   /** Whether only currently offered models are listed. */
   readonly onlyEnabled: boolean
   readonly sort: ModelSort
+  /** Rows carry every field; the table view aligns them into columns. */
+  readonly view: ModelView
 }
 
 /** The table as it opens: everything usable, newest first, deprecated hidden. */
@@ -33,6 +38,7 @@ export const INITIAL_FILTER: ModelFilter = {
   showDeprecated: false,
   onlyEnabled: false,
   sort: 'default',
+  view: 'list',
 }
 
 /** 1_048_576 → "1.0M", 150_400 → "150K", 845 → "845". */
