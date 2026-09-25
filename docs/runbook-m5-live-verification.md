@@ -94,7 +94,7 @@ pnpm dsh --profile m5web
 - 预期控制台出现注册日志：`dshopencodego: route "opencode-go" registered as OpenCode Go`。
   若出现 `not registering the "opencode-go" route — another adapter already owns it`：说明 `m5web` 组合里还有别的所有者，停下排查（模板里不该有）。
 - 浏览器会打开 web UI（工作区根 = 运行目录 `D:\git\deepseek-harness`）。检查点：
-  1. 设置页左侧出现「**OpenCode Go**」分区（order 20）。
+  1. 设置页左侧出现「**OpenCode Go**」分区（排在 Agent 预设之后）。
   2. API Key 显示「**已配置**」（凭证来自全局库）。
   3. 「模型」区列出目录（≥34 个）、计数与「刷新」按钮可用；「目录刷新（分钟）」可改并写回。
   4. 逐模型开关可切换（弃用模型默认关）。

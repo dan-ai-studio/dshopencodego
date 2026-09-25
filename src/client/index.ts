@@ -86,7 +86,11 @@ export function apply(ctx: ClientContext): void {
     scope.slots.inject('settings.section', () => scope.slots.register({
       name: 'settings.section',
       id: 'dshopencodego',
-      order: 20,
+      // After the product rows. The built-ins run -10 (account) through 20
+      // (agent presets); sharing 20 with `agent-presets` left the pair ordered
+      // by registration timing, which drifts between boots. The host's own
+      // tests use 1000 for "last".
+      order: 1000,
       label: () => translate('nav'),
       inject: () => ({
         controller,
