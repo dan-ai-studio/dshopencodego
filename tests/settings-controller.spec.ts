@@ -152,6 +152,19 @@ describe('settings controller', () => {
     expect(controller.snapshot().settings?.modelVisibility).toEqual({ 'glm-5': true, 'glm-5.3': true })
   })
 
+  it('narrows the table without writing anything to the Host', async () => {
+    const test = harness()
+    const controller = new SectionController(test.services)
+    await settle()
+    expect(controller.snapshot().filter).toMatchObject({ query: '', showDeprecated: false, onlyEnabled: false })
+    controller.setFilter({ query: 'glm', showDeprecated: true, onlyEnabled: true, sort: 'name', view: 'table' })
+    expect(controller.snapshot().filter).toMatchObject({
+      query: 'glm', showDeprecated: true, onlyEnabled: true, sort: 'name', view: 'table',
+    })
+    await flushWrites()
+    expect(test.writes).toHaveLength(0)
+  })
+
   it('refuses an out-of-range refresh interval without writing', async () => {
     const test = harness()
     const controller = new SectionController(test.services)

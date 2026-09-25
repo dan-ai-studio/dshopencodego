@@ -52,6 +52,32 @@ describe('settings catalog reading', () => {
     }
   })
 
+  it('marks the recommended few when nobody configured switches', async () => {
+    const server = await gateway({ listing: ['glm-5.3', 'glm-5'] })
+    const stub = stubModelsDev(modelsDevDocument({
+      'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 1000, output: 100 } },
+      'glm-5': { name: 'GLM-5', reasoning: true, status: 'deprecated', limit: { context: 1000, output: 100 } },
+    }))
+    try {
+      const catalog = new OpencodeGoCatalog({
+        baseURL: server.baseURL,
+        refreshMs: 60_000,
+        defaults: DEFAULTS,
+        overrides: {},
+      })
+      const snapshot = await catalog.snapshot()
+      const reading = catalogReading(snapshot, {})
+      // Neither id carries a transcribed quota, so the default keeps the
+      // non-deprecated one; an explicit switch still wins either way.
+      expect(reading.models.find(model => model.id === 'glm-5.3')?.recommended).toBe(true)
+      expect(reading.models.find(model => model.id === 'glm-5')?.recommended).toBe(false)
+      expect(reading.counts.enabled).toBe(1)
+      expect(catalogReading(snapshot, { 'glm-5.3': false }).counts.enabled).toBe(0)
+    } finally {
+      stub.restore()
+    }
+  })
+
   it('marks a retained reading stale and names the failure', async () => {
     const server = await gateway({ listing: ['glm-5.3'] })
     const stub = stubModelsDev(modelsDevDocument({
