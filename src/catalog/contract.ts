@@ -12,9 +12,44 @@
 
 import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import type { ModelSummary } from '../models.ts'
+import type { GoQuota } from '../go-limits.ts'
 import type { CatalogReading } from './reading.ts'
 
 export type { CatalogReading } from './reading.ts'
+
+function parseGoQuota(value: unknown): GoQuota {
+  if (value === null || typeof value !== 'object') throw new Error('invalid go quota')
+  const row = value as Record<string, unknown>
+  const usd = row['monthlyUsd']
+  if (usd !== 'unlimited' && (typeof usd !== 'number' || !Number.isFinite(usd))) {
+    throw new Error('invalid go quota monthlyUsd')
+  }
+  const requests = row['monthlyRequests']
+  if (requests !== undefined && requests !== 'unlimited'
+    && (typeof requests !== 'number' || !Number.isFinite(requests))) {
+    throw new Error('invalid go quota monthlyRequests')
+  }
+  return {
+    monthlyUsd: usd as number | 'unlimited',
+    ...requests === undefined ? {} : { monthlyRequests: requests as number | 'unlimited' },
+  }
+}
+
+function parseCost(value: unknown): { input: number; output: number; cacheRead?: number; cacheWrite?: number } {
+  if (value === null || typeof value !== 'object') throw new Error('invalid model cost')
+  const row = value as Record<string, unknown>
+  const rate = (key: string): number => {
+    const entry = row[key]
+    if (typeof entry !== 'number' || !Number.isFinite(entry) || entry < 0) throw new Error(`invalid model cost "${key}"`)
+    return entry
+  }
+  return {
+    input: rate('input'),
+    output: rate('output'),
+    ...typeof row['cacheRead'] === 'number' ? { cacheRead: rate('cacheRead') } : {},
+    ...typeof row['cacheWrite'] === 'number' ? { cacheWrite: rate('cacheWrite') } : {},
+  }
+}
 
 function parseModel(value: unknown): ModelSummary {
   if (value === null || typeof value !== 'object') throw new Error('invalid catalog model')
@@ -24,9 +59,12 @@ function parseModel(value: unknown): ModelSummary {
     id: row['id'],
     name: typeof row['name'] === 'string' ? row['name'] : row['id'],
     ...typeof row['contextWindow'] === 'number' ? { contextWindow: row['contextWindow'] } : {},
+    ...typeof row['maxInputTokens'] === 'number' ? { maxInputTokens: row['maxInputTokens'] } : {},
     ...typeof row['maxTokens'] === 'number' ? { maxTokens: row['maxTokens'] } : {},
     ...typeof row['deprecated'] === 'boolean' ? { deprecated: row['deprecated'] } : {},
     ...typeof row['releaseDate'] === 'string' ? { releaseDate: row['releaseDate'] } : {},
+    ...row['goQuota'] === undefined ? {} : { goQuota: parseGoQuota(row['goQuota']) },
+    ...row['cost'] === undefined ? {} : { cost: parseCost(row['cost']) },
     ...row['protocolSource'] === 'builtin' || row['protocolSource'] === 'online'
       || row['protocolSource'] === 'inferred' || row['protocolSource'] === 'override'
       ? { protocolSource: row['protocolSource'] } : {},

@@ -274,6 +274,7 @@ export class OpencodeGoCatalog {
       api,
       protocolSource: exact === undefined ? 'inferred' : 'builtin',
       contextWindow,
+      maxInputTokens: undefined,
       maxTokens,
       assumedLimits: exact === undefined,
       input: exact?.input ?? this.options.defaults.input,

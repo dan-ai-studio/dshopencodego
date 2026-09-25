@@ -10,17 +10,32 @@
  */
 
 import type { ProtocolSource } from './catalog/protocol.ts'
+import type { GoQuota } from './go-limits.ts'
 
 /** One model as the settings page and the picker describe it. */
 export interface ModelSummary {
   readonly id: string
   readonly name: string
   readonly contextWindow?: number
+  /** Maximum input tokens, when the sources state one. */
+  readonly maxInputTokens?: number
   readonly maxTokens?: number
   /** models.dev marks the model as retained for compatibility only. */
   readonly deprecated?: boolean
   /** Release date when models.dev states one. */
   readonly releaseDate?: string
+  /** Go's published allowance, transcribed from the provider's docs. */
+  readonly goQuota?: GoQuota
+  /**
+   * Per-million-token rates from models.dev. Absent when the sources state no
+   * positive rate, so a fallback-zero cost never renders as "free".
+   */
+  readonly cost?: {
+    readonly input: number
+    readonly output: number
+    readonly cacheRead?: number
+    readonly cacheWrite?: number
+  }
   /** Which ladder level decided this model's protocol. */
   readonly protocolSource?: ProtocolSource
   /** True when a capacity came from the route default rather than a source. */

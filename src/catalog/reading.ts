@@ -12,6 +12,7 @@
 
 import { sortModels } from '../models.ts'
 import type { ModelSummary } from '../models.ts'
+import { goQuotaFor } from '../go-limits.ts'
 import type { CatalogSnapshot } from './index.ts'
 
 /** One settings-page reading of the catalog. */
@@ -48,16 +49,30 @@ export function catalogReading(
   listingFailure?: string,
 ): CatalogReading {
   const models: ModelSummary[] = [
-    ...[...snapshot.facts.values()].map(fact => ({
-      id: fact.id,
-      name: fact.name,
-      contextWindow: fact.contextWindow,
-      maxTokens: fact.maxTokens,
-      deprecated: fact.deprecated,
-      ...fact.releaseDate === undefined ? {} : { releaseDate: fact.releaseDate },
-      protocolSource: fact.protocolSource,
-      assumedLimits: fact.assumedLimits,
-    })),
+    ...[...snapshot.facts.values()].map(fact => {
+      const quota = goQuotaFor(fact.id)
+      const priced = fact.cost.input > 0 || fact.cost.output > 0
+      return {
+        id: fact.id,
+        name: fact.name,
+        contextWindow: fact.contextWindow,
+        maxTokens: fact.maxTokens,
+        ...fact.maxInputTokens === undefined ? {} : { maxInputTokens: fact.maxInputTokens },
+        deprecated: fact.deprecated,
+        ...fact.releaseDate === undefined ? {} : { releaseDate: fact.releaseDate },
+        ...quota === undefined ? {} : { goQuota: quota },
+        ...!priced ? {} : {
+          cost: {
+            input: fact.cost.input,
+            output: fact.cost.output,
+            cacheRead: fact.cost.cacheRead,
+            cacheWrite: fact.cost.cacheWrite,
+          },
+        },
+        protocolSource: fact.protocolSource,
+        assumedLimits: fact.assumedLimits,
+      }
+    }),
     ...[...snapshot.unavailable].map(([id, reason]) => ({ id, name: id, configurationMissing: reason })),
   ]
   const enabled = models.filter(model => {

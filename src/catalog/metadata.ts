@@ -28,6 +28,8 @@ export interface ModelFacts {
   /** Which level of the ladder produced {@link api}. */
   readonly protocolSource: ProtocolSource
   readonly contextWindow: number
+  /** Maximum input tokens models.dev states; absent for most models. */
+  readonly maxInputTokens: number | undefined
   readonly maxTokens: number
   /** True when a capacity came from the route default rather than a source. */
   readonly assumedLimits: boolean
@@ -247,6 +249,7 @@ export function readOnlineMetadata(body: unknown, sources: MetadataSources): Onl
       const api = decision.api
       const limit = record(metadata['limit'])
       const onlineContext = positiveInteger(limit['context'])
+      const onlineInputLimit = positiveInteger(limit['input'])
       const onlineOutput = positiveInteger(limit['output'])
       const builtinContext = exact?.api === api ? positiveInteger(exact.contextWindow) : undefined
       const builtinOutput = exact?.api === api ? positiveInteger(exact.maxTokens) : undefined
@@ -279,6 +282,7 @@ export function readOnlineMetadata(body: unknown, sources: MetadataSources): Onl
         api,
         protocolSource: decision.source,
         contextWindow,
+        maxInputTokens: onlineInputLimit,
         maxTokens,
         assumedLimits: onlineContext === undefined && builtinContext === undefined
           || onlineOutput === undefined && builtinOutput === undefined,
