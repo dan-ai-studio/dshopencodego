@@ -146,7 +146,13 @@ async function userContent(
       continue
     }
     if (block.type === 'image') {
-      const version = requestImages.get(block.attachment.attachmentId) as RequestImageAttachment
+      const version = requestImages.get(block.attachment.attachmentId) as RequestImageAttachment | undefined
+      if (version === undefined) {
+        throw new LlmError(
+          'dshopencodego: an image in this request has no prepared bytes; image input requires the attachment service',
+          'UNSUPPORTED_CONTENT',
+        )
+      }
       content.push({
         type: 'text',
         text: requestImageHandleText(block.attachment, version, resolveImageAccess(block.attachment)),
