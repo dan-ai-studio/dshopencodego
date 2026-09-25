@@ -242,6 +242,35 @@ describe('adapter on the wire', () => {
     }
   })
 
+  it('exposes the route output ceiling, including a configured per-model cap', async () => {
+    const server = await gateway({ listing: ['mimo-v2.6-flash'] })
+    const stub = stubModelsDev(modelsDevDocument({
+      'mimo-v2.6-flash': {
+        name: 'MiMo-V2.6-Flash', reasoning: true, limit: { context: 1_048_576, output: 131_072 },
+      },
+    }))
+    try {
+      const advertised = await adapterFor(server).resolveModel('opencode-go', 'mimo-v2.6-flash')
+      expect(advertised.defaultMaxTokens).toBe(131_072)
+      const capped = await adapterFor(server, { modelLimits: { 'mimo-v2.6-flash': { maxTokens: 8_192 } } })
+        .resolveModel('opencode-go', 'mimo-v2.6-flash')
+      expect(capped.defaultMaxTokens).toBe(8_192)
+    } finally {
+      stub.restore()
+    }
+  })
+
+  it('owns a retry policy only while one is configured', async () => {
+    const server = await gateway({ listing: [] })
+    // Absent configuration leaves the host's own default in force.
+    expect(adapterFor(server).providerRetryPolicy('opencode-go')).toBeUndefined()
+    const configured = adapterFor(server, { retryPolicy: { mode: 'normal', maxRetries: 2 } })
+    expect(configured.providerRetryPolicy('opencode-go')).toMatchObject({ mode: 'normal', maxRetries: 2 })
+    // A policy the host would reject fails where it is configured, not later.
+    expect(() => adapterFor(server, { retryPolicy: { mode: 'normal', maxRetries: -1 } })
+      .providerRetryPolicy('opencode-go')).toThrow()
+  })
+
   it('refuses a request without a credential instead of sending it', async () => {
     const server = await gateway({ listing: ['glm-5.3'] })
     const stub = stubModelsDev(DOCUMENT)
@@ -327,6 +356,15 @@ describe('stream mapping', () => {
     expect(classifyPiAiError('429 rate limit exceeded')).toBe('RATE_LIMIT')
     expect(classifyPiAiError('socket hang up')).toBe('TRANSPORT')
     expect(classifyPiAiError('something odd')).toBe('PI_AI_ERROR')
+  })
+
+  it('reports an exhausted balance as account quota, not a transient limit', () => {
+    // This gateway meters a prepaid balance, so the remedy is a top-up. Neither
+    // quota code is retryable, so only the diagnosis the UI shows changes — and
+    // the spelling is pinned because the host routes on this exact string.
+    expect(classifyPiAiError('insufficient credits')).toBe('ACCOUNT_QUOTA')
+    expect(classifyPiAiError('monthly quota exceeded')).toBe('ACCOUNT_QUOTA')
+    expect(classifyPiAiError('429 rate limit exceeded')).not.toBe('ACCOUNT_QUOTA')
   })
 
   it('turns a zero-content completion into an error, not an empty success', () => {

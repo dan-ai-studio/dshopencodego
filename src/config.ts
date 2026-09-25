@@ -12,6 +12,8 @@
  * @module @dan-ai-studio/dshopencodego/config
  */
 
+import { RetryPolicySchema } from '@deepseek-ai/dsh-llm'
+import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import z from '@deepseek-ai/schemastery'
 import { DEFAULT_BASE_URL } from './catalog/constants.ts'
@@ -82,6 +84,11 @@ export interface OpencodeGoConfig {
    * The escape hatch for a model whose family rule guessed wrong.
    */
   modelProtocols: Record<string, string>
+  /**
+   * Retry policy for this route, owned here and executed by the optional
+   * `dsh-llm-retry` plugin. Absent leaves the host's own default in force.
+   */
+  retryPolicy?: RetryPolicyConfig
 }
 
 const fields = {
@@ -99,6 +106,7 @@ const fields = {
     maxTokens: z.union([z.const(null), z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER)]),
   })])).default({}),
   modelProtocols: z.dict(z.string()).default({}),
+  retryPolicy: RetryPolicySchema,
 }
 
 /** Plain resolved values used by the adapter. */
@@ -112,10 +120,18 @@ export const Config = z.object(Object.fromEntries(
   Object.entries(fields).map(([key, schema]) => [key, schema.volatile()]),
 )) as z<Partial<OpencodeGoConfig>, LiveConfig>
 
-/** Keep the Loader's references: reparsing them would detach live updates. */
+/**
+ * Keep the Loader's references: reparsing them would detach live updates.
+ *
+ * An optional field a profile never wrote has no live reference to read, so it
+ * stays absent instead of failing the operation that asked for the config.
+ */
 export function readConfig(config: LiveConfig): OpencodeGoConfig {
   return Object.fromEntries((Object.keys(fields) as Array<keyof OpencodeGoConfig>)
-    .map(key => [key, config[key].get()])) as unknown as OpencodeGoConfig
+    .flatMap(key => {
+      const field = config[key] as { get?: () => OpencodeGoConfig[typeof key] } | undefined
+      return field?.get === undefined ? [] : [[key, field.get()]]
+    })) as unknown as OpencodeGoConfig
 }
 
 /**

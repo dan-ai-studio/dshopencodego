@@ -76,9 +76,20 @@ Configuration lives in the profile's `cordis.patch.yml`:
         contextWindow: 262144
     modelProtocols:                           # last resort: per-model protocol override
       some-new-model: openai-responses
+    retryPolicy:                              # optional: this route's retry policy, executed by dsh-llm-retry
+      mode: normal
+      maxRetries: 2
+      backoff:
+        initialDelayMs: 500
 ```
 
 The API key comes from the Harness credential store (reference name `OPENCODE_GO_API_KEY`), or from `export OPENCODE_GO_API_KEY=...`.
+
+**Output cap**: a caller's own `maxTokens` travels as given, still clamped by a `modelLimits` ceiling. When a caller names none, the host materializes the route's ceiling — the catalog's output capacity, or whatever `modelLimits` overrode it with.
+
+**Tool declarations**: every request carries the complete current tool list. The session-folded history the host offers (`toolHistory`) is deliberately **not** projected: projecting it requires the route to declare a `toolUpdate` mode, and models.dev states no such mode for this gateway's models (only that tools are callable). Claiming one would silently change what the model sees.
+
+**Retries**: `retryPolicy` is optional — omit it and the host's own default applies. When set, the optional `dsh-llm-retry` plugin executes it, and a malformed policy fails where it is written rather than at the first failure.
 
 ## How a model is resolved
 
@@ -136,7 +147,7 @@ Things to keep in mind when maintaining this:
 - **Required versus optional peers**: six of the fifteen are marked `optional` (`dsh-api-remotes`, `dsh-client-locale`, `dsh-client-store`, `dsh-client-ui-model-selection`, `dsh-client-ui-settings`, `dsh-client-ui-slots`). The nine that actually block loading are `dsh-llm`, `dsh-typert-protocol`, `dsh-attachment`, `dsh-brand`, `dsh-credentials`, `dsh-fs`, `dsh-launch-environment`, `dsh-settings`, and `dsh-timeout`. `dsh-llm` is the heaviest coupling — more than twenty imports across the source.
 - **Declared range ≠ verified range**: `0.1.7-alpha.1` and `alpha.2` fall inside the declaration but were never verified here. What was verified is `0.1.7-rc.1` (the dev-dependency baseline) and `0.1.7-rc.2` (daily use).
 - **The upper bound is a tracking line**: `<0.1.8` means that the moment DSH ships `0.1.8`, this plugin must ship a new release in the same window or every user loses the plugin. After changing a range, `npm test` is the verification (local mock gateway, no network, no tokens) — ranges follow what the interfaces declare, and are never "measured" with live probes.
-- **Known gap**: `dsh-typert-registry`, `dsh-client-ui-conversation`, and `dsh-client-ui-renderer` are imported by the source but absent from `peerDependencies`, so the gate cannot see them; drift in those packages shows up at runtime instead of at load time. Declaring them is low-risk routine maintenance.
+- **Peer coverage is now guarded both ways**: `dsh-typert-registry`, `dsh-client-ui-conversation`, and `dsh-client-ui-renderer` were imported by the source but absent from `peerDependencies`, invisible to the gate; they are declared now, and `tests/peer-coverage.spec.ts` asserts both directions — anything the source imports must be declared, and anything declared but unreached must be removed (`dsh-settings` went that way: the settings form is actually provided by `dsh-client-ui-settings`).
 - **Exemptions are per profile**: only a profile that ran `dsh plugin allow-version` has one, and no record means the plugin must stay inside the declared range. `dsh plugin version-exemptions` lists a profile's exemptions.
 
 ## Troubleshooting

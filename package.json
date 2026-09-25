@@ -72,16 +72,18 @@
     "@deepseek-ai/dsh-brand": ">=0.1.7-alpha.1 <0.1.8",
     "@deepseek-ai/dsh-client-locale": ">=0.1.7-alpha.1 <0.1.8",
     "@deepseek-ai/dsh-client-store": ">=0.1.7-alpha.1 <0.1.8",
+    "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.7-alpha.1 <0.1.8",
     "@deepseek-ai/dsh-client-ui-model-selection": ">=0.1.7-alpha.1 <0.1.8",
+    "@deepseek-ai/dsh-client-ui-renderer": ">=0.1.7-alpha.1 <0.1.8",
     "@deepseek-ai/dsh-client-ui-settings": ">=0.1.7-alpha.1 <0.1.8",
     "@deepseek-ai/dsh-client-ui-slots": ">=0.1.7-alpha.1 <0.1.8",
     "@deepseek-ai/dsh-credentials": ">=0.1.7-alpha.1 <0.1.8",
     "@deepseek-ai/dsh-fs": ">=0.1.7-alpha.1 <0.1.8",
     "@deepseek-ai/dsh-launch-environment": ">=0.1.7-alpha.1 <0.1.8",
     "@deepseek-ai/dsh-llm": ">=0.1.7-alpha.1 <0.1.8",
-    "@deepseek-ai/dsh-settings": ">=0.1.7-alpha.1 <0.1.8",
     "@deepseek-ai/dsh-timeout": ">=0.1.7-alpha.1 <0.1.8",
-    "@deepseek-ai/dsh-typert-protocol": ">=0.1.7-alpha.1 <0.1.8"
+    "@deepseek-ai/dsh-typert-protocol": ">=0.1.7-alpha.1 <0.1.8",
+    "@deepseek-ai/dsh-typert-registry": ">=0.1.7-alpha.1 <0.1.8"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-api-remotes": {

@@ -15,7 +15,6 @@ import {
   isContextWindowExceededError,
   isQuotaExceededError,
   LlmError,
-  QUOTA_EXCEEDED_CODE,
 } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, StreamChunk, TokenUsage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { isContextOverflow } from '@earendil-works/pi-ai'
@@ -39,16 +38,29 @@ export function mapUsage(usage: PiUsage): TokenUsage {
 }
 
 /**
+ * The account-quota failure class, written out rather than imported:
+ * `dsh-llm` exports it as `ACCOUNT_QUOTA_EXCEEDED_CODE` from `0.1.7-rc.2`, and
+ * the spelling is the stable protocol value the host routes on, so spelling it
+ * here keeps the route correct on every host this plugin supports.
+ */
+const ACCOUNT_QUOTA_CODE = 'ACCOUNT_QUOTA'
+
+/**
  * Classify a provider error string into a Harness error code.
  *
  * pi-ai flattens a caught transport error to its `message` before this point,
  * so the actionable detail is only available as text. The patterns are ordered
  * from most specific to least, and anything unrecognized stays `PI_AI_ERROR`
  * rather than being guessed into a retryable class.
+ *
+ * Exhausted quota is reported as `ACCOUNT_QUOTA` rather than the generic
+ * `QUOTA`: this gateway meters a prepaid balance (the usage window the plugin
+ * shows is the same meter), so the remedy is topping up, not retrying — the
+ * same upgrade `llm-deepseek-account` applies to its own prepaid route.
  */
 export function classifyPiAiError(message: string): string {
   if (/\b(?:401|403)\b/.test(message)) return 'AUTH'
-  if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE
+  if (isQuotaExceededError(message)) return ACCOUNT_QUOTA_CODE
   if (/\b429\b|rate.?limit/i.test(message)) return 'RATE_LIMIT'
   if (/\b413\b|payload too large|request body too large|length limit exceeded/i.test(message)) return 'INVALID_REQUEST'
   if (/\b400\b|invalid.?request/i.test(message)) return 'INVALID_REQUEST'

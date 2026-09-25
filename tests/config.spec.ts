@@ -55,6 +55,15 @@ describe('PlainConfig', () => {
     expect(() => PlainConfig({ refreshMinutes: 0 })).toThrow()
     expect(() => PlainConfig({ refreshMinutes: 7 * 24 * 60 + 1 })).toThrow()
   })
+
+  it('keeps a configured retry policy, leaves it absent by default, and refuses a malformed one', () => {
+    expect(PlainConfig({}).retryPolicy).toBeUndefined()
+    expect(PlainConfig({ retryPolicy: { mode: 'normal', maxRetries: 2 } }).retryPolicy)
+      .toMatchObject({ mode: 'normal', maxRetries: 2 })
+    expect(PlainConfig({ retryPolicy: { mode: 'always' } }).retryPolicy).toMatchObject({ mode: 'always' })
+    expect(() => PlainConfig({ retryPolicy: { mode: 'normal', maxRetries: -1 } })).toThrow()
+    expect(() => PlainConfig({ retryPolicy: { mode: 'sometimes' } })).toThrow()
+  })
 })
 
 describe('readConfig', () => {

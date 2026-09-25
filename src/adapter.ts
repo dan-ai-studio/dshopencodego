@@ -21,12 +21,14 @@ import {
   LlmAdapter,
   LlmError,
   ReasoningEffortId,
+  resolveRetryPolicy,
 } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions,
   ImageAttachmentAccess,
   LlmModelInfo,
   LlmResolvedModelInfo,
+  ResolvedRetryPolicy,
   StreamChunk,
   TokenUsage,
 } from '@deepseek-ai/dsh-llm'
@@ -194,8 +196,25 @@ export class OpencodeGoAdapter extends LlmAdapter {
       name: model.name,
       inputModalities: [...model.input],
       context: { contextWindow: model.contextWindow },
+      // The route's own output ceiling, so the host materializes it when a
+      // caller names none and a caller that does name one still wins.
+      defaultMaxTokens: model.maxTokens,
       ...reasoning,
     }
+  }
+
+  /**
+   * This route's retry policy, resolved from configuration on every read so a
+   * profile edit reaches the next failed step. Absent configuration leaves the
+   * host's own default in force.
+   * @param _provider - unused; the mount owns exactly one route.
+   * @returns the resolved policy, or undefined when none is configured.
+   */
+  override providerRetryPolicy(_provider: string): ResolvedRetryPolicy | undefined {
+    const configured = this.options.config().retryPolicy
+    return configured === undefined
+      ? undefined
+      : resolveRetryPolicy(configured, 'dshopencodego: retryPolicy')
   }
 
   /** Validate an explicit effort against the model's own levels, without clamping. */
@@ -220,10 +239,13 @@ export class OpencodeGoAdapter extends LlmAdapter {
     const facts = snapshot.facts.get(options.model)
     if (facts === undefined) throw new LlmError(`opencode-go has no model "${options.model}"`, 'UNKNOWN_MODEL')
     const model = withModelLimit(toPiModel(facts, config.baseURL), config.modelLimits)
-    const outputLimit = config.modelLimits[model.id]?.maxTokens
-    const maxTokens = outputLimit === null || outputLimit === undefined
+    // `defaultMaxTokens` already carries the route's ceiling for a caller that
+    // names none, so only a caller's own cap travels, clamped by a configured
+    // per-model ceiling when one exists.
+    const ceiling = config.modelLimits[model.id]?.maxTokens
+    const maxTokens = options.maxTokens === undefined || ceiling === null || ceiling === undefined
       ? options.maxTokens
-      : Math.min(options.maxTokens ?? outputLimit, outputLimit)
+      : Math.min(options.maxTokens, ceiling)
     const apiKey = await this.options.resolveApiKey()
     if (apiKey === undefined || apiKey.length === 0) {
       throw new LlmError('dshopencodego: no credential resolved for the opencode-go route', 'MISSING_CREDENTIAL')

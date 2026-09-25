@@ -63,6 +63,16 @@ function assertSupportedImageRoles(messages: readonly RequestMessage[]): void {
   }
 }
 
+/**
+ * Every tool declaration this request carries.
+ *
+ * `GenerateOptions.toolHistory` is deliberately not projected: projecting it
+ * requires the route to declare a `toolUpdate` mode, and no source states one
+ * for this gateway's models (models.dev describes tools only as callable). A
+ * route that claims a mode the provider does not implement would silently
+ * change what the model sees, so every request sends the complete current tool
+ * list — the documented behavior when a route declares no mode.
+ */
 function toolsOf(options: GenerateOptions): PiTool[] | undefined {
   return options.tools?.map(tool => ({
     name: tool.name,

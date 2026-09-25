@@ -76,9 +76,20 @@ dsh plugin --profile web remove @dan-ai-studio/dshopencodego   # 卸载
         contextWindow: 262144
     modelProtocols:                           # 最后兜底：逐模型协议覆盖
       some-new-model: openai-responses
+    retryPolicy:                              # 可选：本路由的重试策略（由 dsh-llm-retry 执行）
+      mode: normal
+      maxRetries: 2
+      backoff:
+        initialDelayMs: 500
 ```
 
 API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），也可以直接 `export OPENCODE_GO_API_KEY=...`。
+
+**输出上限**：调用方给了 `maxTokens` 就用它（仍受 `modelLimits` 的逐模型上限约束）；没给时由宿主按路由上限物化——该上限就是目录里的输出容量，或 `modelLimits` 覆盖后的值。
+
+**工具声明**：每个请求都发送当前完整的工具列表。宿主提供的会话折叠历史（`toolHistory`）**故意不投影**：投影需要路由声明 `toolUpdate` 模式，而 models.dev 对本网关模型只声明"可调用工具"、没有声明该模式；凭空声明会让模型看到的东西悄悄改变。
+
+**重试**：`retryPolicy` 是可选的，不写就用宿主默认。写了就由可选的 `dsh-llm-retry` 插件执行，配置错误在写入时报错而不是等到失败发生。
 
 ## 模型是怎么判定的
 
@@ -136,7 +147,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 - **必选与可选之分**：15 个 peer 中 6 个标了 `optional`（`dsh-api-remotes`、`dsh-client-locale`、`dsh-client-store`、`dsh-client-ui-model-selection`、`dsh-client-ui-settings`、`dsh-client-ui-slots`）；真正卡住加载的是 9 个——`dsh-llm`、`dsh-typert-protocol`、`dsh-attachment`、`dsh-brand`、`dsh-credentials`、`dsh-fs`、`dsh-launch-environment`、`dsh-settings`、`dsh-timeout`。其中 `dsh-llm` 是最重的一处耦合（源码 import 二十余处）。
 - **名义范围 ≠ 实测范围**：`0.1.7-alpha.1`、`alpha.2` 落在声明范围内，但本项目没有验证过；实际验证过的是 `0.1.7-rc.1`（开发依赖基线）与 `0.1.7-rc.2`（日常使用）。
 - **上界就是跟版线**：`<0.1.8` 意味着 DSH 一旦发布 `0.1.8`，本插件必须同批发新版，否则所有用户加载失败。调整范围后用 `npm test` 验证即可（本地 mock 网关，零网络零 token）——范围以接口声明为准，不要用线上探测来"测"出一个范围。
-- **已知缺口**：`dsh-typert-registry`、`dsh-client-ui-conversation`、`dsh-client-ui-renderer` 在源码中被 import，却未出现在 `peerDependencies` 里，门禁管不到；它们随 DSH 漂移时不会在加载期被拦下，只会在运行时出错。补齐属于低风险的例行维护。
+- **peer 覆盖已双向守住**：`dsh-typert-registry`、`dsh-client-ui-conversation`、`dsh-client-ui-renderer` 曾被源码 import 却未声明、门禁管不到，现已补进 `peerDependencies`；`tests/peer-coverage.spec.ts` 双向断言——源码用到的必须声明，声明了却没人用的必须删（`dsh-settings` 就这样被移除：设置表单实际由 `dsh-client-ui-settings` 提供）。
 - **豁免是按 profile 记的**：只有显式执行过 `dsh plugin allow-version` 的 profile 才享有豁免；没有记录就代表必须落在声明范围内。用 `dsh plugin version-exemptions` 可查看当前 profile 的豁免。
 
 ## 故障排查
