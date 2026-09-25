@@ -11,7 +11,7 @@
 
 import type { ProtocolSource } from './catalog/protocol.ts'
 import type { GoQuota } from './go-limits.ts'
-import { monthlyRequestsRank } from './go-limits.ts'
+import { goQuotaFor, monthlyRequestsRank } from './go-limits.ts'
 
 /** One model as the settings page and the picker describe it. */
 export interface ModelSummary {
@@ -51,22 +51,45 @@ export interface ModelSummary {
 }
 
 /** How many models the default configuration keeps enabled. */
-export const DEFAULT_ENABLED_COUNT = 3
+export const DEFAULT_ENABLED_COUNT = 5
+
+/**
+ * Whether the model trades training rights for its price — Meta's
+ * "Contributor" tiers, whose prompts and completions may train future models.
+ * Such a model is never part of the default-enabled few.
+ * @param model - the model under test.
+ * @returns true when the model belongs to a training-contributor tier.
+ */
+export function isTrainingTier(model: Pick<ModelSummary, 'id' | 'name'>): boolean {
+  return /contributor/i.test(model.id) || /contributor/i.test(model.name)
+}
 
 /**
  * The default-enabled ids when nobody configured switches: the models with the
  * largest published monthly request estimate first, which is Go's own "most
- * usable" order. Deprecated and unconfigurable models never qualify, and a
- * model with no published estimate does not displace one that has it.
+ * usable" order. Deprecated, unconfigurable, and training-contributor models
+ * never qualify, and a model with no published estimate does not displace one
+ * that has it.
+ *
+ * The estimate is looked up here, by id, rather than read from a `goQuota`
+ * field: the Host's picker and the settings page build their model lists from
+ * different projections, and a caller that forgot to carry the field would
+ * silently fall back to an alphabetical default — which is exactly the
+ * two-surfaces-disagree defect this signature exists to prevent.
  * @param models - the advertised models, in any order.
  * @returns the ids the default configuration keeps enabled.
  */
 export function recommendedIds(
-  models: readonly Pick<ModelSummary, 'id' | 'deprecated' | 'configurationMissing' | 'goQuota'>[],
+  models: readonly Pick<ModelSummary, 'id' | 'name' | 'deprecated' | 'configurationMissing'>[],
 ): ReadonlySet<string> {
   const ranked = models
-    .filter(model => model.configurationMissing === undefined && model.deprecated !== true)
-    .toSorted((left, right) => monthlyRequestsRank(right.goQuota) - monthlyRequestsRank(left.goQuota))
+    .filter(model =>
+      model.configurationMissing === undefined
+      && model.deprecated !== true
+      && !isTrainingTier(model))
+    .toSorted((left, right) =>
+      monthlyRequestsRank(goQuotaFor(right.id)) - monthlyRequestsRank(goQuotaFor(left.id))
+      || left.id.localeCompare(right.id))
   return new Set(ranked.slice(0, DEFAULT_ENABLED_COUNT).map(model => model.id))
 }
 
