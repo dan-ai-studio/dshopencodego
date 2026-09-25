@@ -8,11 +8,17 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22 mirrors the DSH floor this plugin declares; 24 keeps the open
+        # upper bound of `engines.node` honest.
+        node: [22, 24]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           package-manager-cache: false
       # `prepare` builds the bundle, so a broken build fails the install step.
       - run: npm ci
