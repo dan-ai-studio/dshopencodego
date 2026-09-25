@@ -109,8 +109,13 @@ const fields = {
   retryPolicy: RetryPolicySchema,
 }
 
-/** Plain resolved values used by the adapter. */
-export const PlainConfig: z<OpencodeGoConfig> = z.object(fields)
+/**
+ * Plain resolved values used by the adapter.
+ *
+ * The input side is a partial on purpose: a profile writes only the fields it
+ * overrides, and the schema's own defaults fill the rest.
+ */
+export const PlainConfig: z<Partial<OpencodeGoConfig>, OpencodeGoConfig> = z.object(fields)
 
 /** 0.1.7's Loader retains these references when profile fields change. */
 export type LiveConfig = { [K in keyof OpencodeGoConfig]-?: { get(): OpencodeGoConfig[K] } }
