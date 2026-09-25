@@ -23,5 +23,7 @@ jobs:
       # `prepare` builds the bundle, so a broken build fails the install step.
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+      # Coverage carries thresholds (vitest.config.ts), so this doubles as the
+      # floor check: a regression below the floor fails the job.
+      - run: npm run test:coverage
       - run: npm pack
