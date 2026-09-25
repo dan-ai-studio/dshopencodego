@@ -19,10 +19,10 @@ Prerequisites: a DSH `0.1.7` release (see "Compatibility"); Node `^22.19.0 || >=
 
 > **One owner per route**: a profile can have exactly one adapter for `opencode-go`. Remove the previous plugin (`dsh plugin --profile <p> remove @dan-ai-studio/dsh-opencode-go`) or clear any `opencode-go` provider in `llm-pi-ai` first. Otherwise the plugin logs an explicit ownership diagnostic and does not register the route — everything else keeps working.
 
-### Option 1: GitHub Release (recommended)
+### Option 1: npm (recommended)
 
 ```sh
-dsh plugin --profile web add https://github.com/dan-ai-studio/dshopencodego/releases/download/v<version>/dan-ai-studio-dshopencodego-<version>.tgz
+dsh plugin --profile web add @dan-ai-studio/dshopencodego@<version>
 ```
 
 Confirm the composition picked it up:
@@ -31,12 +31,10 @@ Confirm the composition picked it up:
 dsh --profile web --dump-config | grep dshopencodego
 ```
 
-### Option 2: npm (prepared, not enabled yet)
-
-The publish workflow exists but is inert until the npm scope and `NPM_TOKEN` exist (see "Releasing"). Once enabled:
+### Option 2: GitHub Release
 
 ```sh
-dsh plugin --profile web add @dan-ai-studio/dshopencodego@<version>
+dsh plugin --profile web add https://github.com/dan-ai-studio/dshopencodego/releases/download/v<version>/dan-ai-studio-dshopencodego-<version>.tgz
 ```
 
 ### Option 3: build locally
@@ -133,6 +131,7 @@ The `engines.dsh` field is informational for readers and package managers; **DSH
 | A reinstalled local tarball behaves like the old build | pnpm reuses a same-named local tarball. Rename the file and install again. |
 | "The settings write was rejected" | Usually a concurrent writer (another window or process) holding the same profile. The plugin retries once automatically; if it still fails the view has reloaded — click again. |
 | The usage button shows "unavailable" | An endpoint or credential change invalidated the previous reading. Fix the configuration and press Retry. It never shows `0` in place of a missing reading. |
+| npm publish fails with `ENEEDAUTH` | OIDC did not match: check the Trusted Publisher's **workflow filename** (must be exactly `publish-npm.yml`, case-sensitive) and the organization/repository fields; run on GitHub-hosted runners with `id-token: write`. A `repository.url` that does not match the GitHub repository is rejected as well. |
 
 ## Development
 
@@ -149,7 +148,24 @@ npm run build       # emits lib/index.js and lib/client.js
 
 1. **Version**: align `package.json`'s `version` with the tag you are about to push (`v<version>`); CI checks the asset name against the tag.
 2. **GitHub Release**: commit and push `main`, then push the tag. `release.yml` runs the tests, `npm pack`s, and uploads the tarball as the release asset.
-3. **npm (prepared, not enabled)**: `.github/workflows/publish-npm.yml` is manual-only and needs publish rights for the `@dan-ai-studio` scope plus the `NPM_TOKEN` repository secret. It verifies tag-versus-version, refuses to overwrite an existing version, and publishes with `--provenance`. The enablement steps live in the file header.
+3. **npm (trusted publishing / OIDC, no token)**: `.github/workflows/publish-npm.yml` is manual-only and authenticates through GitHub Actions' OIDC — this repository **has no `NPM_TOKEN` and needs none**. Run it with:
+
+   ```sh
+   gh workflow run publish-npm --repo dan-ai-studio/dshopencodego -f tag=v<version>
+   ```
+
+   It verifies tag-versus-version, refuses to overwrite a version that already exists on npm, and the publish carries an automatically generated **provenance** attestation. It relies on the package's **Trusted Publisher** connection on npm (fields are fixed once created; to change one, delete and recreate it):
+
+   | Field | Value |
+   |---|---|
+   | Publisher | `GitHub Actions` |
+   | Organization or user | `dan-ai-studio` |
+   | Repository | `dshopencodego` |
+   | Workflow filename | `publish-npm.yml` (exact, case-sensitive) |
+   | Environment name | (empty) |
+   | Allowed actions | `Allow npm publish` checked (unchecked means staged-only: a maintainer must approve each publish with 2FA) |
+
+   Additionally: OIDC publishing needs **npm CLI ≥ 11.5.1 / Node ≥ 22.14** (the workflow uses Node 24), and `package.json`'s `repository.url` must match the GitHub repository. Once OIDC works, switch the package's Settings → **Publishing access** to "Require two-factor authentication and disallow tokens" and revoke any tokens you no longer need.
 
 ## License
 

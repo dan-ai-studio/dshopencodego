@@ -19,10 +19,10 @@
 
 > **路由互斥**：同一个 profile 里 `opencode-go` 只能由一个适配器提供。装本插件前请先卸载旧插件（`dsh plugin --profile <p> remove @dan-ai-studio/dsh-opencode-go`），或清空 `llm-pi-ai` 配置里名为 `opencode-go` 的 provider。否则插件会记录一条明确的占用诊断，路由不会注册（其余功能照常）。
 
-### 方式一：GitHub Release（推荐）
+### 方式一：npm（推荐）
 
 ```sh
-dsh plugin --profile web add https://github.com/dan-ai-studio/dshopencodego/releases/download/v<版本>/dan-ai-studio-dshopencodego-<版本>.tgz
+dsh plugin --profile web add @dan-ai-studio/dshopencodego@<版本>
 ```
 
 安装后确认组合里出现该插件：
@@ -31,12 +31,10 @@ dsh plugin --profile web add https://github.com/dan-ai-studio/dshopencodego/rele
 dsh --profile web --dump-config | grep dshopencodego
 ```
 
-### 方式二：npm（准备中）
-
-发布工作流已经就绪但**尚未启用**（需要 npm scope 与 `NPM_TOKEN`，见「发布」）。启用后即可：
+### 方式二：GitHub Release
 
 ```sh
-dsh plugin --profile web add @dan-ai-studio/dshopencodego@<版本>
+dsh plugin --profile web add https://github.com/dan-ai-studio/dshopencodego/releases/download/v<版本>/dan-ai-studio-dshopencodego-<版本>.tgz
 ```
 
 ### 方式三：本地构建
@@ -133,6 +131,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 | 升级本地 tarball 后行为没变 | pnpm 对同名本地 tarball 会复用旧内容。改文件名再装。 |
 | 设置页出现「设置写入被拒绝」 | 通常是与另一个窗口/进程并发写同一 profile；插件会自动重试一次，仍失败时界面已重载最新状态，再点一次即可。 |
 | 用量按钮显示「不可用」 | 端点或凭证变化导致旧读数作废；配置正确后点「重试」。数值不会以 0 冒充。 |
+| npm 发布报 `ENEEDAUTH` | OIDC 没匹配上：核对包设置里 Trusted Publisher 的 **workflow 文件名**（必须恰为 `publish-npm.yml`、大小写敏感）与组织/仓库字段；确认跑在 GitHub 托管 runner 上且工作流带 `id-token: write`。`package.json` 的 `repository.url` 与仓库不符也会被拒。 |
 
 ## 开发
 
@@ -149,7 +148,24 @@ npm run build       # 产出 lib/index.js 与 lib/client.js
 
 1. **版本**：把 `package.json` 的 `version` 与即将打出的 tag 对齐（`v<版本>`）。CI 会校验资产名与 tag。
 2. **GitHub Release**：提交并推送 `main`，打 tag 推送。`release.yml` 会跑测试、`npm pack` 并把 tarball 作为 Release 资产上传。
-3. **npm（预留，未启用）**：`.github/workflows/publish-npm.yml` 仅手动触发，需要：npm 上的 `@dan-ai-studio` scope 权限 + 仓库 secret `NPM_TOKEN`。工作流会校验 tag 与版本一致、拒绝覆盖已发布的同版本，并使用 `--provenance` 声明构建来源。启用步骤写在文件头部注释里。
+3. **npm（Trusted Publishing / OIDC，无需令牌）**：`.github/workflows/publish-npm.yml` 仅手动触发，认证走 GitHub Actions 的 OIDC——本仓库**没有也不需要** `NPM_TOKEN`。运行方式：
+
+   ```sh
+   gh workflow run publish-npm --repo dan-ai-studio/dshopencodego -f tag=v<版本>
+   ```
+
+   工作流会校验 tag 与版本一致、拒绝覆盖 npm 上已存在的版本，发布时**自动生成 provenance 声明**。它依赖 npm 包设置里的 **Trusted Publisher** 连接（字段一旦创建不可修改，要改只能删了重建）：
+
+   | 字段 | 值 |
+   |---|---|
+   | Publisher | `GitHub Actions` |
+   | Organization or user | `dan-ai-studio` |
+   | Repository | `dshopencodego` |
+   | Workflow filename | `publish-npm.yml`（完全一致、大小写敏感） |
+   | Environment name | 留空 |
+   | Allowed actions | 勾选 `Allow npm publish`（不勾则只允许 staged publishing：每次发布需人工 2FA 批准后才公开） |
+
+   另外：OIDC 发布要求 **npm CLI ≥ 11.5.1 / Node ≥ 22.14**（工作流用 Node 24 满足）；`package.json` 的 `repository.url` 必须与 GitHub 仓库匹配。启用 OIDC 后，建议到包设置 → **Publishing access** 选择「Require two-factor authentication and disallow tokens」，并撤销不再需要的旧令牌。
 
 ## 许可证
 
