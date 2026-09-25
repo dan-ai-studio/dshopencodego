@@ -19,6 +19,8 @@
 
 > **路由互斥**：同一个 profile 里 `opencode-go` 只能由一个适配器提供。装本插件前请先卸载旧插件（`dsh plugin --profile <p> remove @dan-ai-studio/dsh-opencode-go`），或清空 `llm-pi-ai` 配置里名为 `opencode-go` 的 provider。否则插件会记录一条明确的占用诊断，路由不会注册（其余功能照常）。
 
+> **桌面端用户**：DSH 桌面端不走命令行安装，安装、升级与卸载都在应用内 Plugins 页完成，见文末「桌面端（Electron 应用）」。
+
 ### 方式一：npm（推荐）
 
 ```sh
@@ -56,6 +58,20 @@ dsh plugin --profile web remove @dan-ai-studio/dshopencodego   # 卸载
 ```
 
 > pnpm 对**同名本地 tarball** 会静默复用旧内容（`added 0`）。升级本地构建时请改文件名再装。
+
+### 桌面端（Electron 应用）
+
+DSH 桌面端是 Electron 壳 + 完整的 dsh Web 应用，本插件对它同样适用：host 半边是标准 bundle patch，client 半边声明的平台就是 `web`——桌面端渲染的正是这套 Web 客户端，设置页分区与会话内用量按钮来自同一批客户端包。桌面端使用**自己的 profile** `$DSH_HOME/profiles/desktop`，与 `profiles/web` 互不共享：凭证、模型可见性与插件设置都要在桌面端重新配一次。
+
+安装**必须**走应用内界面，不要使用上面的 `dsh plugin` 命令：
+
+1. 打开桌面端 → **设置 → Plugins（插件）** 页；
+2. 安装规格填 `@dan-ai-studio/dshopencodego`（或指定版本，如 `@dan-ai-studio/dshopencodego@0.1.11`），确认安装；
+3. 按提示**重启应用**，再到设置页填 API Key（引用名 `OPENCODE_GO_API_KEY`）。
+
+原因：桌面端 profile 由 Electron 自己拥有，**CLI 不能启动也不能修改它**（桌面端 README 原文：*The CLI cannot boot or mutate this profile.*）。插件管理由应用内插件页经认证 HTTP API 完成，使用应用自带的 pnpm，不依赖 PATH 里的 `pnpm`；升级与卸载同样在 Plugins 页操作。
+
+版本约束与 CLI 一致：桌面端内置的 DSH 要落在 `0.1.7` 线内（`>=0.1.7-alpha.1 <0.1.8`，见「兼容性」）。若插件导致启动失败，桌面端的原生恢复对话框可以一键**禁用第三方插件、备份 `cordis.patch.yml` 后重启**，不会把应用锁死。
 
 ## 配置
 

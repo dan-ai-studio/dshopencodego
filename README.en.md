@@ -19,6 +19,8 @@ Prerequisites: a DSH `0.1.7` release (see "Compatibility"); Node `^22.19.0 || >=
 
 > **One owner per route**: a profile can have exactly one adapter for `opencode-go`. Remove the previous plugin (`dsh plugin --profile <p> remove @dan-ai-studio/dsh-opencode-go`) or clear any `opencode-go` provider in `llm-pi-ai` first. Otherwise the plugin logs an explicit ownership diagnostic and does not register the route — everything else keeps working.
 
+> **Using the Desktop app?** It does not install through the CLI — install, upgrade, and remove plugins from its in-app Plugins page. See "Desktop (Electron app)" below.
+
 ### Option 1: npm (recommended)
 
 ```sh
@@ -56,6 +58,20 @@ dsh plugin --profile web remove @dan-ai-studio/dshopencodego    # remove
 ```
 
 > pnpm silently reuses a **same-named local tarball** (`added 0`). Rename the file when reinstalling a fresh local build.
+
+### Desktop (Electron app)
+
+The DSH Desktop app is an Electron shell around the complete dsh Web application, and this plugin fits it the same way: the host half is a standard bundle patch, and the client half declares the `web` platform — the Desktop renders exactly that Web client, so the settings section and the in-conversation usage button come from the same client packages. The Desktop keeps its **own profile** at `$DSH_HOME/profiles/desktop`, independent of `profiles/web`: credentials, model visibility, and plugin settings must be configured again there.
+
+Installation **must** go through the in-app UI — do not use the `dsh plugin` commands above:
+
+1. Open the Desktop app → **Settings → Plugins**;
+2. Enter `@dan-ai-studio/dshopencodego` as the install spec (or pin a version, e.g. `@dan-ai-studio/dshopencodego@0.1.11`), and confirm;
+3. **Restart the app** when prompted, then enter the API key on the settings page (reference name `OPENCODE_GO_API_KEY`).
+
+Why: Electron owns the Desktop profile, and **the CLI cannot boot or mutate it** (Desktop README: *The CLI cannot boot or mutate this profile.*). Plugin management runs through the app's authenticated HTTP APIs and Desktop's bundled pnpm, so no `pnpm` on `PATH` is required. Upgrades and removals happen on the Plugins page too.
+
+The version constraint matches the CLI: the DSH bundled with the Desktop app must stay on the `0.1.7` line (`>=0.1.7-alpha.1 <0.1.8`, see "Compatibility"). If the plugin ever breaks startup, the Desktop's native recovery dialog can **disable third-party plugins, back up `cordis.patch.yml`, and restart** in one action — it will not lock the app out.
 
 ## Configuration
 
