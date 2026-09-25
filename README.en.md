@@ -114,11 +114,30 @@ The "OpenCode Go" section shows the live gateway catalog (42+ models) with, per 
 
 - all satisfied → the plugin loads;
 - any mismatch → **that plugin row is disabled with a printed reason** (`Plugin … is incompatible with dsh …`), leaving other plugins untouched;
-- to take the risk anyway, grant an **exact-version exemption**: `dsh plugin allow-version <pkg>@<version> --dsh-version <exact> --accept-risk` (applies only to that package and that exact runtime version).
+- to take the risk anyway, grant an **exact-version exemption**: `dsh plugin --profile <profile> allow-version <pkg>@<version> --dsh-version <exact> --accept-risk` (applies only to that package and that exact runtime version); `dsh plugin --profile <profile> version-exemptions` lists what a profile holds.
 
 The `engines.dsh` field is informational for readers and package managers; **DSH's compatibility gate reads only `peerDependencies`**. `@deepseek-ai/cordis` is declared separately as `4.0.2 || 4.0.3 || 4.0.4`.
 
 **0.1.8+ or older releases**: the plugin is refused. If the seam is compatible, widen the peer range in your own build (never in DSH core), or wait for a plugin release.
+
+### Version-binding notes
+
+| Binding layer | Declared | Enforced by |
+| --- | --- | --- |
+| `peerDependencies` (15 `@deepseek-ai/dsh-*` packages) | all `>=0.1.7-alpha.1 <0.1.8` | **DSH's gate, at plugin load time** |
+| `@deepseek-ai/cordis` | `4.0.2 \|\| 4.0.3 \|\| 4.0.4` | the same gate |
+| `engines.dsh` | `>=0.1.7-alpha.1 <0.1.8` | informational only; DSH never reads it |
+| `engines.node` | `^22.19.0 \|\| >=24.0.0` | the package manager |
+| bundled `@earendil-works/pi-ai` | pinned to exactly `0.87.1` | an independent coupling: a change in pi-ai's request construction changes this plugin's wire behaviour |
+| bundled `@deepseek-ai/schemastery` | `^3.18.3` | ordinary semver |
+
+Things to keep in mind when maintaining this:
+
+- **Required versus optional peers**: six of the fifteen are marked `optional` (`dsh-api-remotes`, `dsh-client-locale`, `dsh-client-store`, `dsh-client-ui-model-selection`, `dsh-client-ui-settings`, `dsh-client-ui-slots`). The nine that actually block loading are `dsh-llm`, `dsh-typert-protocol`, `dsh-attachment`, `dsh-brand`, `dsh-credentials`, `dsh-fs`, `dsh-launch-environment`, `dsh-settings`, and `dsh-timeout`. `dsh-llm` is the heaviest coupling — more than twenty imports across the source.
+- **Declared range ≠ verified range**: `0.1.7-alpha.1` and `alpha.2` fall inside the declaration but were never verified here. What was verified is `0.1.7-rc.1` (the dev-dependency baseline) and `0.1.7-rc.2` (daily use).
+- **The upper bound is a tracking line**: `<0.1.8` means that the moment DSH ships `0.1.8`, this plugin must ship a new release in the same window or every user loses the plugin. After changing a range, `npm test` is the verification (local mock gateway, no network, no tokens) — ranges follow what the interfaces declare, and are never "measured" with live probes.
+- **Known gap**: `dsh-typert-registry`, `dsh-client-ui-conversation`, and `dsh-client-ui-renderer` are imported by the source but absent from `peerDependencies`, so the gate cannot see them; drift in those packages shows up at runtime instead of at load time. Declaring them is low-risk routine maintenance.
+- **Exemptions are per profile**: only a profile that ran `dsh plugin allow-version` has one, and no record means the plugin must stay inside the declared range. `dsh plugin version-exemptions` lists a profile's exemptions.
 
 ## Troubleshooting
 
