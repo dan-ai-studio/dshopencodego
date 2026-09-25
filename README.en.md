@@ -120,7 +120,7 @@ The gateway's `/v1/models` answers only *which* models exist, never *how* to cal
 
 ## The model list in the settings page
 
-The "OpenCode Go" section shows the live gateway catalog (42+ models) with, per model:
+The "OpenCode Go" section shows the live gateway catalog (the count follows the gateway) with, per model:
 
 - **context / max input / max output**, **release date**, **price per 1M tokens** (from models.dev), and **Go allowance**;
 - **Go allowance** comes from OpenCode's own documentation (the "usage limits / estimated requests" tables) — **no API exposes it**. It is a transcribed table (source URL and date in the `src/go-limits.ts` header); pricing or promotion changes require updating it and shipping a release;
@@ -152,7 +152,7 @@ The `engines.dsh` field is informational for readers and package managers; **DSH
 
 | Binding layer | Declared | Enforced by |
 | --- | --- | --- |
-| `peerDependencies` (15 `@deepseek-ai/dsh-*` packages) | all `>=0.1.7-alpha.1 <0.1.8` | **DSH's gate, at plugin load time** |
+| `peerDependencies` (17 `@deepseek-ai/dsh-*` packages) | all `>=0.1.7-alpha.1 <0.1.8` | **DSH's gate, at plugin load time** |
 | `@deepseek-ai/cordis` | `4.0.2 \|\| 4.0.3 \|\| 4.0.4` | the same gate |
 | `engines.dsh` | `>=0.1.7-alpha.1 <0.1.8` | informational only; DSH never reads it |
 | `engines.node` | `^22.19.0 \|\| >=24.0.0` | the package manager |
@@ -161,7 +161,7 @@ The `engines.dsh` field is informational for readers and package managers; **DSH
 
 Things to keep in mind when maintaining this:
 
-- **Required versus optional peers**: six of the fifteen are marked `optional` (`dsh-api-remotes`, `dsh-client-locale`, `dsh-client-store`, `dsh-client-ui-model-selection`, `dsh-client-ui-settings`, `dsh-client-ui-slots`). The nine that actually block loading are `dsh-llm`, `dsh-typert-protocol`, `dsh-attachment`, `dsh-brand`, `dsh-credentials`, `dsh-fs`, `dsh-launch-environment`, `dsh-settings`, and `dsh-timeout`. `dsh-llm` is the heaviest coupling — more than twenty imports across the source.
+- **Required versus optional peers**: six of the eighteen are marked `optional` (`dsh-api-remotes`, `dsh-client-locale`, `dsh-client-store`, `dsh-client-ui-model-selection`, `dsh-client-ui-settings`, `dsh-client-ui-slots`). The twelve that actually block loading are `cordis`, `dsh-attachment`, `dsh-brand`, `dsh-client-ui-conversation`, `dsh-client-ui-renderer`, `dsh-credentials`, `dsh-fs`, `dsh-launch-environment`, `dsh-llm`, `dsh-timeout`, `dsh-typert-protocol`, and `dsh-typert-registry`. `dsh-llm` is the heaviest coupling — more than twenty imports across the source.
 - **Declared range ≠ verified range**: `0.1.7-alpha.1` and `alpha.2` fall inside the declaration but were never verified here. What was verified is `0.1.7-rc.1` (the dev-dependency baseline) and `0.1.7-rc.2` (daily use).
 - **The upper bound is a tracking line**: `<0.1.8` means that the moment DSH ships `0.1.8`, this plugin must ship a new release in the same window or every user loses the plugin. After changing a range, `npm test` is the verification (local mock gateway, no network, no tokens) — ranges follow what the interfaces declare, and are never "measured" with live probes.
 - **Peer coverage is now guarded both ways**: `dsh-typert-registry`, `dsh-client-ui-conversation`, and `dsh-client-ui-renderer` were imported by the source but absent from `peerDependencies`, invisible to the gate; they are declared now, and `tests/peer-coverage.spec.ts` asserts both directions — anything the source imports must be declared, and anything declared but unreached must be removed (`dsh-settings` went that way: the settings form is actually provided by `dsh-client-ui-settings`).
