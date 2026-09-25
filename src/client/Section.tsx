@@ -14,6 +14,8 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { CatalogReading } from '../catalog/contract.ts'
+import { compactCount, INITIAL_FILTER, visibleModels } from './model-view.ts'
+import type { ModelFilter, ModelSort } from './model-view.ts'
 import css from './section.module.css'
 
 /** Credential reference the route resolves. */
@@ -74,6 +76,8 @@ export interface SectionState {
   readonly settings: SectionSettings | undefined
   readonly writable: boolean
   readonly saving: boolean
+  /** The human's narrowing of the model table; never written to the Host. */
+  readonly filter: ModelFilter
 }
 
 /** How long a burst of switch flips is coalesced before one settings write. */
@@ -89,6 +93,7 @@ const INITIAL: SectionState = {
   settings: undefined,
   writable: false,
   saving: false,
+  filter: INITIAL_FILTER,
 }
 
 /** Read the two fields this page owns out of a settings snapshot value. */
@@ -274,6 +279,11 @@ export class SectionController {
     }
   }
 
+  /** Narrow or reorder the model table; a view preference, never a write. */
+  setFilter(patch: Partial<ModelFilter>): void {
+    this.set({ filter: { ...this.state.filter, ...patch } })
+  }
+
   /** Set the catalog cache lifetime, clamped to the schema's own bounds. */
   async setRefreshMinutes(minutes: number): Promise<void> {
     const scope = this.services.scope
@@ -322,6 +332,32 @@ function isOffered(model: CatalogReading['models'][number], visibility: Record<s
   return typeof explicit === 'boolean' ? explicit : model.deprecated !== true
 }
 
+/** "in 922K · out 128K" — only the halves the sources state. */
+function ioLabel(model: CatalogReading['models'][number], t: (key: string) => string): string {
+  const parts: string[] = []
+  if (model.maxInputTokens !== undefined) parts.push(`${t('iosInput')} ${compactCount(model.maxInputTokens)}`)
+  if (model.maxTokens !== undefined) parts.push(`${t('iosOutput')} ${compactCount(model.maxTokens)}`)
+  return parts.length === 0 ? '—' : parts.join(' · ')
+}
+
+/** "$0.15 / $0.60" per million tokens, when a rate is published. */
+function priceLabel(model: CatalogReading['models'][number]): string {
+  if (model.cost === undefined) return '—'
+  return `$${model.cost.input} / $${model.cost.output}`
+}
+
+/** "$60 · 130K req/mo", or "unlimited" for the free model. */
+function quotaLabel(model: CatalogReading['models'][number], t: (key: string) => string): string {
+  const quota = model.goQuota
+  if (quota === undefined) return '—'
+  const usd = quota.monthlyUsd === 'unlimited' ? t('quotaUnlimited') : `$${quota.monthlyUsd}`
+  if (quota.monthlyRequests === undefined) return usd
+  const requests = quota.monthlyRequests === 'unlimited'
+    ? t('quotaUnlimited')
+    : `${compactCount(quota.monthlyRequests)} ${t('quotaPerMonth')}`
+  return `${usd} · ${requests}`
+}
+
 /** The settings page. */
 export function Section({ controller, t, getLocale }: SectionInjected): React.JSX.Element {
   const state = useSyncExternalStore(controller.subscribe, controller.snapshot, controller.snapshot)
@@ -342,6 +378,10 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
   const reading = state.reading
   const visibility = state.settings?.modelVisibility ?? {}
   const editable = state.writable && state.settings !== undefined
+  const rows = reading === undefined
+    ? []
+    : visibleModels(reading.models, state.filter, visibility, getLocale?.())
+  const hidden = reading === undefined ? 0 : reading.models.length - rows.length
   return <section className={css.root}>
     <h2 className={css.title}>{t('nav')}</h2>
     <p className={css.hint}>{t('intro')}</p>
@@ -418,9 +458,66 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
             ? t('writeFailed')
             : `${t('writeFailed')}: ${state.writeFailure.message}`}
       </p>}
+      {reading !== undefined && <div className={css.row}>
+        <input
+          className={css.input}
+          type="search"
+          aria-label={t('filterPlaceholder')}
+          placeholder={t('filterPlaceholder')}
+          value={state.filter.query}
+          onChange={event => { controller.setFilter({ query: event.target.value }) }}
+        />
+        <label className={css.hint}>
+          <input
+            type="checkbox"
+            checked={state.filter.onlyEnabled}
+            onChange={event => { controller.setFilter({ onlyEnabled: event.target.checked }) }}
+          />
+          {` ${t('filterOnlyEnabled')}`}
+        </label>
+        <label className={css.hint}>
+          <input
+            type="checkbox"
+            checked={state.filter.showDeprecated}
+            onChange={event => { controller.setFilter({ showDeprecated: event.target.checked }) }}
+          />
+          {` ${t('filterShowDeprecated')}`}
+        </label>
+        <label className={css.hint}>
+          {`${t('sortLabel')} `}
+          <select
+            className={css.number}
+            aria-label={t('sortLabel')}
+            value={state.filter.sort}
+            onChange={event => { controller.setFilter({ sort: event.target.value as ModelSort }) }}
+          >
+            <option value="default">{t('sortDefault')}</option>
+            <option value="released">{t('sortReleased')}</option>
+            <option value="name">{t('sortName')}</option>
+            <option value="context">{t('sortContext')}</option>
+            <option value="quota">{t('sortQuota')}</option>
+            <option value="price">{t('sortPrice')}</option>
+            <option value="enabled">{t('sortEnabled')}</option>
+          </select>
+        </label>
+        {hidden > 0 && <span className={css.hint}>{hidden} {t('filterHidden')}</span>}
+      </div>}
       {reading !== undefined && <table className={css.table}>
+        <thead>
+          <tr>
+            <th />
+            <th className={css.hint}>{t('headerModel')}</th>
+            <th className={css.hint}>{t('headerId')}</th>
+            <th className={css.hint}>{t('headerReleased')}</th>
+            <th className={css.hint}>{t('headerCapacity')}</th>
+            <th className={css.hint}>{t('headerIo')}</th>
+            <th className={css.hint}>{t('headerPrice')}</th>
+            <th className={css.hint}>{t('headerQuota')}</th>
+            <th className={css.hint}>{t('headerNotes')}</th>
+          </tr>
+        </thead>
         <tbody>
-          {reading.models.map(model => {
+          {rows.map(model => {
             const badge = badgeFor(model, t)
             const offered = isOffered(model, visibility)
             return <tr key={model.id}>
@@ -435,7 +532,11 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
               </td>
               <td className={css.name}>{model.name}</td>
               <td className={css.mono}>{model.id}</td>
+              <td className={css.hint}>{model.releaseDate ?? '—'}</td>
               <td className={css.hint}>{model.contextWindow === undefined ? '—' : model.contextWindow.toLocaleString(getLocale?.())}</td>
+              <td className={css.hint}>{ioLabel(model, t)}</td>
+              <td className={css.hint}>{priceLabel(model)}</td>
+              <td className={css.hint}>{quotaLabel(model, t)}</td>
               <td className={badge.length === 0 ? css.hint : css.badge}>{badge}</td>
             </tr>
           })}
