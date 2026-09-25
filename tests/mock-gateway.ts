@@ -236,13 +236,22 @@ export function modelsDevDocument(
 /**
  * Intercept `fetch` for the models.dev URL only, leaving every other request
  * (including the mock gateway's) on the real implementation.
+ *
+ * Only one stub may be installed at a time: a nested stub would save the outer
+ * stub as its "real" fetch and chain restores, which turns a forgotten
+ * `restore()` into a silently stale global.
  * @param document - the document to answer with, or a status to fail with.
  * @returns the recorded metadata requests, and a restore function.
  */
+let installed: ((...args: Parameters<typeof fetch>) => Promise<Response>) | undefined
+
 export function stubModelsDev(document: unknown, status = 200): { requests: Request[]; restore: () => void } {
+  if (installed !== undefined) {
+    throw new Error('a models.dev stub is already installed; restore it before installing another')
+  }
   const requests: Request[] = []
   const real = globalThis.fetch
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const stub = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
     if (!url.startsWith('https://models.dev/')) return real(input as RequestInfo, init)
     requests.push(new Request(url, init))
@@ -252,5 +261,15 @@ export function stubModelsDev(document: unknown, status = 200): { requests: Requ
       headers: { 'content-type': 'application/json', etag: '"v1"' },
     })
   }) as typeof fetch
-  return { requests, restore: () => { globalThis.fetch = real } }
+  globalThis.fetch = stub
+  installed = stub
+  return {
+    requests,
+    restore: () => {
+      // Idempotent: a double restore must not clobber whatever came after.
+      if (installed !== stub) return
+      installed = undefined
+      globalThis.fetch = real
+    },
+  }
 }

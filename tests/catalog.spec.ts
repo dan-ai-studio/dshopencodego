@@ -278,7 +278,10 @@ describe('live catalog', () => {
     const fallbacks: unknown[] = []
     try {
       const catalog = catalogFor(server.baseURL, {}, { onFallback: (detail: unknown) => fallbacks.push(detail) })
-      await catalog.snapshot()
+      const first = await catalog.snapshot()
+      // A failed first read would leave nothing to keep, and the assertions
+      // below would then fail on an empty map instead of here.
+      expect(first.live).toBe(true)
       // Fail the live listing instead of closing the socket: a closed port
       // races the HTTP client's keep-alive pool and occasionally completes.
       server.setListingStatus(500)
@@ -304,6 +307,7 @@ describe('live catalog', () => {
         onUnconfigured: (detail: { id: string; reason: string }[]) => reported.push(...detail),
       })
       const snapshot = await catalog.snapshot()
+      expect(snapshot.live).toBe(true)
       expect([...snapshot.facts.keys()]).toEqual(['glm-5.3'])
       expect(snapshot.unavailable.get('bad-model')).toContain('nonsense')
       expect(reported).toHaveLength(1)
