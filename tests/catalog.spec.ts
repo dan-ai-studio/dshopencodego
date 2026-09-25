@@ -97,11 +97,12 @@ describe('online metadata parsing', () => {
     expect(facts.thinkingLevelMap).toMatchObject({ low: 'low', high: 'high', off: null })
   })
 
-  it('does not promise a thinking switch the transport cannot express', () => {
-    // MiMo ships without a thinkingFormat and without an installed level map;
-    // the openai-shaped "off" would be sent as reasoning_effort and some
-    // gateways reject that parameter outright (measured: 400 Invalid request
-    // parameters on mimo-v2.6-flash).
+  it('offers the measured effort trio for a model whose options are undocumented', () => {
+    // MiMo ships without a thinkingFormat and without an installed level map.
+    // models.dev documents no options, yet the gateway accepts the standard
+    // trio on these transports and rejects "minimal"/"off" with a 400
+    // (measured 2026-09-25 on mimo-v2.6-flash/pro, mimo-v2.5(-pro),
+    // minimax-m2.5, kimi-k2.6/k2.7-code and glm-5.1).
     const builtin = new Map(getBuiltinModels('opencode-go').map(model => [model.id, model]))
     const { models } = readOnlineMetadata(modelsDevDocument({
       'mimo-v2.6-flash': {
@@ -110,7 +111,19 @@ describe('online metadata parsing', () => {
       },
     }), { ...sources, builtin })
     const facts = models.get('mimo-v2.6-flash')!
-    expect(facts.thinkingLevelMap).toMatchObject({ off: null })
+    expect(facts.thinkingLevelMap).toMatchObject({ off: null, minimal: null, low: 'low', medium: 'medium', high: 'high' })
+  })
+
+  it('does not invent a thinking switch the document only calls a toggle', () => {
+    // A toggle names no wire value. "high" is the measured "on" spelling;
+    // "off" must stay unsupported because some models answer that value 400.
+    const { models } = readOnlineMetadata(modelsDevDocument({
+      'glm-5.1': {
+        name: 'GLM-5.1', reasoning: true,
+        reasoning_options: [{ type: 'toggle' }, { type: 'budget_tokens' }],
+      },
+    }), sources)
+    expect(models.get('glm-5.1')?.thinkingLevelMap).toMatchObject({ off: null, high: 'high' })
   })
 
   it('marks a model whose capacities no source states as assumed', () => {

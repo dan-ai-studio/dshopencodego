@@ -87,6 +87,21 @@ function rates(value: unknown): ModelCost {
 }
 
 /**
+ * Transports whose request branch spells "thinking off" itself — DeepSeek's
+ * separate thinking flag, for example — so an installed `off` marker is a
+ * promise they can keep. Everywhere else the marker would ride the wire as
+ * `reasoning_effort: "off"`.
+ */
+export const DISABLES_THINKING_WHEN_UNSET: ReadonlySet<string> = new Set(['deepseek', 'zai', 'qwen', 'qwen-chat-template'])
+
+/**
+ * The efforts the gateway accepts for a reasoning model whose document names
+ * none. Measured 2026-09-25 on every such model that was available:
+ * low/medium/high all stream, while "minimal" and "off" answer 400.
+ */
+const UNDOCUMENTED_EFFORTS: readonly ModelThinkingLevel[] = ['low', 'medium', 'high']
+
+/**
  * Reasoning levels a model actually offers.
  *
  * An absent `reasoning_options` list is not "no levels": it means the document
@@ -101,8 +116,11 @@ function thinkingLevels(metadata: Record<string, unknown>, known: Model<Api> | u
   for (const item of options) {
     const option = record(item)
     if (option['type'] === 'toggle' || option['type'] === 'budget_tokens') {
-      map.off = 'off'
-      map.high = 'high'
+      // A switch exists but the document names no wire value; "high" is the
+      // one "on" spelling measured to work wherever this gateway offers such
+      // a switch. "off" is deliberately not invented here: some of these
+      // models answer `reasoning_effort: "off"` with a 400.
+      map.high ??= 'high'
     }
     if (option['type'] !== 'effort' || !Array.isArray(option['values'])) continue
     for (const value of option['values']) {
@@ -112,15 +130,23 @@ function thinkingLevels(metadata: Record<string, unknown>, known: Model<Api> | u
       }
     }
   }
-  // An established transport may support disabling thinking on top of the
-  // advertised effort levels — but only one that has a way to *say* it: a
-  // thinkingFormat. Without one, the OpenAI-shaped spelling is
-  // `reasoning_effort: "off"`, and gateways that reject the parameter reject
-  // the whole request; the honest default there is to send nothing and let the
-  // provider decide.
   const format = (known?.compat as { thinkingFormat?: string } | undefined)?.thinkingFormat
-  if (known?.reasoning === true && format !== undefined && known.thinkingLevelMap?.off !== null) {
+  // Only a transport that expresses "off" in its own convention may keep the
+  // marker; one that would send it as `reasoning_effort` must not promise a
+  // switch it cannot keep (measured: qwen3.7-max, qwen3.8-max and qwen3.8-flash
+  // all answer 400 to that value).
+  if (known?.reasoning === true && format !== undefined && DISABLES_THINKING_WHEN_UNSET.has(format) && known.thinkingLevelMap?.off !== null) {
     map.off ??= known.thinkingLevelMap?.off ?? 'off'
+  }
+  if (options.length === 0) {
+    // "Reasoning, options undocumented" — the MiMo family and friends.
+    const installed = known?.thinkingLevelMap
+    if (installed !== undefined && LEVELS.some(level => typeof installed[level] === 'string')) return installed
+    // Without a format of its own the transport speaks plain reasoning_effort,
+    // so it offers exactly the measured trio.
+    if (format === undefined) {
+      for (const level of UNDOCUMENTED_EFFORTS) map[level] = level
+    }
   }
   return map
 }

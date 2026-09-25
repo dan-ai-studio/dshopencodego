@@ -206,8 +206,8 @@ describe('adapter on the wire', () => {
   })
 
   it('treats an explicit "off" effort as no effort at all', async () => {
-    // MiMo offers no levels and no thinking switch; a session that asks for
-    // "off" must not turn into a reasoning_effort the gateway rejects.
+    // A session that asks for "off" must not turn into a reasoning_effort the
+    // gateway rejects; MiMo offers low/medium/high and nothing else.
     const server = await gateway({ listing: ['mimo-v2.6-flash'] })
     const stub = stubModelsDev(modelsDevDocument({
       'mimo-v2.6-flash': {
@@ -221,6 +221,26 @@ describe('adapter on the wire', () => {
       const request = server.requests.find(entry => entry.path.endsWith('/chat/completions'))
       expect(request).toBeDefined()
       expect(JSON.stringify(request!.body)).not.toContain('reasoning_effort')
+    } finally {
+      stub.restore()
+    }
+  })
+
+  it('offers and sends the measured trio for a MiMo model', async () => {
+    const server = await gateway({ listing: ['mimo-v2.6-flash'] })
+    const stub = stubModelsDev(modelsDevDocument({
+      'mimo-v2.6-flash': {
+        name: 'MiMo-V2.6-Flash', reasoning: true, reasoning_options: [],
+        limit: { context: 1_048_576, output: 131_072 },
+      },
+    }))
+    try {
+      const adapter = adapterFor(server)
+      const info = await adapter.resolveModel('opencode-go', 'mimo-v2.6-flash')
+      expect(info.reasoning?.efforts.map(effort => effort.id)).toEqual(['low', 'medium', 'high'])
+      await collect(adapter.stream(options('mimo-v2.6-flash', { reasoningEffort: 'high' })))
+      const request = server.requests.find(entry => entry.path.endsWith('/chat/completions'))
+      expect((request!.body as { reasoning_effort?: string }).reasoning_effort).toBe('high')
     } finally {
       stub.restore()
     }
