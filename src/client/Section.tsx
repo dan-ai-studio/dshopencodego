@@ -15,7 +15,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { CatalogReading } from '../catalog/contract.ts'
 import { isModelEnabled } from '../models.ts'
-import { capabilityLabels, compactCount, INITIAL_FILTER, inputModalityLabels, visibleModels } from './model-view.ts'
+import { compactCount, INITIAL_FILTER, inputModalityLabels, visibleModels } from './model-view.ts'
 import type { ModelFilter, ModelSort } from './model-view.ts'
 import css from './section.module.css'
 
@@ -504,7 +504,6 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
       {reading !== undefined && <div className={css.list}>
         {rows.map(model => {
           const badge = badgeFor(model, t)
-          const capabilities = capabilityLabels(model, t).join(' · ')
           const modalities = inputModalityLabels(model, t).join(' · ')
           const offered = isOffered(model, visibility)
           return <div className={css.item} key={model.id}>
@@ -520,7 +519,6 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
                 <span className={css.name}>{model.name}</span>
                 <span className={css.mono}>{model.id}</span>
                 {model.releaseDate !== undefined && <span className={css.hint}>{model.releaseDate}</span>}
-                {capabilities.length > 0 && <span className={css.badge}>{capabilities}</span>}
                 {badge.length > 0 && <span className={css.badge}>{badge}</span>}
               </div>
               <div className={css.itemMeta}>

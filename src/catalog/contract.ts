@@ -79,9 +79,6 @@ function parseModel(value: unknown): ModelSummary {
       ? { protocolSource: row['protocolSource'] } : {},
     ...typeof row['assumedLimits'] === 'boolean' ? { assumedLimits: row['assumedLimits'] } : {},
     ...parseModalities(row['inputModalities']),
-    ...typeof row['structuredOutput'] === 'boolean' ? { structuredOutput: row['structuredOutput'] } : {},
-    ...typeof row['temperature'] === 'boolean' ? { temperature: row['temperature'] } : {},
-    ...typeof row['openWeights'] === 'boolean' ? { openWeights: row['openWeights'] } : {},
     ...typeof row['configurationMissing'] === 'string' ? { configurationMissing: row['configurationMissing'] } : {},
   }
 }

@@ -281,11 +281,6 @@ export class OpencodeGoCatalog {
       inputModalities: undefined,
       reasoning: exact?.reasoning ?? false,
       thinkingLevelMap: exact?.thinkingLevelMap,
-      // No source describes these, so the page says nothing instead of
-      // guessing: the installed catalog knows wire shapes, not capabilities.
-      structuredOutput: undefined,
-      temperature: undefined,
-      openWeights: undefined,
       compat: exact?.compat ?? ({} as Model<Api>['compat']),
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       deprecated: false,

@@ -50,14 +50,6 @@ export interface ModelFacts {
   readonly inputModalities: readonly InputModality[] | undefined
   readonly reasoning: boolean
   readonly thinkingLevelMap: ThinkingLevelMap | undefined
-  /**
-   * Declared capability facts, exactly as models.dev states them. `undefined`
-   * means the document says nothing about the capability, which is not the
-   * same answer as `false` and must never be rendered as "unsupported".
-   */
-  readonly structuredOutput: boolean | undefined
-  readonly temperature: boolean | undefined
-  readonly openWeights: boolean | undefined
   readonly compat: Model<Api>['compat']
   readonly cost: ModelCost
   readonly deprecated: boolean
@@ -91,11 +83,6 @@ function positiveInteger(value: unknown): number | undefined {
 
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
-/** A capability the document states as yes or no; silence stays silence. */
-function declaredBoolean(value: unknown): boolean | undefined {
-  return typeof value === 'boolean' ? value : undefined
 }
 
 /**
@@ -327,9 +314,6 @@ export function readOnlineMetadata(body: unknown, sources: MetadataSources): Onl
         inputModalities: readInputModalities(metadata),
         reasoning,
         thinkingLevelMap: reasoning ? thinkingLevels(metadata, exact?.api === api ? exact : sibling) : undefined,
-        structuredOutput: declaredBoolean(metadata['structured_output']),
-        temperature: declaredBoolean(metadata['temperature']),
-        openWeights: declaredBoolean(metadata['open_weights']),
         compat: compatFor(api, metadata, exact, sibling),
         cost,
         deprecated: metadata['status'] === 'deprecated',

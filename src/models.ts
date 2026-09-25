@@ -45,14 +45,6 @@ export interface ModelSummary {
    * document declares none this build can name.
    */
   readonly inputModalities?: readonly InputModality[]
-  /**
-   * Capabilities models.dev declares, in its own words. Each is absent when the
-   * document is silent about it — absence is "unstated", never "unsupported",
-   * so the page leaves the cell empty instead of showing a negative.
-   */
-  readonly structuredOutput?: boolean
-  readonly temperature?: boolean
-  readonly openWeights?: boolean
   /** True when a capacity came from the route default rather than a source. */
   readonly assumedLimits?: boolean
   /** Advertised by the gateway but not configurable, with the reason. */

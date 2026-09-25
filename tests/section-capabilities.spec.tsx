@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
- * The settings page's per-model marks: declared capabilities as badges, the
- * declared input modalities on their own line, and silence left silent.
+ * The settings page's per-model marks: the declared input modalities on their
+ * own line, and silence left silent.
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
@@ -19,11 +19,8 @@ const READING: CatalogReading = {
       maxTokens: 131_072,
       releaseDate: '2026-08-14',
       inputModalities: ['text', 'image', 'audio', 'video', 'pdf'],
-      structuredOutput: true,
-      temperature: true,
-      openWeights: true,
     },
-    // The document says nothing about this model's capabilities or inputs.
+    // The document says nothing about this model's inputs.
     { id: 'silent-model', name: 'Silent Model', contextWindow: 1000, maxTokens: 100 },
   ],
   stale: false,
@@ -50,11 +47,6 @@ const t = (key: string): string => (en as Record<string, string>)[key] ?? key
 afterEach(() => { cleanup() })
 
 describe('settings model marks', () => {
-  it('badges the declared capabilities', async () => {
-    render(<Section controller={new SectionController(services)} t={t} />)
-    expect(await screen.findByText('Structured · Temp · Open')).toBeTruthy()
-  })
-
   it('lists the declared input modalities on their own line, and only where declared', async () => {
     render(<Section controller={new SectionController(services)} t={t} />)
     await screen.findByText('Silent Model')
