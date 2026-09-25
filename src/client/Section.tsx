@@ -15,7 +15,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { CatalogReading } from '../catalog/contract.ts'
 import { isModelEnabled } from '../models.ts'
-import { capabilityLabels, compactCount, INITIAL_FILTER, visibleModels } from './model-view.ts'
+import { capabilityLabels, compactCount, INITIAL_FILTER, inputModalityLabels, visibleModels } from './model-view.ts'
 import type { ModelFilter, ModelSort } from './model-view.ts'
 import css from './section.module.css'
 
@@ -499,72 +499,13 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
             <option value="enabled">{t('sortEnabled')}</option>
           </select>
         </label>
-        <span className={css.segmented}>
-          <button
-            type="button"
-            className={state.filter.view === 'list' ? css.segmentActive : css.segment}
-            onClick={() => { controller.setFilter({ view: 'list' }) }}
-          >
-            {t('viewList')}
-          </button>
-          <button
-            type="button"
-            className={state.filter.view === 'table' ? css.segmentActive : css.segment}
-            onClick={() => { controller.setFilter({ view: 'table' }) }}
-          >
-            {t('viewTable')}
-          </button>
-        </span>
         {hidden > 0 && <span className={css.hint}>{hidden} {t('filterHidden')}</span>}
       </div>}
-      {reading !== undefined && (state.filter.view === 'table' ? <div className={css.tableWrap}>
-        <table className={css.table}>
-          <thead>
-            <tr>
-              <th />
-              <th className={css.hint}>{t('headerModel')}</th>
-              <th className={css.hint}>{t('headerId')}</th>
-              <th className={css.hint}>{t('headerReleased')}</th>
-              <th className={css.hint}>{t('headerCapacity')}</th>
-              <th className={css.hint}>{t('headerIo')}</th>
-              <th className={css.hint}>{t('headerPrice')}</th>
-              <th className={css.hint}>{t('headerQuota')}</th>
-              <th className={css.hint}>{t('headerCapabilities')}</th>
-              <th className={css.hint}>{t('headerNotes')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(model => {
-              const badge = badgeFor(model, t)
-              const capabilities = capabilityLabels(model, t).join(' · ')
-              const offered = isOffered(model, visibility)
-              return <tr key={model.id}>
-                <td className={css.toggle}>
-                  <input
-                    type="checkbox"
-                    aria-label={`${t('catalogTitle')}: ${model.name}`}
-                    checked={offered}
-                    disabled={!editable || model.configurationMissing !== undefined}
-                    onChange={event => { controller.setVisibility(model.id, event.target.checked) }}
-                  />
-                </td>
-                <td className={css.name}>{model.name}</td>
-                <td className={css.mono}>{model.id}</td>
-                <td className={css.hint}>{model.releaseDate ?? '—'}</td>
-                <td className={css.hint}>{model.contextWindow === undefined ? '—' : model.contextWindow.toLocaleString(getLocale?.())}</td>
-                <td className={css.hint}>{ioLabel(model, t)}</td>
-                <td className={css.hint}>{priceLabel(model)}</td>
-                <td className={css.hint}>{quotaLabel(model, t)}</td>
-                <td className={css.hint}>{capabilities.length === 0 ? '—' : capabilities}</td>
-                <td className={badge.length === 0 ? css.hint : css.badge}>{badge}</td>
-              </tr>
-            })}
-          </tbody>
-        </table>
-      </div> : <div className={css.list}>
+      {reading !== undefined && <div className={css.list}>
         {rows.map(model => {
           const badge = badgeFor(model, t)
           const capabilities = capabilityLabels(model, t).join(' · ')
+          const modalities = inputModalityLabels(model, t).join(' · ')
           const offered = isOffered(model, visibility)
           return <div className={css.item} key={model.id}>
             <input
@@ -589,10 +530,13 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
                 <span>{priceLabel(model)}</span>
                 <span>{quotaLabel(model, t)}</span>
               </div>
+              {modalities.length > 0 && <div className={css.itemModalities}>
+                {`${t('inputLabel')} ${modalities}`}
+              </div>}
             </div>
           </div>
         })}
-      </div>)}
+      </div>}
     </div>
   </section>
 }

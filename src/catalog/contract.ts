@@ -13,6 +13,8 @@
 import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import type { ModelSummary } from '../models.ts'
 import type { GoQuota } from '../go-limits.ts'
+import { INPUT_MODALITIES } from './metadata.ts'
+import type { InputModality } from './metadata.ts'
 import type { CatalogReading } from './reading.ts'
 
 export type { CatalogReading } from './reading.ts'
@@ -51,6 +53,13 @@ function parseCost(value: unknown): { input: number; output: number; cacheRead?:
   }
 }
 
+/** Recognised input modalities out of one wire value; absent when none survive. */
+function parseModalities(value: unknown): { inputModalities?: readonly InputModality[] } {
+  if (!Array.isArray(value)) return {}
+  const kept = INPUT_MODALITIES.filter(modality => (value as unknown[]).includes(modality))
+  return kept.length === 0 ? {} : { inputModalities: kept }
+}
+
 function parseModel(value: unknown): ModelSummary {
   if (value === null || typeof value !== 'object') throw new Error('invalid catalog model')
   const row = value as Record<string, unknown>
@@ -69,6 +78,7 @@ function parseModel(value: unknown): ModelSummary {
       || row['protocolSource'] === 'inferred' || row['protocolSource'] === 'override'
       ? { protocolSource: row['protocolSource'] } : {},
     ...typeof row['assumedLimits'] === 'boolean' ? { assumedLimits: row['assumedLimits'] } : {},
+    ...parseModalities(row['inputModalities']),
     ...typeof row['structuredOutput'] === 'boolean' ? { structuredOutput: row['structuredOutput'] } : {},
     ...typeof row['temperature'] === 'boolean' ? { temperature: row['temperature'] } : {},
     ...typeof row['openWeights'] === 'boolean' ? { openWeights: row['openWeights'] } : {},

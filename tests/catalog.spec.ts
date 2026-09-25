@@ -169,6 +169,28 @@ describe('online metadata parsing', () => {
     expect([silent.structuredOutput, silent.temperature, silent.openWeights]).toEqual([undefined, undefined, undefined])
   })
 
+  it('keeps the declared input modalities and drops ones it cannot name', () => {
+    const { models } = readOnlineMetadata(modelsDevDocument({
+      'mimo-v2.6-flash': {
+        reasoning: true,
+        modalities: { input: ['text', 'image', 'audio', 'video', 'pdf'] },
+        limit: { context: 1_048_576, output: 131_072 },
+      },
+      'glm-5.3': { reasoning: true, modalities: { input: ['text', 'image'] }, limit: { context: 1000, output: 100 } },
+      'text-only': { reasoning: true, modalities: { input: ['text'] }, limit: { context: 1000, output: 100 } },
+      'unknown-only': { reasoning: true, modalities: { input: ['hologram'] }, limit: { context: 1000, output: 100 } },
+      'no-modalities': { reasoning: true, limit: { context: 1000, output: 100 } },
+    }), sources)
+    expect(models.get('mimo-v2.6-flash')!.inputModalities).toEqual(['text', 'image', 'audio', 'video', 'pdf'])
+    expect(models.get('glm-5.3')!.inputModalities).toEqual(['text', 'image'])
+    // A single declared modality is still a declaration, not an omission.
+    expect(models.get('text-only')!.inputModalities).toEqual(['text'])
+    // A modality this build cannot label is dropped, and a list naming none of
+    // them stays unstated instead of rendering a raw token.
+    expect(models.get('unknown-only')!.inputModalities).toBeUndefined()
+    expect(models.get('no-modalities')!.inputModalities).toBeUndefined()
+  })
+
   it('isolates a bad entry instead of discarding the document', () => {
     const { models, errors } = readOnlineMetadata(modelsDevDocument({
       good: { reasoning: true, limit: { context: 1000, output: 100 } },

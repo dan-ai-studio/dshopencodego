@@ -22,6 +22,7 @@ const READING: CatalogReading = {
       structuredOutput: true,
       temperature: false,
       openWeights: true,
+      inputModalities: ['text', 'image'],
     },
     { id: 'old', name: 'Old', deprecated: true, protocolSource: 'inferred' },
     { id: 'ghost', name: 'ghost', configurationMissing: 'unknown protocol' },
@@ -40,6 +41,7 @@ describe('parseCatalogReading', () => {
       releaseDate: '2026-09-20',
       goQuota: { monthlyUsd: 60, monthlyRequests: 150_400 },
       cost: { input: 0.14, output: 0.28, cacheRead: 0.0028 },
+      inputModalities: ['text', 'image'],
     })
   })
 
@@ -50,6 +52,9 @@ describe('parseCatalogReading', () => {
     expect(() => parseCatalogReading({ ...READING, models: [{ id: 'x', goQuota: { monthlyUsd: 'much' } }] })).toThrow()
     expect(() => parseCatalogReading({ ...READING, models: [{ id: 'x', cost: { input: -1, output: 0 } }] })).toThrow()
     expect(() => parseCatalogReading({ ...READING, models: [{ id: 'x', releaseDate: 'tomorrow' }] })).not.toThrow()
+    // A modality the client cannot label is dropped instead of crossing the wire.
+    expect(parseCatalogReading({ ...READING, models: [{ id: 'x', inputModalities: ['hologram'] }] }).models[0])
+      .toEqual({ id: 'x', name: 'x' })
   })
 
   it('tolerates a reading without the newer optional fields', () => {

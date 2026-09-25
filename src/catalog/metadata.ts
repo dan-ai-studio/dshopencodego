@@ -20,6 +20,12 @@ import { asWireProtocol, decideProtocol, protocolOfNpm } from './protocol.ts'
 import type { ProtocolSource, WireProtocol } from './protocol.ts'
 import { MODEL_METADATA_PROVIDER } from './constants.ts'
 
+/** Input modalities this build can name, in display order. */
+export const INPUT_MODALITIES = ['text', 'image', 'audio', 'video', 'pdf'] as const
+
+/** One input modality a model document may declare. */
+export type InputModality = (typeof INPUT_MODALITIES)[number]
+
 /** Everything this plugin knows about one advertised model. */
 export interface ModelFacts {
   readonly id: string
@@ -34,6 +40,14 @@ export interface ModelFacts {
   /** True when a capacity came from the route default rather than a source. */
   readonly assumedLimits: boolean
   readonly input: readonly ('text' | 'image')[]
+  /**
+   * Every input modality the document declares, in display order. `undefined`
+   * means it declares none this build can name — silence, not "text only".
+   * Kept beside {@link input} because the two answer different questions:
+   * `input` gates what this route may send, this one reports what the model
+   * itself accepts.
+   */
+  readonly inputModalities: readonly InputModality[] | undefined
   readonly reasoning: boolean
   readonly thinkingLevelMap: ThinkingLevelMap | undefined
   /**
@@ -82,6 +96,21 @@ function nonEmptyString(value: unknown): string | undefined {
 /** A capability the document states as yes or no; silence stays silence. */
 function declaredBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
+}
+
+/**
+ * Input modalities exactly as the document declares them, in display order.
+ *
+ * A modality this build cannot name is dropped rather than passed through: the
+ * settings page labels every value it renders. An absent list, or one naming
+ * nothing recognisable, stays `undefined` — the document is silent, which is a
+ * different fact from "text only".
+ */
+function readInputModalities(metadata: Record<string, unknown>): readonly InputModality[] | undefined {
+  const declared = record(metadata['modalities'])['input']
+  if (!Array.isArray(declared)) return undefined
+  const kept = INPUT_MODALITIES.filter(modality => declared.includes(modality))
+  return kept.length === 0 ? undefined : kept
 }
 
 /** A calendar date models.dev states without a timezone. */
@@ -295,6 +324,7 @@ export function readOnlineMetadata(body: unknown, sources: MetadataSources): Onl
         assumedLimits: onlineContext === undefined && builtinContext === undefined
           || onlineOutput === undefined && builtinOutput === undefined,
         input,
+        inputModalities: readInputModalities(metadata),
         reasoning,
         thinkingLevelMap: reasoning ? thinkingLevels(metadata, exact?.api === api ? exact : sibling) : undefined,
         structuredOutput: declaredBoolean(metadata['structured_output']),

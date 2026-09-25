@@ -1,5 +1,5 @@
 /**
- * The settings page's view over the catalog: the table is narrowed and ordered
+ * The settings page's view over the catalog: the list is narrowed and ordered
  * for a human, independently of the wire order the Host publishes.
  *
  * The default order is the Host's own (newly shipped first, then the rest,
@@ -11,13 +11,11 @@
 
 import { isModelEnabled } from '../models.ts'
 import type { ModelSummary } from '../models.ts'
+import type { InputModality } from '../catalog/metadata.ts'
 import { monthlyRequestsRank } from '../go-limits.ts'
 
 /** How the model table is ordered. */
 export type ModelSort = 'default' | 'released' | 'name' | 'context' | 'enabled' | 'quota' | 'price'
-
-/** How the models are laid out. */
-export type ModelView = 'list' | 'table'
 
 /** Everything the human narrowed the table with. */
 export interface ModelFilter {
@@ -28,8 +26,6 @@ export interface ModelFilter {
   /** Whether only currently offered models are listed. */
   readonly onlyEnabled: boolean
   readonly sort: ModelSort
-  /** Rows carry every field; the table view aligns them into columns. */
-  readonly view: ModelView
 }
 
 /** The table as it opens: the most usable models first, deprecated hidden. */
@@ -38,7 +34,6 @@ export const INITIAL_FILTER: ModelFilter = {
   showDeprecated: false,
   onlyEnabled: false,
   sort: 'quota',
-  view: 'list',
 }
 
 /** 1_048_576 → "1.0M", 150_400 → "150K", 845 → "845". */
@@ -134,4 +129,30 @@ export function capabilityLabels(
   if (model.temperature === true) labels.push(t('capTemperature'))
   if (model.openWeights === true) labels.push(t('capOpenWeights'))
   return labels
+}
+
+/** Translation key for each modality, kept exhaustive over the union. */
+const MODALITY_KEYS: Record<InputModality, string> = {
+  text: 'modalityText',
+  image: 'modalityImage',
+  audio: 'modalityAudio',
+  video: 'modalityVideo',
+  pdf: 'modalityPdf',
+}
+
+/**
+ * The input modalities one model declares, labelled in display order.
+ *
+ * Distinct from {@link capabilityLabels}: these are the model's own metadata,
+ * not this route's ability to send them, so the list shows what models.dev
+ * states even where the Harness can only forward text and images.
+ * @param model - the summary under test.
+ * @param t - the active translation for the modality words.
+ * @returns the labelled modalities; empty when the document declares none.
+ */
+export function inputModalityLabels(
+  model: Pick<ModelSummary, 'inputModalities'>,
+  t: (key: string) => string,
+): string[] {
+  return (model.inputModalities ?? []).map(modality => t(MODALITY_KEYS[modality]))
 }

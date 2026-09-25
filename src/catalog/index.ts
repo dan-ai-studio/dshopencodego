@@ -278,6 +278,7 @@ export class OpencodeGoCatalog {
       maxTokens,
       assumedLimits: exact === undefined,
       input: exact?.input ?? this.options.defaults.input,
+      inputModalities: undefined,
       reasoning: exact?.reasoning ?? false,
       thinkingLevelMap: exact?.thinkingLevelMap,
       // No source describes these, so the page says nothing instead of

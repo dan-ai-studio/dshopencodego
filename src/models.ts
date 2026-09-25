@@ -10,6 +10,7 @@
  */
 
 import type { ProtocolSource } from './catalog/protocol.ts'
+import type { InputModality } from './catalog/metadata.ts'
 import type { GoQuota } from './go-limits.ts'
 import { goQuotaFor, monthlyRequestsRank } from './go-limits.ts'
 
@@ -39,6 +40,11 @@ export interface ModelSummary {
   }
   /** Which ladder level decided this model's protocol. */
   readonly protocolSource?: ProtocolSource
+  /**
+   * Every input modality models.dev declares, in display order. Absent when the
+   * document declares none this build can name.
+   */
+  readonly inputModalities?: readonly InputModality[]
   /**
    * Capabilities models.dev declares, in its own words. Each is absent when the
    * document is silent about it — absence is "unstated", never "unsupported",

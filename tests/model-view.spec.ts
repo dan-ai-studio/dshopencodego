@@ -3,7 +3,7 @@
  * which rows one filter shows, in which order.
  */
 import { describe, expect, it } from 'vitest'
-import { capabilityLabels, compactCount, INITIAL_FILTER, visibleModels } from '../src/client/model-view.ts'
+import { capabilityLabels, compactCount, INITIAL_FILTER, inputModalityLabels, visibleModels } from '../src/client/model-view.ts'
 import type { ModelFilter } from '../src/client/model-view.ts'
 import type { ModelSummary } from '../src/models.ts'
 
@@ -42,9 +42,8 @@ const filter = (patch: Partial<ModelFilter> = {}): ModelFilter => ({ ...INITIAL_
 const ids = (rows: readonly ModelSummary[]): string[] => rows.map(row => row.id)
 
 describe('model view', () => {
-  it('opens on the monthly-requests order, list view', () => {
+  it('opens on the monthly-requests order', () => {
     expect(INITIAL_FILTER.sort).toBe('quota')
-    expect(INITIAL_FILTER.view).toBe('list')
   })
 
   it('hides deprecated models unless asked', () => {
@@ -94,6 +93,15 @@ describe('model view', () => {
     // what a model can do and never implies the rest is broken.
     expect(capabilityLabels({ structuredOutput: false, temperature: false, openWeights: false }, t)).toEqual([])
     expect(capabilityLabels({}, t)).toEqual([])
+  })
+
+  it('labels the declared input modalities in display order', () => {
+    const t = (key: string): string => key
+    expect(inputModalityLabels({ inputModalities: ['text', 'image', 'audio', 'video', 'pdf'] }, t))
+      .toEqual(['modalityText', 'modalityImage', 'modalityAudio', 'modalityVideo', 'modalityPdf'])
+    expect(inputModalityLabels({ inputModalities: ['text'] }, t)).toEqual(['modalityText'])
+    // No declaration reads as nothing to say, never as "text only".
+    expect(inputModalityLabels({}, t)).toEqual([])
   })
 
   it('formats large counts compactly', () => {

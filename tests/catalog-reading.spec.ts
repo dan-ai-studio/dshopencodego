@@ -83,6 +83,7 @@ describe('settings catalog reading', () => {
     const stub = stubModelsDev(modelsDevDocument({
       'glm-5.3': {
         name: 'GLM-5.3', reasoning: true, structured_output: true, temperature: true, open_weights: true,
+        modalities: { input: ['text', 'image', 'audio'] },
         limit: { context: 1000, output: 100 },
       },
       'kimi-k3': { name: 'Kimi K3', reasoning: true, temperature: false, limit: { context: 1000, output: 100 } },
@@ -94,12 +95,14 @@ describe('settings catalog reading', () => {
       const reading = catalogReading(await catalog.snapshot(), {})
       const declared = reading.models.find(model => model.id === 'glm-5.3')!
       expect(declared).toMatchObject({ structuredOutput: true, temperature: true, openWeights: true })
+      expect(declared.inputModalities).toEqual(['text', 'image', 'audio'])
       // Silence travels as an absent key, not as `false`: the client asks for
       // the key before it labels anything.
       const partial = reading.models.find(model => model.id === 'kimi-k3')!
       expect(partial.temperature).toBe(false)
       expect(Object.hasOwn(partial, 'structuredOutput')).toBe(false)
       expect(Object.hasOwn(partial, 'openWeights')).toBe(false)
+      expect(Object.hasOwn(partial, 'inputModalities')).toBe(false)
     } finally {
       stub.restore()
     }
