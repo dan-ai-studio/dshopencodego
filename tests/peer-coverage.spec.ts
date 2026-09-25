@@ -31,7 +31,7 @@ function packagesUsedInSource(): Set<string> {
     ]
     for (const [, specifier] of specifiers) {
       // `@deepseek-ai/dsh-foo/client` and `@deepseek-ai/dsh-foo` are one package.
-      const [scope, name] = specifier.split('/')
+      const [scope, name] = specifier!.split('/')
       const packageName = `${scope}/${name}`
       // schemastery is an ordinary dependency; the host seam is what the
       // compatibility gate governs.

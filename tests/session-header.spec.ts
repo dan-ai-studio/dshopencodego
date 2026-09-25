@@ -25,7 +25,7 @@ describe('providerHeaders', () => {
     const headers = providerHeaders('session-abc')
     expect(headers[SESSION_HEADER]).toBe('session-abc')
     expect(typeof headers['user-agent']).toBe('string')
-    expect(headers['user-agent'].length).toBeGreaterThan(0)
+    expect(headers['user-agent']!.length).toBeGreaterThan(0)
   })
 
   it('carries a minted value when the request names no session', () => {

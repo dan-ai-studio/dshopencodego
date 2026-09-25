@@ -54,6 +54,6 @@ describe('settings model marks', () => {
     // not count, and the model that declares nothing must show no line.
     const lines = screen.getAllByText(/^Input (Text|Image|Audio|Video|PDF)/)
     expect(lines).toHaveLength(1)
-    expect(lines[0].textContent).toBe('Input Text · Image · Audio · Video · PDF')
+    expect(lines[0]!.textContent).toBe('Input Text · Image · Audio · Video · PDF')
   })
 })

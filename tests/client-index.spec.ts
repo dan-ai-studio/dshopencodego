@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/client/index.ts'
 
 function scope() {
-  const slotsInject = vi.fn((name: string, run: () => unknown) => run())
+  const slotsInject = vi.fn((_name: string, run: () => unknown) => run())
   const slotsRegister = vi.fn((_options: unknown, component: unknown) => component)
   return {
     get: (name: string) => (name === 'configForms' ? { get: () => undefined } : undefined),
@@ -34,7 +34,7 @@ function context() {
       effect: vi.fn((run: () => unknown) => run()),
       locale: { register: vi.fn() },
       remote: { $mount: vi.fn(async (contribution: unknown) => { mounted.push(contribution); return async () => {} }) },
-      inject: vi.fn((services: string[], run: (scope: unknown) => unknown) => run(scope())),
+      inject: vi.fn((_services: string[], run: (scope: unknown) => unknown) => run(scope())),
     } as never,
     mounted,
   }
@@ -62,7 +62,8 @@ describe('client apply', () => {
   it('places the settings section and the usage pill', () => {
     const { ctx } = context()
     const injected: unknown[][] = []
-    ;(ctx.inject as ReturnType<typeof vi.fn>).mockImplementation(
+    const mockInject = (ctx as unknown as { inject: ReturnType<typeof vi.fn> }).inject
+    mockInject.mockImplementation(
       (services: string[], run: (scope: unknown) => unknown) => {
         injected.push([services, run])
         run(scope())

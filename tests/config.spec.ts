@@ -62,7 +62,7 @@ describe('PlainConfig', () => {
       .toMatchObject({ mode: 'normal', maxRetries: 2 })
     expect(PlainConfig({ retryPolicy: { mode: 'always' } }).retryPolicy).toMatchObject({ mode: 'always' })
     expect(() => PlainConfig({ retryPolicy: { mode: 'normal', maxRetries: -1 } })).toThrow()
-    expect(() => PlainConfig({ retryPolicy: { mode: 'sometimes' } })).toThrow()
+    expect(() => PlainConfig({ retryPolicy: { mode: 'sometimes' } as never })).toThrow()
   })
 })
 

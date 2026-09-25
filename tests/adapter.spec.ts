@@ -216,7 +216,7 @@ describe('adapter on the wire', () => {
       },
     }))
     try {
-      const chunks = await collect(adapterFor(server).stream(options('mimo-v2.6-flash', { reasoningEffort: 'off' })))
+      const chunks = await collect(adapterFor(server).stream(options('mimo-v2.6-flash', { reasoningEffort: 'off' as never })))
       expect(chunks.some(chunk => chunk.type === 'text-delta')).toBe(true)
       const request = server.requests.find(entry => entry.path.endsWith('/chat/completions'))
       expect(request).toBeDefined()
@@ -433,9 +433,9 @@ describe('model summaries', () => {
   it('sorts new releases first and deprecated last', () => {
     const now = Date.parse('2026-09-24T00:00:00Z')
     const sorted = sortModels([
-      { id: 'old', deprecated: true },
-      { id: 'plain' },
-      { id: 'fresh', releaseDate: '2026-09-23' },
+      { id: 'old', name: 'Old', deprecated: true },
+      { id: 'plain', name: 'Plain' },
+      { id: 'fresh', name: 'Fresh', releaseDate: '2026-09-23' },
     ], now)
     expect(sorted.map(model => model.id)).toEqual(['fresh', 'plain', 'old'])
   })

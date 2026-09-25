@@ -53,7 +53,7 @@ function harness(options: { withScope?: boolean; rejectWrites?: boolean; rejectF
       opencodeGoCatalog: {
         read: async () => ({ ok: true, value: READING }),
         refresh: async () => (refreshFails
-          ? { ok: false, error: new Error('the listing is unreachable') }
+          ? { ok: false, error: new Error('the listing is unreachable') as never }
           : { ok: true, value: READING }),
       },
       credentials: {
@@ -80,10 +80,10 @@ function harness(options: { withScope?: boolean; rejectWrites?: boolean; rejectF
 }
 
 /** Let the controller's constructor-time reads settle. */
-const settle = (): Promise<void> => vi.advanceTimersByTimeAsync(0)
+const settle = async (): Promise<void> => { await vi.advanceTimersByTimeAsync(0) }
 
 /** Drive the coalescing window so the pending write reaches the fake scope. */
-const flushWrites = (): Promise<void> => vi.advanceTimersByTimeAsync(VISIBILITY_WRITE_DELAY_MS + 50)
+const flushWrites = async (): Promise<void> => { await vi.advanceTimersByTimeAsync(VISIBILITY_WRITE_DELAY_MS + 50) }
 
 beforeEach(() => { vi.useFakeTimers() })
 afterEach(() => { vi.useRealTimers() })

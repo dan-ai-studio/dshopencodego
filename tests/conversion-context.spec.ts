@@ -23,7 +23,7 @@ describe('toPiContext', () => {
 
     const leading = await toPiContext(options({
       messages: [
-        { role: 'system', content: [{ type: 'text', text: 'be bold' }] },
+        { role: 'system', id: 'sys-1' as never, source: { kind: 'system-prompt' }, content: [{ type: 'text', text: 'be bold' }] },
         { role: 'user', content: [{ type: 'text', text: 'hi' }] },
       ],
     }))
@@ -35,7 +35,7 @@ describe('toPiContext', () => {
   it('sends no prompt for an empty leading system message', async () => {
     const context = await toPiContext(options({
       messages: [
-        { role: 'system', content: [{ type: 'text', text: '' }] },
+        { role: 'system', id: 'sys-2' as never, source: { kind: 'system-prompt' }, content: [{ type: 'text', text: '' }] },
         { role: 'user', content: [{ type: 'text', text: 'hi' }] },
       ],
     }))
@@ -48,10 +48,11 @@ describe('toPiContext', () => {
       messages: [
         {
           role: 'assistant',
+          id: 'asst-call-1' as never,
           source: { kind: 'model', provider: 'opencode-go', model: 'zz-cheap' },
           content: [{
             type: 'tool-call',
-            id: 'call_1',
+            id: 'call_1' as never,
             name: 'read_file',
             arguments: '{"path":"a.txt"}',
           }],
@@ -77,6 +78,8 @@ describe('toPiContext', () => {
     await expect(toPiContext(options({
       messages: [{
         role: 'assistant',
+        id: 'asst-1' as never,
+        source: { kind: 'model', provider: 'opencode-go', model: 'zz-cheap' },
         content: [{ type: 'image', attachment: { attachmentId: 'a1' } } as never],
       }],
     }))).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })

@@ -59,7 +59,7 @@ describe('apply route gate', () => {
     apply(ctx as never, { enabled: true })
     await tick()
     expect(state.registerAdapter).toHaveBeenCalledTimes(1)
-    expect(state.registerAdapter.mock.calls[0][0]).toEqual(['opencode-go'])
+    expect(state.registerAdapter.mock.calls[0]![0]).toEqual(['opencode-go'])
   })
 
   it('withdraws the route when disabled, keeping discovery mounted', async () => {
@@ -69,7 +69,7 @@ describe('apply route gate', () => {
     expect(state.registerAdapter).not.toHaveBeenCalled()
     const discovery = (ctx.llm as { registerModelDiscovery: ReturnType<typeof vi.fn> }).registerModelDiscovery
     expect(discovery).toHaveBeenCalledTimes(1)
-    expect(discovery.mock.calls[0][0]).toBe('dshopencodego')
+    expect(discovery.mock.calls[0]![0]).toBe('dshopencodego')
   })
 
   it('registers nothing without a credential, and fails loud on resolve', async () => {
