@@ -1,0 +1,69 @@
+# Publish the package to npm — prepared, not yet enabled.
+#
+# This workflow is the only path that may publish to npm, and it is manual on
+# purpose: the package scope must exist on npm, and the repository must carry
+# an NPM_TOKEN secret with publish rights for @dan-ai-studio, before the first
+# run means anything. Until then this file sits here documented and inert.
+#
+# To publish once those exist:
+#   1. create an npm automation/granular token with publish access for the
+#      scope and store it as the NPM_TOKEN repository secret;
+#   2. tag the release commit (v<version>, matching package.json) and push the
+#      tag, so the CI release job has produced the same content as an asset;
+#   3. run this workflow with that tag.
+#
+# `npm publish` here re-builds from the tagged commit, so the npm tarball and
+# the GitHub Release asset are built from identical sources by construction.
+# The provenance statement makes that visible on npmjs.com.
+#
+# To make publishing automatic on GitHub Releases instead, add
+#   release:
+#     types: [published]
+# to `on:` — do not do that before the token exists, or every release will
+# carry a failed run.
+
+name: publish-npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to publish (must equal v<package.json version>)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write # npm provenance attestation
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      # `prepare` builds the bundle, so a broken build fails the install step.
+      - run: npm ci
+      - run: npm test
+      - name: The tag must match the packaged version
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "v$version" != "${{ inputs.tag }}" ]; then
+            echo "::error::tag ${{ inputs.tag }} does not match package version v$version"
+            exit 1
+          fi
+      - name: Refuse to overwrite an existing version
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if npm view "@dan-ai-studio/dshopencodego@$version" version >/dev/null 2>&1; then
+            echo "::error::@dan-ai-studio/dshopencodego@$version already exists on npm"
+            exit 1
+          fi
+      - run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

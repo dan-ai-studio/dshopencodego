@@ -15,22 +15,49 @@
 
 ## 安装
 
-从 GitHub Release 安装（`dsh plugin add` 支持 tarball 地址）：
+前提：DSH `0.1.7` 系列（见「兼容性」）；Node `^22.19.0 || >=24.0.0`；`dsh` 与 `pnpm` 可用。
+
+> **路由互斥**：同一个 profile 里 `opencode-go` 只能由一个适配器提供。装本插件前请先卸载旧插件（`dsh plugin --profile <p> remove @dan-ai-studio/dsh-opencode-go`），或清空 `llm-pi-ai` 配置里名为 `opencode-go` 的 provider。否则插件会记录一条明确的占用诊断，路由不会注册（其余功能照常）。
+
+### 方式一：GitHub Release（推荐）
 
 ```sh
 dsh plugin --profile web add https://github.com/dan-ai-studio/dshopencodego/releases/download/v<版本>/dan-ai-studio-dshopencodego-<版本>.tgz
 ```
 
-本地构建安装：
+安装后确认组合里出现该插件：
+
+```sh
+dsh --profile web --dump-config | grep dshopencodego
+```
+
+### 方式二：npm（准备中）
+
+发布工作流已经就绪但**尚未启用**（需要 npm scope 与 `NPM_TOKEN`，见「发布」）。启用后即可：
+
+```sh
+dsh plugin --profile web add @dan-ai-studio/dshopencodego@<版本>
+```
+
+### 方式三：本地构建
 
 ```sh
 npm ci
 npm run build
 npm pack
-dsh plugin --profile web add ./dan-ai-studio-dshopencodego-0.1.0.tgz
+dsh plugin --profile web add ./dan-ai-studio-dshopencodego-<版本>.tgz
 ```
 
-> 同一个 profile 里 `opencode-go` 路由只能由一个适配器提供。安装前请先卸载旧插件（`@dan-ai-studio/dsh-opencode-go`）或清空 `llm-pi-ai` 中该路由的配置，否则插件会记录一条明确的占用诊断，路由不会注册。
+> 用**本地路径**安装 tarball。把远程 tarball URL 装进一个已有缓存的 profile 会撞上 pnpm 的 `ERR_PNPM_MISSING_TARBALL_INTEGRITY`（见「故障排查」）。
+
+### 升级与卸载
+
+```sh
+dsh plugin --profile web add <新版本 tarball 或包名>   # 升级
+dsh plugin --profile web remove @dan-ai-studio/dshopencodego   # 卸载
+```
+
+> pnpm 对**同名本地 tarball** 会静默复用旧内容（`added 0`）。升级本地构建时请改文件名再装。
 
 ## 配置
 
@@ -66,6 +93,16 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 
 网关的 `/v1/models` 只回答"有哪些模型"，不回答"怎么调"。被推断出来的模型会在设置页标注，判错时用 `modelProtocols` 覆盖即可。
 
+## 设置页里的模型列表
+
+设置页的「OpenCode Go」分区展示网关实时目录（42 个起），并对每个模型给出：
+
+- **上下文 / 输入 / 输出**（最大输入只有部分模型有官方数据）、**发布时间**、**单价 /1M**（来自 models.dev）、**Go 额度**；
+- **Go 额度**来自 OpenCode 官方文档的「使用限制 / 预估请求数」表，**没有接口提供**，是本插件转写的数据表（见 `src/go-limits.ts` 的注释：来源 URL 与转写日期）；文档调整价格或促销时需要更新该表并随发版发布。
+- 筛选（按名称/ID、仅已启用、显示已弃用——**默认隐藏已弃用**）、排序（新发布优先 / 每月预估次数 / 输入单价 / 上下文 / 名称 / 已启用优先）、列表与表格两种视图。
+
+**默认开关规则**：没人显式配置过 `modelVisibility` 时，默认启用**每月预估次数最高的 5 个**（跳过已弃用、无法配置、以及"贡献者版"这类以数据换折扣的模型）；**一旦有任一显式条目，全部按显式值走**。同一规则同时作用于模型选择器与设置页，两处不会出现不同答案。
+
 ## 用量
 
 - **额度窗口**：`GET /usage` 返回 5 小时 / 本周 / 本月三个百分比，含重置时间与限流状态；失败时保留上次读数并标注陈旧，账号或端点变化时不保留。
@@ -73,16 +110,46 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 
 ## 兼容性
 
-- DSH：`0.1.7-alpha.1` 至 `0.1.7` 系列（`package.json` 的 `engines.dsh` 声明，运行时不匹配会明确报错）。
-- 依赖 `@earendil-works/pi-ai@0.87.1`（插件自带的独立副本，不受 DSH 自身 pin 影响）。
+**支持**：DSH `0.1.7` 系列（含 `0.1.7-alpha.1`、`0.1.7-rc.*` 与正式版）。插件在每个 `@deepseek-ai/dsh-*` 的 `peerDependencies` 上声明 `>=0.1.7-alpha.1 <0.1.8`。
 
-## 验证
+**机制（不是写死）**：DSH 在挂载插件前会读取插件 `package.json` 的 `peerDependencies`，对**运行时的 DSH 版本**逐个做 semver 判定（含预发布）：
+
+- 全部满足 → 正常加载；
+- 任一不满足 → **该插件行被禁用并打印原因**（`Plugin … is incompatible with dsh …`），其他插件不受影响；
+- 需要冒险时可用**精确版本豁免**：`dsh plugin allow-version <包>@<版本> --dsh-version <精确版本> --accept-risk`（只对该包与该精确版本生效）。
+
+`package.json` 里的 `engines.dsh` 是本插件为读者/包管理器写的信息字段；**DSH 的兼容门禁只读 `peerDependencies`**，请以它为准。`@deepseek-ai/cordis` 单独声明为 `4.0.2 || 4.0.3 || 4.0.4`。
+
+**0.1.8+ 或更早版本**：会被拒绝加载。如果 DSH 侧接口兼容，可自行放宽该插件的 peer 范围并重新构建（不改 DSH 核心）；否则请等插件跟进发版。
+
+## 故障排查
+
+| 现象 | 原因与处置 |
+|---|---|
+| 日志出现 `another adapter already owns it`，模型列表里没有本插件的模型 | `opencode-go` 路由被旧插件或 `llm-pi-ai` 配置占用。卸载占用者或清空其配置后重启。 |
+| 设置页显示「未配置」但请求可用 | 旧于 v0.1.4 的构建有此缺陷（凭证结果未按信封解包），升级即可。 |
+| 装包时报 `ERR_PNPM_IGNORED_BUILDS`（依赖构建脚本未批准） | 新建 profile 的 `pnpm-workspace.yaml` 里 `allowBuilds` 是占位文本；把 `@google/genai`、`protobufjs` 显式设为 `false`（二者不需要构建）后重装。 |
+| 装远程 tarball 报 `ERR_PNPM_MISSING_TARBALL_INTEGRITY` | pnpm 对已有缓存的 profile 要求 lock 里有 integrity。把 tarball 下载到本地，用**本地路径**安装。 |
+| 升级本地 tarball 后行为没变 | pnpm 对同名本地 tarball 会复用旧内容。改文件名再装。 |
+| 设置页出现「设置写入被拒绝」 | 通常是与另一个窗口/进程并发写同一 profile；插件会自动重试一次，仍失败时界面已重载最新状态，再点一次即可。 |
+| 用量按钮显示「不可用」 | 端点或凭证变化导致旧读数作废；配置正确后点「重试」。数值不会以 0 冒充。 |
+
+## 开发
 
 ```sh
-npm test          # 契约测试：本地真 HTTP 网关断言会话头、流式、工具调用、用量
-npm run typecheck # host 与 client 两半
-npm run build     # 产出 lib/index.js 与 lib/client.js
+npm ci
+npm run typecheck   # host 与 client 两半
+npm test            # 契约测试：真实 HTTP mock 网关，断言请求头/体、目录阶梯、用量
+npm run build       # 产出 lib/index.js 与 lib/client.js
 ```
+
+测试 148 个用例 / 24 个文件，覆盖配置校验、协议阶梯、网关与在线元数据、目录投影、适配器（三种协议的线上请求）、Remote 契约与服务、会话头不变量、用量窗口与计量、客户端控制器与用量组件、以及两半的挂载与登记。
+
+## 发布（维护者）
+
+1. **版本**：把 `package.json` 的 `version` 与即将打出的 tag 对齐（`v<版本>`）。CI 会校验资产名与 tag。
+2. **GitHub Release**：提交并推送 `main`，打 tag 推送。`release.yml` 会跑测试、`npm pack` 并把 tarball 作为 Release 资产上传。
+3. **npm（预留，未启用）**：`.github/workflows/publish-npm.yml` 仅手动触发，需要：npm 上的 `@dan-ai-studio` scope 权限 + 仓库 secret `NPM_TOKEN`。工作流会校验 tag 与版本一致、拒绝覆盖已发布的同版本，并使用 `--provenance` 声明构建来源。启用步骤写在文件头部注释里。
 
 ## 许可证
 
