@@ -14,10 +14,10 @@ import type { ModelSummary } from '../models.ts'
 import type { InputModality } from '../catalog/metadata.ts'
 import { monthlyRequestsRank } from '../go-limits.ts'
 
-/** How the model table is ordered. */
+/** How the model list is ordered. */
 export type ModelSort = 'default' | 'released' | 'name' | 'context' | 'enabled' | 'quota' | 'price'
 
-/** Everything the human narrowed the table with. */
+/** Everything the human narrowed the list with. */
 export interface ModelFilter {
   /** Case-insensitive match against the model id and name. */
   readonly query: string
@@ -28,7 +28,7 @@ export interface ModelFilter {
   readonly sort: ModelSort
 }
 
-/** The table as it opens: the most usable models first, deprecated hidden. */
+/** The list as it opens: the most usable models first, deprecated hidden. */
 export const INITIAL_FILTER: ModelFilter = {
   query: '',
   showDeprecated: false,

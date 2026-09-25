@@ -77,7 +77,7 @@ export interface SectionState {
   readonly settings: SectionSettings | undefined
   readonly writable: boolean
   readonly saving: boolean
-  /** The human's narrowing of the model table; never written to the Host. */
+  /** The human's narrowing of the model list; never written to the Host. */
   readonly filter: ModelFilter
 }
 
@@ -280,7 +280,7 @@ export class SectionController {
     }
   }
 
-  /** Narrow or reorder the model table; a view preference, never a write. */
+  /** Narrow or reorder the model list; a view preference, never a write. */
   setFilter(patch: Partial<ModelFilter>): void {
     this.set({ filter: { ...this.state.filter, ...patch } })
   }

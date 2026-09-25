@@ -152,14 +152,14 @@ describe('settings controller', () => {
     expect(controller.snapshot().settings?.modelVisibility).toEqual({ 'glm-5': true, 'glm-5.3': true })
   })
 
-  it('narrows the table without writing anything to the Host', async () => {
+  it('narrows the list without writing anything to the Host', async () => {
     const test = harness()
     const controller = new SectionController(test.services)
     await settle()
     expect(controller.snapshot().filter).toMatchObject({ query: '', showDeprecated: false, onlyEnabled: false })
-    controller.setFilter({ query: 'glm', showDeprecated: true, onlyEnabled: true, sort: 'name', view: 'table' })
+    controller.setFilter({ query: 'glm', showDeprecated: true, onlyEnabled: true, sort: 'name' })
     expect(controller.snapshot().filter).toMatchObject({
-      query: 'glm', showDeprecated: true, onlyEnabled: true, sort: 'name', view: 'table',
+      query: 'glm', showDeprecated: true, onlyEnabled: true, sort: 'name',
     })
     await flushWrites()
     expect(test.writes).toHaveLength(0)

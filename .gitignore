@@ -3,6 +3,7 @@ lib/
 coverage/
 *.tgz
 *.log
+*.jsonl
 .DS_Store
 scratch/
 .playwright-mcp/
