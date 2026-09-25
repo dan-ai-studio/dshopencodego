@@ -42,6 +42,11 @@ const filter = (patch: Partial<ModelFilter> = {}): ModelFilter => ({ ...INITIAL_
 const ids = (rows: readonly ModelSummary[]): string[] => rows.map(row => row.id)
 
 describe('model view', () => {
+  it('opens on the monthly-requests order, list view', () => {
+    expect(INITIAL_FILTER.sort).toBe('quota')
+    expect(INITIAL_FILTER.view).toBe('list')
+  })
+
   it('hides deprecated models unless asked', () => {
     expect(ids(visibleModels(MODELS, filter(), {}))).toEqual(['alpha', 'bravo', 'charlie'])
     expect(ids(visibleModels(MODELS, filter({ showDeprecated: true }), {})))

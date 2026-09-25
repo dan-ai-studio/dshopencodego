@@ -11,6 +11,7 @@
 
 import type { ProtocolSource } from './catalog/protocol.ts'
 import type { GoQuota } from './go-limits.ts'
+import { monthlyRequestsRank } from './go-limits.ts'
 
 /** One model as the settings page and the picker describe it. */
 export interface ModelSummary {
@@ -42,6 +43,31 @@ export interface ModelSummary {
   readonly assumedLimits?: boolean
   /** Advertised by the gateway but not configurable, with the reason. */
   readonly configurationMissing?: string
+  /**
+   * Whether the default configuration keeps this model enabled when nobody set
+   * an explicit switch — the top few by published monthly request estimate.
+   */
+  readonly recommended?: boolean
+}
+
+/** How many models the default configuration keeps enabled. */
+export const DEFAULT_ENABLED_COUNT = 3
+
+/**
+ * The default-enabled ids when nobody configured switches: the models with the
+ * largest published monthly request estimate first, which is Go's own "most
+ * usable" order. Deprecated and unconfigurable models never qualify, and a
+ * model with no published estimate does not displace one that has it.
+ * @param models - the advertised models, in any order.
+ * @returns the ids the default configuration keeps enabled.
+ */
+export function recommendedIds(
+  models: readonly Pick<ModelSummary, 'id' | 'deprecated' | 'configurationMissing' | 'goQuota'>[],
+): ReadonlySet<string> {
+  const ranked = models
+    .filter(model => model.configurationMissing === undefined && model.deprecated !== true)
+    .toSorted((left, right) => monthlyRequestsRank(right.goQuota) - monthlyRequestsRank(left.goQuota))
+  return new Set(ranked.slice(0, DEFAULT_ENABLED_COUNT).map(model => model.id))
 }
 
 /**
@@ -51,14 +77,17 @@ export interface ModelSummary {
  * @returns true when the model should be selectable.
  */
 export function isModelEnabled(
-  model: Pick<ModelSummary, 'id' | 'deprecated' | 'configurationMissing'>,
+  model: Pick<ModelSummary, 'id' | 'deprecated' | 'configurationMissing' | 'recommended'>,
   visibility?: Readonly<Record<string, boolean>>,
 ): boolean {
   if (model.configurationMissing !== undefined) return false
   const explicit = visibility !== undefined && Object.hasOwn(visibility, model.id)
     ? visibility[model.id]
     : undefined
-  return typeof explicit === 'boolean' ? explicit : model.deprecated !== true
+  if (typeof explicit === 'boolean') return explicit
+  // A marked catalog decides the default; an unmarked one keeps every
+  // non-deprecated model, so callers that pass partial facts never lose models.
+  return typeof model.recommended === 'boolean' ? model.recommended : model.deprecated !== true
 }
 
 /** A calendar date as models.dev states it, without a timezone. */

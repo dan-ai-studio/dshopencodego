@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { CatalogReading } from '../catalog/contract.ts'
+import { isModelEnabled } from '../models.ts'
 import { compactCount, INITIAL_FILTER, visibleModels } from './model-view.ts'
 import type { ModelFilter, ModelSort } from './model-view.ts'
 import css from './section.module.css'
@@ -325,11 +326,9 @@ function badgeFor(model: CatalogReading['models'][number], t: (key: string) => s
   return ''
 }
 
-/** Whether one model is offered right now, under the switches in force. */
+/** Whether one model is offered right now; one rule, shared with the Host. */
 function isOffered(model: CatalogReading['models'][number], visibility: Record<string, boolean>): boolean {
-  if (model.configurationMissing !== undefined) return false
-  const explicit = Object.hasOwn(visibility, model.id) ? visibility[model.id] : undefined
-  return typeof explicit === 'boolean' ? explicit : model.deprecated !== true
+  return isModelEnabled(model, visibility)
 }
 
 /** "in 922K · out 128K" — only the halves the sources state. */

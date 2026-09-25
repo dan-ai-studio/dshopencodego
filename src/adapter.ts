@@ -38,7 +38,7 @@ import { assertBaseURL } from './config.ts'
 import type { OpencodeGoConfig, OpencodeGoModelLimits } from './config.ts'
 import { toPiContext, toStreamChunks } from './conversion/index.ts'
 import type { PiImageRequestContext } from './conversion/index.ts'
-import { isModelEnabled } from './models.ts'
+import { isModelEnabled, recommendedIds } from './models.ts'
 import { providerHeaders } from './session-header.ts'
 
 /**
@@ -146,7 +146,12 @@ export class OpencodeGoAdapter extends LlmAdapter {
     const snapshot = await this.catalogOf(config).snapshot()
     // DSH resolves every listed model before showing the provider, so an
     // unconfigurable id belongs in the settings diagnostics, not this list.
-    return [...snapshot.facts.values()]
+    const facts = [...snapshot.facts.values()]
+    // The same default the settings page marks: without explicit switches the
+    // top few by published monthly estimate stay enabled.
+    const recommended = recommendedIds(facts)
+    return facts
+      .map(fact => ({ ...fact, recommended: recommended.has(fact.id) }))
       .filter(fact => isModelEnabled(fact, config.modelVisibility))
       .map(fact => ({
         provider: PROVIDER_ID,

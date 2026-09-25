@@ -10,7 +10,7 @@
  * @module @dan-ai-studio/dshopencodego/catalog/reading
  */
 
-import { sortModels } from '../models.ts'
+import { isModelEnabled, recommendedIds, sortModels } from '../models.ts'
 import type { ModelSummary } from '../models.ts'
 import { goQuotaFor } from '../go-limits.ts'
 import type { CatalogSnapshot } from './index.ts'
@@ -48,7 +48,7 @@ export function catalogReading(
   visibility: Readonly<Record<string, boolean>>,
   listingFailure?: string,
 ): CatalogReading {
-  const models: ModelSummary[] = [
+  const rows: ModelSummary[] = [
     ...[...snapshot.facts.values()].map(fact => {
       const quota = goQuotaFor(fact.id)
       const priced = fact.cost.input > 0 || fact.cost.output > 0
@@ -75,11 +75,11 @@ export function catalogReading(
     }),
     ...[...snapshot.unavailable].map(([id, reason]) => ({ id, name: id, configurationMissing: reason })),
   ]
-  const enabled = models.filter(model => {
-    if (model.configurationMissing !== undefined) return false
-    const explicit = Object.hasOwn(visibility, model.id) ? visibility[model.id] : undefined
-    return typeof explicit === 'boolean' ? explicit : model.deprecated !== true
-  }).length
+  // Nobody configured switches? Then the default configuration keeps the top
+  // few by published monthly estimate, and every row carries that default.
+  const recommended = recommendedIds(rows)
+  const models = rows.map(row => ({ ...row, recommended: recommended.has(row.id) }))
+  const enabled = models.filter(model => isModelEnabled(model, visibility)).length
   return {
     models: sortModels(models),
     stale: !snapshot.live,

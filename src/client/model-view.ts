@@ -32,12 +32,12 @@ export interface ModelFilter {
   readonly view: ModelView
 }
 
-/** The table as it opens: everything usable, newest first, deprecated hidden. */
+/** The table as it opens: the most usable models first, deprecated hidden. */
 export const INITIAL_FILTER: ModelFilter = {
   query: '',
   showDeprecated: false,
   onlyEnabled: false,
-  sort: 'default',
+  sort: 'quota',
   view: 'list',
 }
 
