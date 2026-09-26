@@ -1,8 +1,9 @@
 /**
- * Bounded JSON reads shared by the catalog and usage endpoints.
+ * Bounded body reads shared by the catalog, the usage endpoint, and the Go
+ * documentation fetch.
  *
- * Every outbound metadata read is capped before parsing: the metadata document
- * is third-party, and a truncated or oversized reply must surface as a named
+ * Every outbound metadata read is capped before parsing: the documents are
+ * third-party, and a truncated or oversized reply must surface as a named
  * failure rather than as memory growth.
  *
  * @module @dan-ai-studio/dshopencodego/catalog/json-response
@@ -39,8 +40,8 @@ export async function readBoundedJson(response: Response, url: string, maxBytes:
   }
 }
 
-/** Decode a body, aborting once it passes the cap. */
-async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
+/** Decode a body as text, aborting once it passes the cap. */
+export async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
   if (response.body === null) return ''
   const reader = response.body.getReader()
   const chunks: Uint8Array[] = []
