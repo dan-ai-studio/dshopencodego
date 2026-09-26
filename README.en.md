@@ -123,7 +123,7 @@ The gateway's `/v1/models` answers only *which* models exist, never *how* to cal
 The "OpenCode Go" section shows the live gateway catalog (the count follows the gateway) with, per model:
 
 - **context / max input / max output**, **release date**, **price per 1M tokens** (from models.dev), and **Go allowance**;
-- **Go allowance** comes from OpenCode's own documentation (the "usage limits / estimated requests" tables) — **no API exposes it**. It is a transcribed table (source URL and date in the `src/go-limits.ts` header); pricing or promotion changes require updating it and shipping a release;
+- **Go allowance** is fetched at runtime from the provider's own documentation — the "usage limits / estimated requests" tables, whose source is a markdown file in the provider's repository (GitHub first, jsDelivr second) — and refreshes with the catalog every 60 minutes. A failed fetch keeps the last successful parse; a process that never succeeded uses the **built-in snapshot** and the page says so, with the transcription date (`src/go-limits.ts`, frozen, not maintained by hand). A moved or restructured document counts as a failed fetch, never as an emptied column;
 - **Input modalities**: a separate line lists the input modes models.dev declares (text / image / audio / video / PDF). These are the **model's own metadata**, not what the Harness can forward — the Harness sends text and images natively; audio/video/PDF travel as attachments and tool reads. The line is absent when the document declares none.
 - filtering (by name/id, enabled-only, show-deprecated — **deprecated hidden by default**), sorting (newest first, monthly requests, input price, context, name, enabled first); the list is the only view, one model per row.
 

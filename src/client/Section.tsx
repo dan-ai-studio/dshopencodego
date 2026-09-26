@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { CatalogReading } from '../catalog/contract.ts'
+import { SEED_TRANSCRIBED } from '../go-limits.ts'
 import { isModelEnabled } from '../models.ts'
 import { compactCount, INITIAL_FILTER, inputModalityLabels, visibleModels } from './model-view.ts'
 import type { ModelFilter, ModelSort } from './model-view.ts'
@@ -436,6 +437,9 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
       </div>
       {state.failure !== undefined && <p className={css.warn}>{t('catalogStale')}: {state.failure}</p>}
       {reading !== undefined && reading.stale && state.failure === undefined && <p className={css.warn}>{t('catalogStale')}</p>}
+      {reading !== undefined && reading.quotaSource === 'seed' && (
+        <p className={css.hint}>{t('quotaSeed')} {SEED_TRANSCRIBED}</p>
+      )}
       <div className={css.row}>
         <label className={css.hint} htmlFor="dshopencodego-refresh">{t('refreshLabel')}</label>
         <input
