@@ -8,7 +8,7 @@ import { OpencodeGoCatalog } from '../src/catalog/index.ts'
 import { OpencodeGoCatalogService } from '../src/catalog/service.ts'
 import { UsageMeter } from '../src/usage/meter.ts'
 import { OpencodeGoUsageService } from '../src/usage/service.ts'
-import { startMockGateway, stubModelsDev, modelsDevDocument } from './mock-gateway.ts'
+import { offlineDocument, startMockGateway, stubModelsDev, modelsDevDocument } from './mock-gateway.ts'
 import type { MockGateway } from './mock-gateway.ts'
 
 const gateways: MockGateway[] = []
@@ -30,6 +30,7 @@ function catalogFor(server: MockGateway): OpencodeGoCatalog {
     refreshMs: 60_000,
     defaults: DEFAULTS,
     overrides: {},
+    readDocument: offlineDocument(),
   })
 }
 

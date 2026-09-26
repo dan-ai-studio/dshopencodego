@@ -3,15 +3,18 @@
  *
  * Membership comes from the gateway listing, capability from models.dev, and
  * exact protocol/wire quirks from the installed pi-ai catalog, merged through
- * the ladder in `./protocol.ts`. The snapshot is cached for the configured
- * refresh interval, and an unknown model id forces one revalidation even inside
- * that interval — that is what makes a model the gateway added this morning
- * callable this afternoon without a plugin release.
+ * the ladder in `./protocol.ts`. Per-model allowances, and a protocol for the
+ * models nothing else covers, come from the provider's own documentation (see
+ * `./go-doc.ts`). The snapshot is cached for the configured refresh interval,
+ * and an unknown model id forces one revalidation even inside that interval —
+ * that is what makes a model the gateway added this morning callable this
+ * afternoon without a plugin release.
  *
  * Failures degrade rather than empty: a listing outage keeps the last known
  * models and marks the snapshot not-live, a metadata outage keeps the last
- * document, and a single unparseable model is reported by id while every other
- * model keeps serving.
+ * document, a documentation outage keeps the last parsed allowances (or leaves
+ * the page on its frozen seed), and a single unparseable model is reported by
+ * id while every other model keeps serving.
  *
  * @module @dan-ai-studio/dshopencodego/catalog
  */
@@ -32,9 +35,12 @@ import {
   METADATA_FETCH_TIMEOUT_MS,
 } from './constants.ts'
 import { fetchModelIds } from './gateway.ts'
+import { fetchGoDocument, GO_DOC_URLS } from './go-doc.ts'
+import type { GoDoc } from './go-doc.ts'
 import { readBoundedJson } from './json-response.ts'
 import { readOnlineMetadata, toPiModel } from './metadata.ts'
 import type { ModelDefaults, ModelFacts } from './metadata.ts'
+import type { GoQuota } from '../go-limits.ts'
 
 export { PROVIDER_ID, DISPLAY_NAME, DEFAULT_BASE_URL } from './constants.ts'
 export { readModelIds, fetchModelIds } from './gateway.ts'
@@ -53,6 +59,12 @@ export interface CatalogSnapshot {
   readonly provider: Provider
   /** Whether the gateway listing answered during this build. */
   readonly live: boolean
+  /**
+   * Allowances parsed from the provider's own documentation, once a fetch has
+   * succeeded in this process. Absent until then, and across restarts; the page
+   * falls back to the frozen seed in `go-limits.ts`.
+   */
+  readonly documentQuotas?: ReadonlyMap<string, GoQuota>
   /** Retained for explicit discovery when the listing failed. */
   readonly listingFailure?: unknown
   readonly fetchedAtMs: number
@@ -121,6 +133,11 @@ export interface CatalogOptions {
   /** Configured per-id protocol overrides. */
   readonly overrides: Readonly<Record<string, string>>
   readonly observers?: CatalogObservers
+  /**
+   * Read the provider documentation. Defaults to the real fetch; tests inject a
+   * fixed document so the suite stays offline.
+   */
+  readonly readDocument?: () => Promise<GoDoc>
 }
 
 /**
@@ -134,6 +151,8 @@ export class OpencodeGoCatalog {
   private metadataDocument: unknown
   private metadataETag: string | undefined
   private lastMetadata: ReturnType<typeof readOnlineMetadata> | undefined
+  /** The last parsed documentation; retained across failed fetches. */
+  private document: GoDoc | undefined
 
   constructor(options: CatalogOptions) {
     this.options = options
@@ -178,18 +197,31 @@ export class OpencodeGoCatalog {
     return snapshot
   }
 
-  /** Revalidate both sources, reusing the metadata document when it is unchanged. */
+  /** Revalidate every source, reusing the metadata document when it is unchanged. */
   private async build(): Promise<CatalogSnapshot> {
     const builtin = builtinModels(this.options.baseURL)
-    const [listing, metadata] = await Promise.allSettled([
+    const readDocument = this.options.readDocument ?? fetchGoDocument
+    const [listing, metadata, documentation] = await Promise.allSettled([
       fetchModelIds(this.options.baseURL),
       this.refreshMetadata(builtin),
+      readDocument(),
     ])
     if (metadata.status === 'rejected') {
       this.options.observers?.onFallback?.({
         url: MODEL_METADATA_URL,
         error: metadata.reason,
         kept: this.lastMetadata?.models.size ?? 0,
+      })
+    }
+    if (documentation.status === 'fulfilled') {
+      this.document = documentation.value
+    } else {
+      // Not a page-stale event: the allowances keep their previous source, and
+      // the page says so wherever the frozen seed is in use.
+      this.options.observers?.onFallback?.({
+        url: GO_DOC_URLS[0] ?? 'the Go documentation',
+        error: documentation.reason,
+        kept: this.document?.quotas.size ?? 0,
       })
     }
     if (listing.status === 'rejected') {
@@ -209,6 +241,7 @@ export class OpencodeGoCatalog {
         live: false,
         listingFailure: listing.reason,
         fetchedAtMs: Date.now(),
+        ...this.documentQuotas(),
       }
     }
     // A metadata outage keeps the last successful parse: the previous document
@@ -246,7 +279,7 @@ export class OpencodeGoCatalog {
       // (`@ai-sdk/openai-compatible`) makes Chat Completions the best available
       // guess, and the route defaults size it; the settings surface marks it as
       // inferred so a wrong guess is visible and overridable.
-      facts.set(id, this.inferredFacts(id, builtin))
+      facts.set(id, this.withDocumentedProtocol(this.inferredFacts(id, builtin)))
     }
     if (unavailable.size > 0) {
       this.options.observers?.onUnconfigured?.(
@@ -259,7 +292,28 @@ export class OpencodeGoCatalog {
       provider: buildProvider(this.options.baseURL, [...facts.values()].map(fact => toPiModel(fact, this.options.baseURL))),
       live: true,
       fetchedAtMs: Date.now(),
+      ...this.documentQuotas(),
     }
+  }
+
+  /** The document allowances as a snapshot field, absent until one fetch lands. */
+  private documentQuotas(): { documentQuotas?: ReadonlyMap<string, GoQuota> } {
+    return this.document === undefined ? {} : { documentQuotas: this.document.quotas }
+  }
+
+  /**
+   * Prefer the documented protocol over anything below the installed catalog.
+   *
+   * The endpoint table is the provider's own statement, so it outranks both the
+   * family guess and models.dev's SDK hint — this turns an `inferred` badge into
+   * a known answer for ids the installed catalog misses. It never overrides a
+   * builtin entry or a configured override: those carry the wire quirks the
+   * adapter relies on.
+   */
+  private withDocumentedProtocol(facts: ModelFacts): ModelFacts {
+    if (facts.protocolSource !== 'inferred' && facts.protocolSource !== 'online') return facts
+    const documented = this.document?.protocols.get(facts.id)
+    return documented === undefined ? facts : { ...facts, api: documented, protocolSource: 'document' }
   }
 
   /** Facts for an id no source describes, from the ladder and the route defaults. */

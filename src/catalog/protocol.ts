@@ -32,8 +32,13 @@ export const WIRE_PROTOCOLS: readonly WireProtocol[] = [
   'openai-responses',
 ]
 
-/** Which evidence level produced a protocol decision. */
-export type ProtocolSource = 'builtin' | 'online' | 'inferred' | 'override'
+/**
+ * Which evidence level produced a protocol decision, most authoritative first:
+ * a configured `override`, the installed catalog (`builtin`), the provider's own
+ * endpoint table (`document`), models.dev's SDK hint (`online`), and last the
+ * family rule (`inferred`).
+ */
+export type ProtocolSource = 'builtin' | 'document' | 'online' | 'inferred' | 'override'
 
 /** One model's protocol decision with the evidence that produced it. */
 export interface ProtocolDecision {

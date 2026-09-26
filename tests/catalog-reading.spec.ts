@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { catalogReading } from '../src/catalog/reading.ts'
 import { parseCatalogReading } from '../src/catalog/contract.ts'
 import { OpencodeGoCatalog } from '../src/catalog/index.ts'
-import { startMockGateway, stubModelsDev, modelsDevDocument } from './mock-gateway.ts'
+import { offlineDocument, startMockGateway, stubModelsDev, modelsDevDocument } from './mock-gateway.ts'
 import type { MockGateway } from './mock-gateway.ts'
 
 const gateways: MockGateway[] = []
@@ -37,6 +37,7 @@ describe('settings catalog reading', () => {
         refreshMs: 60_000,
         defaults: DEFAULTS,
         overrides: { broken: 'nonsense' },
+        readDocument: offlineDocument(),
       })
       const snapshot = await catalog.snapshot()
       const reading = catalogReading(snapshot, {})
@@ -64,6 +65,7 @@ describe('settings catalog reading', () => {
         refreshMs: 60_000,
         defaults: DEFAULTS,
         overrides: {},
+        readDocument: offlineDocument(),
       })
       const snapshot = await catalog.snapshot()
       const reading = catalogReading(snapshot, {})
@@ -91,6 +93,7 @@ describe('settings catalog reading', () => {
     try {
       const catalog = new OpencodeGoCatalog({
         baseURL: server.baseURL, refreshMs: 60_000, defaults: DEFAULTS, overrides: {},
+        readDocument: offlineDocument(),
       })
       const reading = catalogReading(await catalog.snapshot(), {})
       const declared = reading.models.find(model => model.id === 'glm-5.3')!
@@ -110,7 +113,7 @@ describe('settings catalog reading', () => {
       'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 1000, output: 100 } },
     }))
     try {
-      const catalog = new OpencodeGoCatalog({ baseURL: server.baseURL, refreshMs: 60_000, defaults: DEFAULTS, overrides: {} })
+      const catalog = new OpencodeGoCatalog({ baseURL: server.baseURL, refreshMs: 60_000, defaults: DEFAULTS, overrides: {}, readDocument: offlineDocument() })
       await catalog.snapshot()
       // Fail the live listing rather than closing the socket: a closed port
       // races the HTTP client's keep-alive pool and occasionally completes.
@@ -125,11 +128,82 @@ describe('settings catalog reading', () => {
     }
   })
 
+  it('takes allowances and the documented protocol from the live document', async () => {
+    const server = await gateway({ listing: ['glm-5.3', 'mystery-model'] })
+    const stub = stubModelsDev(modelsDevDocument({
+      'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 1000, output: 100 } },
+    }))
+    try {
+      const catalog = new OpencodeGoCatalog({
+        baseURL: server.baseURL, refreshMs: 60_000, defaults: DEFAULTS, overrides: {},
+        readDocument: offlineDocument(
+          { 'glm-5.3': { monthlyUsd: 15, monthlyRequests: 1_080 } },
+          { 'mystery-model': 'anthropic-messages' },
+        ),
+      })
+      const reading = catalogReading(await catalog.snapshot(), {})
+      expect(reading.quotaSource).toBe('document')
+      expect(reading.models.find(model => model.id === 'glm-5.3')?.goQuota)
+        .toEqual({ monthlyUsd: 15, monthlyRequests: 1_080 })
+      // No installed entry and no models.dev record: the provider's own
+      // endpoint table outranks the family guess.
+      expect(reading.models.find(model => model.id === 'mystery-model')?.protocolSource).toBe('document')
+    } finally {
+      stub.restore()
+    }
+  })
+
+  it('falls back to the frozen seed when no document has ever been read', async () => {
+    const server = await gateway({ listing: ['glm-5.3'] })
+    const stub = stubModelsDev(modelsDevDocument({
+      'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 1000, output: 100 } },
+    }))
+    try {
+      const catalog = new OpencodeGoCatalog({
+        baseURL: server.baseURL, refreshMs: 60_000, defaults: DEFAULTS, overrides: {},
+        readDocument: async () => { throw new Error('the document is unreachable') },
+      })
+      const reading = catalogReading(await catalog.snapshot(), {})
+      // A cold start with no network still answers for the models the seed
+      // lists, and the source says where those numbers came from.
+      expect(reading.quotaSource).toBe('seed')
+      expect(reading.models.find(model => model.id === 'glm-5.3')?.goQuota)
+        .toEqual({ monthlyUsd: 15, monthlyRequests: 1_080 })
+    } finally {
+      stub.restore()
+    }
+  })
+
+  it('keeps the last parsed document when a refetch fails', async () => {
+    const server = await gateway({ listing: ['glm-5.3'] })
+    const stub = stubModelsDev(modelsDevDocument({
+      'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 1000, output: 100 } },
+    }))
+    let failing = false
+    try {
+      const catalog = new OpencodeGoCatalog({
+        baseURL: server.baseURL, refreshMs: 0, defaults: DEFAULTS, overrides: {},
+        readDocument: async () => {
+          if (failing) throw new Error('the document is gone')
+          return { quotas: new Map([['glm-5.3', { monthlyUsd: 15 }]]), protocols: new Map() }
+        },
+      })
+      expect(catalogReading(await catalog.snapshot(), {}).quotaSource).toBe('document')
+      failing = true
+      const stale = catalogReading(await catalog.snapshot(true), {})
+      expect(stale.quotaSource).toBe('document')
+      expect(stale.models.find(model => model.id === 'glm-5.3')?.goQuota).toEqual({ monthlyUsd: 15 })
+    } finally {
+      stub.restore()
+    }
+  })
+
   it('round-trips through the wire validator', () => {
     const reading = {
       models: [{ id: 'glm-5.3', name: 'GLM-5.3', contextWindow: 1000, maxTokens: 100, protocolSource: 'builtin' as const, assumedLimits: false }],
       stale: false,
       fetchedAtMs: 1,
+      quotaSource: 'seed' as const,
       counts: { total: 1, enabled: 1, deprecated: 0, unconfigured: 0, inferred: 0 },
     }
     expect(parseCatalogReading(reading)).toEqual(reading)

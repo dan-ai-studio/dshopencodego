@@ -25,6 +25,7 @@ const READING: CatalogReading = {
   ],
   stale: false,
   fetchedAtMs: 1,
+  quotaSource: 'seed',
   counts: { total: 2, enabled: 2, deprecated: 0, unconfigured: 0, inferred: 0 },
 }
 

@@ -11,6 +11,9 @@
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import type { GoDoc } from '../src/catalog/go-doc.ts'
+import type { WireProtocol } from '../src/catalog/protocol.ts'
+import type { GoQuota } from '../src/go-limits.ts'
 
 /** One request the server received. */
 export interface RecordedRequest {
@@ -223,6 +226,22 @@ export async function startMockGateway(options: MockGatewayOptions = {}): Promis
       server.close(error => { error === undefined ? resolve() : reject(error) })
     }),
   }
+}
+
+/**
+ * A documentation reader that never touches the network.
+ *
+ * Tests pass this through `CatalogOptions.readDocument`; the real fetch is
+ * exercised only by the parser's own suite, against a stubbed `fetch`.
+ */
+export function offlineDocument(
+  quotas: Record<string, GoQuota> = {},
+  protocols: Record<string, WireProtocol> = {},
+): () => Promise<GoDoc> {
+  return async () => ({
+    quotas: new Map(Object.entries(quotas)),
+    protocols: new Map(Object.entries(protocols)) as ReadonlyMap<string, WireProtocol>,
+  })
 }
 
 /** One models.dev document with the entries a test needs. */

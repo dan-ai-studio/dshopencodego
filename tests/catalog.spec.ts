@@ -10,7 +10,7 @@ import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { OpencodeGoCatalog, discoverCatalogModels } from '../src/catalog/index.ts'
 import { readOnlineMetadata, toPiModel } from '../src/catalog/metadata.ts'
 import { decideProtocol, inferProtocol, protocolOfNpm } from '../src/catalog/protocol.ts'
-import { startMockGateway, stubModelsDev, modelsDevDocument } from './mock-gateway.ts'
+import { offlineDocument, startMockGateway, stubModelsDev, modelsDevDocument } from './mock-gateway.ts'
 import type { MockGateway } from './mock-gateway.ts'
 
 const DEFAULTS = { contextWindow: 262_144, maxTokens: 32_768, input: ['text'] as const }
@@ -33,6 +33,7 @@ function catalogFor(baseURL: string, overrides: Record<string, string> = {}, obs
     defaults: DEFAULTS,
     overrides,
     observers,
+    readDocument: offlineDocument({ 'glm-5.3': { monthlyUsd: 60, monthlyRequests: 1_080 } }),
   })
 }
 

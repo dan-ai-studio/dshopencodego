@@ -25,6 +25,11 @@ export interface CatalogReading {
   readonly error?: string
   /** When the underlying snapshot was built. */
   readonly fetchedAtMs: number
+  /**
+   * Where the per-model allowances came from: the provider's live document, or
+   * the frozen seed (whose transcription date the page shows alongside).
+   */
+  readonly quotaSource: 'document' | 'seed'
   /** Counts the settings page shows without walking the list again. */
   readonly counts: {
     readonly total: number
@@ -48,9 +53,10 @@ export function catalogReading(
   visibility: Readonly<Record<string, boolean>>,
   listingFailure?: string,
 ): CatalogReading {
+  const documentQuotas = snapshot.documentQuotas
   const rows: ModelSummary[] = [
     ...[...snapshot.facts.values()].map(fact => {
-      const quota = goQuotaFor(fact.id)
+      const quota = documentQuotas === undefined ? goQuotaFor(fact.id) : documentQuotas.get(fact.id)
       const priced = fact.cost.input > 0 || fact.cost.output > 0
       return {
         id: fact.id,
@@ -86,6 +92,7 @@ export function catalogReading(
     stale: !snapshot.live,
     ...!snapshot.live && listingFailure !== undefined ? { error: listingFailure } : {},
     fetchedAtMs: snapshot.fetchedAtMs,
+    quotaSource: documentQuotas === undefined ? 'seed' : 'document',
     counts: {
       total: models.length,
       enabled,

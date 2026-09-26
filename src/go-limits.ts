@@ -1,21 +1,34 @@
 /**
- * Go's published per-model quota.
+ * The frozen seed of Go's published per-model quota.
  *
- * No API exposes this — the gateway's `/v1/models` answers only ids, and
- * `/usage` answers three account-wide percentages — so the numbers are
- * transcribed from the provider's own documentation.
+ * No API exposes these numbers — the gateway's `/v1/models` answers ids and
+ * `/usage` answers account-wide percentages — so the live figures are parsed
+ * from the provider's own documentation by `catalog/go-doc.ts`. This table is
+ * the seed and the last resort behind that fetch:
+ *
+ * - it renders instantly at startup, before the first fetch resolves;
+ * - it keeps working when every source fails, including the day the document
+ *   URL moves.
+ *
+ * It is deliberately **not** updated as models arrive: wherever it is shown its
+ * transcription date travels with it, so a stale number is never silent, and a
+ * model it does not list simply shows no allowance until a fetch succeeds.
  *
  * Source: https://opencode.ai/docs/zh-cn/go — the 「使用限制」 and
- * 「预估请求数」 tables. Transcribed 2026-09-25.
+ * 「预估请求数」 tables. Transcribed 2026-09-25, frozen 2026-09-26.
  *
  * Two caveats are part of the data's meaning, not noise:
  * - `monthlyUsd` is the hard monthly allowance; the request counts are the
  *   provider's own estimate for a typical request mix, not a hard ceiling.
- * - DeepSeek V4.1 Flash carries a limited-time 4x allowance (until 2026-09-27)
- *   already reflected here; the archived numbers follow the provider page.
+ * - DeepSeek V4.1 Flash carried a limited-time 4x allowance in this snapshot;
+ *   the provider has since made the listed $60 permanent, which only the live
+ *   document reports.
  *
  * @module @dan-ai-studio/dshopencodego/go-limits
  */
+
+/** The date this seed was transcribed from the provider's page. */
+export const SEED_TRANSCRIBED = '2026-09-25'
 
 /** One model's published Go allowance. */
 export interface GoQuota {
@@ -25,8 +38,8 @@ export interface GoQuota {
   readonly monthlyRequests?: number | 'unlimited'
 }
 
-/** The transcribed table, keyed by model id. */
-export const GO_QUOTAS: Readonly<Record<string, GoQuota>> = {
+/** The frozen seed table, keyed by model id. Not a maintenance target. */
+export const SEED_QUOTAS: Readonly<Record<string, GoQuota>> = {
   'glm-5.3-flash': { monthlyUsd: 60, monthlyRequests: 31_580 },
   'glm-5.3': { monthlyUsd: 15, monthlyRequests: 1_080 },
   'glm-5.2': { monthlyUsd: 60, monthlyRequests: 4_300 },
@@ -63,12 +76,12 @@ export const GO_QUOTAS: Readonly<Record<string, GoQuota>> = {
 }
 
 /**
- * The published quota for one model id.
+ * The seed allowance for one model id.
  * @param id - the gateway's model id.
- * @returns the transcribed allowance, or undefined when the page lists none.
+ * @returns the frozen seed entry, or undefined when the page listed none.
  */
 export function goQuotaFor(id: string): GoQuota | undefined {
-  return Object.hasOwn(GO_QUOTAS, id) ? GO_QUOTAS[id] : undefined
+  return Object.hasOwn(SEED_QUOTAS, id) ? SEED_QUOTAS[id] : undefined
 }
 
 /**

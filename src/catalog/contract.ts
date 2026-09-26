@@ -98,11 +98,18 @@ export function parseCatalogReading(value: unknown): CatalogReading {
     if (typeof entry !== 'number' || !Number.isFinite(entry) || entry < 0) throw new Error(`invalid catalog count "${key}"`)
     return entry
   }
+  const quotaSource = row['quotaSource']
+  // Absent means the payload predates the field — a cached client bundle with a
+  // newer host — and the seed is what such a reading actually carries.
+  if (quotaSource !== undefined && quotaSource !== 'document' && quotaSource !== 'seed') {
+    throw new Error('invalid catalog quota source')
+  }
   return {
     models: row['models'].map(parseModel),
     stale: row['stale'],
     ...typeof row['error'] === 'string' ? { error: row['error'] } : {},
     fetchedAtMs: row['fetchedAtMs'],
+    quotaSource: quotaSource ?? 'seed',
     counts: {
       total: count('total'),
       enabled: count('enabled'),

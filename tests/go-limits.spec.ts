@@ -1,9 +1,9 @@
 /**
- * The transcribed Go quota table: every entry is well-formed, the rank orders
+ * The frozen Go quota seed: every entry is well-formed, the rank orders
  * "most usable first", and unknown ids stay unknown rather than zero.
  */
 import { describe, expect, it } from 'vitest'
-import { GO_QUOTAS, goQuotaFor, monthlyRequestsRank } from '../src/go-limits.ts'
+import { SEED_QUOTAS, goQuotaFor, monthlyRequestsRank } from '../src/go-limits.ts'
 
 describe('goQuotaFor', () => {
   it('answers the documented models', () => {
@@ -16,8 +16,8 @@ describe('goQuotaFor', () => {
     expect(goQuotaFor('definitely-not-a-real-model')).toBeUndefined()
   })
 
-  it('keeps every table entry well-formed', () => {
-    for (const [id, quota] of Object.entries(GO_QUOTAS)) {
+  it('keeps every seed entry well-formed', () => {
+    for (const [id, quota] of Object.entries(SEED_QUOTAS)) {
       expect(id.length, `id ${id}`).toBeGreaterThan(0)
       const usd = quota.monthlyUsd
       expect(usd === 'unlimited' || (typeof usd === 'number' && Number.isFinite(usd) && usd > 0), `usd ${id}`).toBe(true)
@@ -28,9 +28,9 @@ describe('goQuotaFor', () => {
         `requests ${id}`,
       ).toBe(true)
     }
-    // The table must cover the ids the gateway advertises today; a gap is a
-    // stale transcription, not a test failure to silence.
-    expect(Object.keys(GO_QUOTAS).length).toBeGreaterThanOrEqual(30)
+    // A frozen seed still has to carry enough of the catalog to be useful at
+    // startup; a model it misses only lacks an allowance until a fetch lands.
+    expect(Object.keys(SEED_QUOTAS).length).toBeGreaterThanOrEqual(30)
   })
 })
 
