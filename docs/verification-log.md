@@ -2,6 +2,28 @@
 
 按时间倒序。每节是一次真实环境验证的范围、方法、结论与未覆盖项；操作步骤见 `runbook-m5-live-verification.md`，版本对比见 `comparison-v0.1.13.md`。文中的模型数量是**当时快照**，目录随网关变化。
 
+## 2026-09-28 · DSH 0.2.0-rc.1 适配（本地门禁判定 + 单测，无网络）
+
+范围：DSH 发布 `0.2.0-rc.1`（tag `dsh-v0.2.0-rc.1`，2026-09-28；npm `next` 已指向）后插件的加载兼容性。**不含**真机加载与网关调用。
+
+背景：DSH 的插件门禁（`packages/boot/app-boot/src/plugin-compatibility.ts`）用运行时版本对插件每个 `@deepseek-ai/dsh-*` peer 做 `semver.satisfies(..., { includePrerelease: true })`；旧范围 `>=0.1.7-alpha.1 <0.1.8` 对 `0.2.0-rc.1` 全部不满足 → `dsh plugin add` 拒绝安装、已在盘上的插件启动时不被导入。
+
+方法：
+
+- 用 DSH 自身的门禁实现对插件 `package.json` 判定（运行时 `0.2.0-rc.1`）；
+- semver 实测四种范围写法，选定 `>=0.1.7-alpha.1 <0.2.0 || >=0.2.0-rc.1 <0.3.0`（唯一同时通过 DSH 门禁与 npm/pnpm 默认 peer 规则的写法；`0.1.8`、`0.1.9` 从未发布，故写成两段）；
+- devDependencies 升到 `0.2.0-rc.1`，并把 0.2.0 新增的传递 peer（`dsh-scope`、`dsh-invariants`、`dsh-sandbox`、`dsh-session`）显式加入；旧依赖树的增量解析在 `dsh-scope` 上冲突，最终删除 `node_modules` 并重建 lock（新 lock 通过 `npm ci --dry-run`）；
+- `npm run typecheck`、`npm test`、`npm run test:coverage`、`npm pack --dry-run`。
+
+结果：
+
+- 门禁判定：改前不兼容 → 改后 `VERDICT: COMPATIBLE`（插件 `0.1.16`，运行时 `0.2.0-rc.1`）；
+- typecheck 通过；27 个测试文件 / 171 个测试全绿；覆盖率门禁通过；打包 60 个文件（含 `lib` 与 `cordis.patch.yml`）；
+- 源码零改动：0.2.0 对插件消费面（`dsh-llm`、`dsh-credentials`、`dsh-typert-*`、client 契约）只有增量变化，无破坏性变更；
+- 改动面：`package.json`（17 个 `dsh-*` peer、`engines.dsh`、devDependencies）、`package-lock.json`、两份 README 的兼容性段落、`docs/plan.md` 的风险条目。
+
+未覆盖：真机加载（隔离 profile 安装 → 启动 → 路由注册）、设置页与用量按钮、三种线协议的真实网关回归。跑法见 `runbook-m5-live-verification.md`。
+
 ## 2026-09-25 · M5 实机（隔离 `m5web` + 日常 `web` 上机）
 
 范围：真实 Harness + 真实浏览器里的设置页与用量按钮、图片输入、真实进程内的会话头抓包。
