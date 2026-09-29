@@ -1,6 +1,6 @@
 {
   "name": "@dan-ai-studio/dshopencodego",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "description": "OpenCode Go provider for DeepSeek Harness: live gateway catalog, per-conversation session header, usage",
   "type": "module",
   "license": "MIT",
@@ -31,7 +31,6 @@
   },
   "files": [
     "lib",
-    "scripts/patch-pi-ai.mjs",
     "cordis.patch.yml",
     "README.md",
     "README.en.md",
@@ -60,7 +59,6 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
-    "postinstall": "node scripts/patch-pi-ai.mjs",
     "prepare": "npm run build",
     "prepack": "npm run build"
   },

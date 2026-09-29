@@ -2,6 +2,19 @@
 
 按时间倒序。每节是一次真实环境验证的范围、方法、结论与未覆盖项；操作步骤见 `runbook-m5-live-verification.md`，版本对比见 `comparison-v0.1.13.md`。文中的模型数量是**当时快照**，目录随网关变化。
 
+## 2026-09-30 · 移除 pi-ai 补丁移植（发布物简化 + 决策记录）
+
+范围：`0.1.20` 整体移除 `postinstall`（`scripts/patch-pi-ai.mjs`）并从 `files` 去掉该脚本；运行时依赖仍锁 `@earendil-works/pi-ai@0.87.1`。动因：`0.1.19` 实测确认 `findPiRoot()` 在所有真实安装布局下都会静默跳过——pi-ai 是 ESM-only 包（`exports` 仅有 `import` 条件），`require.resolve` 抛 `ERR_PACKAGE_PATH_NOT_EXPORTED`，唯一 probe 只在包根运行（开发仓库）时命中。即补丁从未在消费者环境生效，而发版链路持续承担成本（0.1.18 安装失败、0.1.19 静默失效）。上游 issue #9265 仍开放（PR #9461 未合并），决策与代价见 `adr/0005-drop-pi-ai-patch.md`。
+
+验证（2026-09-30，无网络单测 + 打包冒烟）：
+
+- `npm pack --dry-run`：60 个文件，无 `scripts/patch-pi-ai.mjs`，manifest 无 `postinstall`/`hasInstallScript`；
+- `npm ci --dry-run` exit 0（lockfile 与 manifest 同步）；
+- `typecheck` 三工程通过；`npm test` 28 文件全绿；
+- 打包后装进隔离目录（`npm install <tarball>`）：exit 0、无任何安装脚本输出，`@earendil-works/pi-ai` 按原样安装（未打补丁，符合预期）。
+
+未覆盖：超长工具调用的性能回归对比（接受上游行为，不再测量）；0.1.20 发布后 `dsh plugin` 真机重装。
+
 ## 2026-09-29 · 0.1.18 安装失败修复（发布物完整性 + 打包冒烟）
 
 现象：安装 `0.1.18` 到 DSH profile（`~/.dsh/profiles/web`，pnpm）失败——`postinstall` 以 `MODULE_NOT_FOUND` exit 1 终止。根因：`files` 白名单（`lib`、`cordis.patch.yml`、README、LICENSE）从未包含 `scripts/`，而 `postinstall: node scripts/patch-pi-ai.mjs` 是 0.1.18 新增；`npm pack --dry-run` 实测 tarball 60 个文件全为 `lib/` 产物。0.1.17 及更早无 `postinstall`，安装不受影响。
