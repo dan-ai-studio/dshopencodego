@@ -2,6 +2,21 @@
 
 按时间倒序。每节是一次真实环境验证的范围、方法、结论与未覆盖项；操作步骤见 `runbook-m5-live-verification.md`，版本对比见 `comparison-v0.1.13.md`。文中的模型数量是**当时快照**，目录随网关变化。
 
+## 2026-09-29 · 0.1.18 安装失败修复（发布物完整性 + 打包冒烟）
+
+现象：安装 `0.1.18` 到 DSH profile（`~/.dsh/profiles/web`，pnpm）失败——`postinstall` 以 `MODULE_NOT_FOUND` exit 1 终止。根因：`files` 白名单（`lib`、`cordis.patch.yml`、README、LICENSE）从未包含 `scripts/`，而 `postinstall: node scripts/patch-pi-ai.mjs` 是 0.1.18 新增；`npm pack --dry-run` 实测 tarball 60 个文件全为 `lib/` 产物。0.1.17 及更早无 `postinstall`，安装不受影响。
+
+修复与防线：
+
+- `files` 加入 `scripts/patch-pi-ai.mjs`；`npm pack --dry-run` 复核 61 个文件且含该脚本，解包后直跑 `node scripts/patch-pi-ai.mjs` exit 0（无 pi-ai 时按设计只告警）；
+- 新增 `tests/pack-contents.spec.ts`：断言 `postinstall`/`install` 引用的 node 入口与 `dsh.bundle.patch` 均被 `files` 覆盖；`publish-npm.yml` 发布前跑 `test:coverage`，同类问题发布前拦截；
+- 反向验证：临时移除白名单条目 → 新测试如预期失败（exit 1）；恢复后逐字节一致；
+- 脚本幂等与对账复核：对已打补丁树再跑输出 `0 hunks applied across 6 files`；6 处删除行与 DSH `patches/@earendil-works__pi-ai@0.87.1.patch` 逐一对账一致。
+
+结果：`typecheck` 三工程通过；`npm test` 28 文件 / 174 用例全绿；`npm run test:coverage` 门禁通过。
+
+未覆盖：0.1.19 发布后安装端真机重装与补丁生效复核（期望 `6 hunks applied across 6 files`）。
+
 ## 2026-09-29 · DSH 0.2.0-rc.2 适配（代码+单测，无网络）
 
 范围：DSH `0.2.0-rc.2`（`D:\git\deepseek-harness` 现行检出）相对 `rc.1` 的破坏性核对与三项跟进。**不含**真机加载与网关调用，`package-lock` 的 `rc.2` tarball 重解析需联网另跑 `npm install`。
