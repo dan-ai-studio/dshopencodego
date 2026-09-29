@@ -13,7 +13,7 @@ import { toPiAssistant, toPiReplayState } from '../src/conversion/replay.ts'
 import { isModelEnabled, sortModels } from '../src/models.ts'
 import type { OpencodeGoConfig } from '../src/config.ts'
 import type { GenerateOptions, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { startMockGateway, stubModelsDev, modelsDevDocument } from './mock-gateway.ts'
+import { offlineDocument, startMockGateway, stubModelsDev, modelsDevDocument } from './mock-gateway.ts'
 import type { MockGateway } from './mock-gateway.ts'
 
 const gateways: MockGateway[] = []
@@ -80,6 +80,7 @@ function adapterFor(server: MockGateway, config: Partial<OpencodeGoConfig> = {})
   return new OpencodeGoAdapter({
     config: () => configFor(server.baseURL, config),
     resolveApiKey: async () => 'test-key',
+    readDocument: offlineDocument(),
   })
 }
 
@@ -278,6 +279,7 @@ describe('adapter on the wire', () => {
       const adapter = new OpencodeGoAdapter({
         config: () => configFor(server.baseURL),
         resolveApiKey: async () => undefined,
+        readDocument: offlineDocument(),
       })
       await expect(collect(adapter.stream(options('glm-5.3')))).rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
       expect(server.requests.some(entry => entry.path.endsWith('/chat/completions'))).toBe(false)
@@ -422,8 +424,26 @@ describe('replay round trip', () => {
   })
 })
 
-describe('model summaries', () => {
-  it('defaults deprecated models off and always hides unconfigurable ones', () => {
+describe('prepareCall generation', () => {
+  it('binds one generation and streams with the same session header', async () => {
+    const server = await gateway({ listing: ['glm-5.3'] })
+    const stub = stubModelsDev(DOCUMENT)
+    try {
+      const adapter = adapterFor(server)
+      const prepared = await adapter.prepareCall('opencode-go', 'glm-5.3')
+      expect(prepared.model).toMatchObject({ provider: 'opencode-go', id: 'glm-5.3' })
+      const chunks = await collect(prepared.stream(options('glm-5.3', { sessionId: 'session-prepared' as never })))
+      const request = server.requests.find(entry => entry.path.endsWith('/chat/completions'))
+      expect(request).toBeDefined()
+      expect(request!.headers[SESSION_HEADER]).toBe('session-prepared')
+      expect(chunks.at(-1)).toMatchObject({ type: 'finish' })
+    } finally {
+      stub.restore()
+    }
+  })
+})
+
+describe('model summaries', () => {  it('defaults deprecated models off and always hides unconfigurable ones', () => {
     expect(isModelEnabled({ id: 'a' })).toBe(true)
     expect(isModelEnabled({ id: 'a', deprecated: true })).toBe(false)
     expect(isModelEnabled({ id: 'a', deprecated: true }, { a: true })).toBe(true)

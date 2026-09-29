@@ -16,6 +16,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { OpencodeGoAdapter } from '../../lib/index.js'
+import { assertCheapModel } from './cost-guard.mjs'
 
 const args = process.argv.slice(2)
 if (!args.includes('--allow-live')) {
@@ -24,6 +25,9 @@ if (!args.includes('--allow-live')) {
 }
 const sessionId = args.find(arg => !arg.startsWith('--')) ?? 'session-livecheck-0001'
 const maxTokens = Math.min(256, Math.max(1, Number(process.env['PROBE_MAX_TOKENS'] ?? 64)))
+// Pinned to a cheap model AND price-checked: a future price hike trips here
+// instead of on the bill. Override only with --allow-expensive.
+assertCheapModel('deepseek-v4-flash', maxTokens, { allowExpensive: args.includes('--allow-expensive') })
 const baseURL = process.env['PROXY_BASE'] ?? 'http://127.0.0.1:8787/zen/go/v1'
 
 const credentialsPath = join(process.env['USERPROFILE'] ?? process.env['HOME'] ?? '', '.dsh', '.credentials.yaml')

@@ -162,7 +162,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 维护时需要注意：
 
 - **必选与可选之分**：18 个 peer（17 个 `dsh-*` 加框架 `cordis`）中 6 个标了 `optional`（`dsh-api-remotes`、`dsh-client-locale`、`dsh-client-store`、`dsh-client-ui-model-selection`、`dsh-client-ui-settings`、`dsh-client-ui-slots`）；真正卡住加载的是 12 个——`cordis`、`dsh-attachment`、`dsh-brand`、`dsh-client-ui-conversation`、`dsh-client-ui-renderer`、`dsh-credentials`、`dsh-fs`、`dsh-launch-environment`、`dsh-llm`、`dsh-timeout`、`dsh-typert-protocol`、`dsh-typert-registry`。其中 `dsh-llm` 是最重的一处耦合（源码 import 二十余处）。
-- **名义范围 ≠ 实测范围**：`0.1.7-alpha.1`、`alpha.2` 落在声明范围内，但本项目没有验证过；实际验证过的是 `0.1.7-rc.1`、`0.1.7-rc.2`（日常使用）与 `0.2.0-rc.1`（开发依赖基线：门禁判定 + typecheck + 全量用例）。
+- **名义范围 ≠ 实测范围**：`0.1.7-alpha.1`、`alpha.2` 落在声明范围内，但本项目没有验证过；实际验证过的是 `0.1.7-rc.1`、`0.1.7-rc.2`（日常使用）、`0.2.0-rc.1`（开发依赖基线：门禁判定 + typecheck + 全量用例）与 `0.2.0-rc.2`（开发依赖基线 + `prepareCall` 代次冻结 + pi-ai 增量解析补丁移植）。
 - **上界就是跟版线**：`<0.3.0` 意味着 DSH 一旦发布 `0.3.0`，本插件必须同批发新版，否则所有用户加载失败。当前范围跨 `0.1.7` 与 `0.2.0` 两代（`0.1.8`、`0.1.9` 从未发布，所以写成两段而不是一条）。调整范围后用 `npm test` 验证即可（本地 mock 网关，零网络零 token）——范围以接口声明为准，不要用线上探测来"测"出一个范围。
 - **peer 覆盖已双向守住**：`dsh-typert-registry`、`dsh-client-ui-conversation`、`dsh-client-ui-renderer` 曾被源码 import 却未声明、门禁管不到，现已补进 `peerDependencies`；`tests/peer-coverage.spec.ts` 双向断言——源码用到的必须声明，声明了却没人用的必须删（`dsh-settings` 就这样被移除：设置表单实际由 `dsh-client-ui-settings` 提供）。
 - **豁免是按 profile 记的**：只有显式执行过 `dsh plugin allow-version` 的 profile 才享有豁免；没有记录就代表必须落在声明范围内。用 `dsh plugin version-exemptions` 可查看当前 profile 的豁免。

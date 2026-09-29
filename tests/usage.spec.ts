@@ -14,7 +14,7 @@ import { LlmError } from '@deepseek-ai/dsh-llm'
 import { OpencodeGoAdapter } from '../src/adapter.ts'
 import type { OpencodeGoConfig } from '../src/config.ts'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
-import { startMockGateway, stubModelsDev, modelsDevDocument } from './mock-gateway.ts'
+import { offlineDocument, startMockGateway, stubModelsDev, modelsDevDocument } from './mock-gateway.ts'
 import type { MockGateway } from './mock-gateway.ts'
 
 const gateways: MockGateway[] = []
@@ -129,6 +129,7 @@ describe('since-boot meter', () => {
       const adapter = new OpencodeGoAdapter({
         config: () => config,
         resolveApiKey: async () => 'test-key',
+        readDocument: offlineDocument(),
         onUsage: ({ model, usage }) => meter.record(model, usage),
       })
       const chunks: StreamChunk[] = []

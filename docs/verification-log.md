@@ -2,6 +2,56 @@
 
 按时间倒序。每节是一次真实环境验证的范围、方法、结论与未覆盖项；操作步骤见 `runbook-m5-live-verification.md`，版本对比见 `comparison-v0.1.13.md`。文中的模型数量是**当时快照**，目录随网关变化。
 
+## 2026-09-29 · DSH 0.2.0-rc.2 适配（代码+单测，无网络）
+
+范围：DSH `0.2.0-rc.2`（`D:\git\deepseek-harness` 现行检出）相对 `rc.1` 的破坏性核对与三项跟进。**不含**真机加载与网关调用，`package-lock` 的 `rc.2` tarball 重解析需联网另跑 `npm install`。
+
+方法：
+
+- 逐个核对插件消费面（`dsh-llm` 全导出、`credentials/launch-environment/timeout/brand/attachment`、`typert` 贡献形、`conversation.input.right/settings.section/configForms/modelDirectories`）在 `rc.2` 仍存在且签名未变；`LlmAdapter` 仍只有 `stream` 是抽象方法；
+- `devDependencies` `0.2.0-rc.1` → `0.2.0-rc.2`（peer 范围已覆盖 `rc.2`，门禁无需改）；
+- 新增 `OpencodeGoAdapter.prepareCall`：一次冻结 `config+catalog snapshot+model`，`stream` 与 `prepareCall` 共用 `streamWithSnapshot`（对齐 `llm-pi-ai` 的快照纪律），并加 `prepareCall generation` 回归单测；
+- 新增 `scripts/patch-pi-ai.mjs`（`postinstall` 幂等执行）：移植 DSH `patches/@earendil-works__pi-ai@0.87.1.patch` 的 6 处逐 delta `parseStreamingJson` 删除，`0.87.1` 之外只告警跳过。
+
+结果（2026-09-29 实跑，`node v24.20.0 / npm 11.19.0`）：
+
+- 增量 `npm install` 在 `dsh-scope` 上 `ERESOLVE`（与 `rc.1` 同类），删 `node_modules` + 删 `package-lock` 重建后一次通过（`added 260 packages`，`postinstall` 补丁输出 `6 hunks applied across 6 files`，`prepare→build` 随安装通过）；
+- `npm run typecheck`（host/client/tests 三工程）通过；
+- `npm test`：27 个测试文件 / 172 个测试全绿（含新增 `prepareCall generation` 用例）；
+- `npm run test:coverage` 覆盖率门禁通过；`npm pack --dry-run` 60 个文件；`npm ci --dry-run` exit 0；
+- `peers` 不变即兼容 `rc.2`；`cordis 4.0.4` 在 `4.0.2 || 4.0.3 || 4.0.4` 内；`pi-ai` 与 Harness 同钉 `0.87.1`；
+- 目录协议表仍是三协议（与 `pi-ai` 的 `opencodeGoProvider` 一致），`imageRequestPricing` 沿用基类缺省（用量以 provider 回传为准），无需改码。
+
+未覆盖：`m5web` 隔离 profile 真机（设置页 + 用量按钮 + 图片，仍需人驾浏览器按 `runbook-m5-live-verification.md` 走）。
+
+### Live 实测（同日稍后，构建产物 + 录制代理）
+
+`npm run build` 后用 `tools/verify/recording-proxy.mjs`（本机沙箱拒绑 `8787`，改用 `18087`）+ `tools/verify/live-check.mjs session-rc2-0001 --allow-live` 跑两次同会话最小请求（`deepseek-v4-flash`，`Reply with the single word: pong`，`max_tokens=64`）：
+
+```
+GET  /zen/go/v1/models            STATUS=200 SESSION=(none) AUTH=none
+POST /zen/go/v1/chat/completions  STATUS=200 SESSION=session-rc2-0001 AUTH=Bearer <set>
+GET  /zen/go/v1/models            STATUS=200 SESSION=(none) AUTH=none
+POST /zen/go/v1/chat/completions  STATUS=200 SESSION=session-rc2-0001 AUTH=Bearer <set>
+```
+
+- 两次推理 `200`，回 `pong`，`finish kind: pi-ai, version: 2`；用量 `91/15` 与 `91/28`；
+- **同一会话两次 `x-opencode-session` 完全一致**，目录请求不带（符合设计）；
+- 当场漂移两则：网关当时仅公布 **5 个模型**（此前 34–42，含 `deepseek-v4.1-flash` 仍在，`pi-ai` 内置目录不认识它，实时目录价值不变）；Go 文档两处源均无 allowance 表，`onFallback` 生效，会话头与推理不受影响。
+- 花费：两次最小请求约 225 tokens；首行 `GET /v1/models 404` 是端口探针（缺 `/zen/go` 前缀），非适配器流量。
+
+## 2026-09-29 · 测试零花费硬化（无网络单测 + live 价格锁）
+
+动因：贵模型一次探测就能花不少钱；且此前适配器级单测仍在真实拉取 Go 文档（与"零网络"声明不符）。
+
+改动：
+
+- `OpencodeGoAdapter` 新增可选 `readDocument`（与 `OpencodeGoCatalog` 同形），生产缺省走真实拉取；6 处测试构造点全部注入 `offlineDocument()`。全套件耗时从 40s 降到 12s，佐证网络等待已消除；
+- 新增 `tools/verify/cost-guard.mjs`：按内置目录价格估算最坏花费（含 8000 reasoning headroom），超 $0.01 或无报价直接拒绝，`--allow-expensive` 才能放行；已接入 `live-check.mjs`（钉死的 `deepseek-v4-flash` 照样过检，防未来涨价）与 `model-probe.mjs`（任意模型名，锁的重点）；
+- 实测锁行为：`deepseek-v4-flash` 估算 ~$0.0049 放行；`kimi-k3` ~$0.1214 拦截；未知 id 拦截；`--allow-expensive` 放行并留日志。
+
+结果：`typecheck` 通过；`npm test` 27 文件 / 172 用例全绿；`tools/verify/README.md` 与 `docs/plan.md` 同步立规矩。
+
 ## 2026-09-28 · DSH 0.2.0-rc.1 适配（本地门禁判定 + 单测，无网络）
 
 范围：DSH 发布 `0.2.0-rc.1`（tag `dsh-v0.2.0-rc.1`，2026-09-28；npm `next` 已指向）后插件的加载兼容性。**不含**真机加载与网关调用。

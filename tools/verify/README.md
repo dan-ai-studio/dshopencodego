@@ -1,7 +1,13 @@
 # Verification: what costs money and what does not
 
-Everything in `npm test` runs against the local mock gateway — 152 cases, zero
-network, zero tokens. That is the default way to prove a change.
+Everything in `npm test` runs hermetic — 172 cases against the local mock
+gateway plus injected documents, zero network, zero tokens. That is the
+default way to prove a change. In particular no unit or integration test may
+send a real gateway request: `OpencodeGoAdapter` accepts an optional
+`readDocument` precisely so adapter-level suites inject `offlineDocument()`
+instead of fetching the provider documentation, and `stubModelsDev` only
+stubs `models.dev` because nothing else in the suite is allowed to need the
+network at all.
 
 Only the scripts in this folder touch the real gateway, and a real gateway call
 spends the account's money. The rules below are not stylistic; they exist so a
@@ -13,8 +19,12 @@ verification pass cannot quietly become a bill.
    request bodies, headers, catalog parsing and error mapping. Only a question
    about the *gateway's* behaviour needs a live call.
 2. **One live request per release at most**, with a one-word prompt and
-   `PROBE_MAX_TOKENS` left small (default 64, cap 256). `model-probe.mjs`
-   refuses to send anything without an explicit `--allow-live`.
+   `PROBE_MAX_TOKENS` left small (default 64, cap 256). Both live scripts
+   price the probe from the installed pi-ai catalog first (`cost-guard.mjs`):
+   worst case assumes the token cap plus reasoning headroom, and anything
+   above $0.01 — or with no published price at all — refuses unless the
+   caller also passes `--allow-expensive`. A price hike or an expensive
+   model trips here instead of on the bill.
 3. **Never sweep a model list.** A batch probe across models is a bill, not a
    test: state the number of requests and get the user's go-ahead first, and
    prefer the cheapest model that can answer the question.
@@ -59,6 +69,7 @@ transport cannot spell. See `src/catalog/metadata.ts`.
 
 | script | spends money | use |
 | --- | --- | --- |
-| `model-probe.mjs` | yes, one request, needs `--allow-live` | confirm a gateway rejection or a wire spelling |
-| `live-check.mjs` | yes, one request | end-to-end check of catalog + session header |
+| `model-probe.mjs` | yes, one request, needs `--allow-live` + price check | confirm a gateway rejection or a wire spelling |
+| `live-check.mjs` | yes, one request, needs `--allow-live` + price check | end-to-end check of catalog + session header |
+| `cost-guard.mjs` | no | shared price ceiling imported by the two scripts above |
 | `recording-proxy.mjs` | no by itself | logs request bodies; forwards whatever asks it to |

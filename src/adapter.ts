@@ -28,6 +28,7 @@ import type {
   ImageAttachmentAccess,
   LlmModelInfo,
   LlmResolvedModelInfo,
+  PreparedAdapterCall,
   ResolvedRetryPolicy,
   StreamChunk,
   TokenUsage,
@@ -35,6 +36,8 @@ import type {
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { DISPLAY_NAME, PROVIDER_ID, OpencodeGoCatalog } from './catalog/index.ts'
+import type { CatalogSnapshot } from './catalog/index.ts'
+import type { GoDoc } from './catalog/go-doc.ts'
 import { toPiModel } from './catalog/metadata.ts'
 import { assertBaseURL } from './config.ts'
 import type { OpencodeGoConfig, OpencodeGoModelLimits } from './config.ts'
@@ -84,6 +87,11 @@ export interface OpencodeGoAdapterOptions {
   /** Observe assistant history degrading to provider-neutral conversion. */
   readonly onReplayDegrade?: (reason: string) => void
   /**
+   * Read the provider documentation. Defaults to the real fetch; tests inject
+   * a fixed document so the suite stays offline. Production omits this.
+   */
+  readonly readDocument?: () => Promise<GoDoc>
+  /**
    * Observe the provider's own usage for one completed call. This is the only
    * honest source of token counts: the gateway's `/usage` endpoint reports
    * account percentages, not tokens.
@@ -129,6 +137,7 @@ export class OpencodeGoAdapter extends LlmAdapter {
             input: ['text'],
           },
           overrides: config.modelProtocols,
+          ...this.options.readDocument === undefined ? {} : { readDocument: this.options.readDocument },
           observers: {
             ...this.options.onFallback === undefined ? {} : { onFallback: this.options.onFallback },
             ...this.options.onUnconfigured === undefined ? {} : { onUnconfigured: this.options.onUnconfigured },
@@ -230,12 +239,36 @@ export class OpencodeGoAdapter extends LlmAdapter {
     )
   }
 
+  override async prepareCall(_provider: string, model: string, _signal?: AbortSignal): Promise<PreparedAdapterCall> {
+    // Freeze one generation: the config, catalog snapshot, and model facts are
+    // captured before the first await, so a settings change between preparation
+    // and dispatch cannot combine one generation's capabilities with another's
+    // endpoint. Mirrors llm-pi-ai's snapshot discipline.
+    const config = this.options.config()
+    const snapshot = await this.catalogOf(config).forModel(model)
+    const facts = snapshot.facts.get(model)
+    if (facts === undefined) throw new LlmError(`opencode-go has no model "${model}"`, 'UNKNOWN_MODEL')
+    const prepared = this.modelInfo(withModelLimit(toPiModel(facts, config.baseURL), config.modelLimits))
+    return {
+      model: prepared,
+      stream: options => this.streamWithSnapshot(options, config, snapshot),
+    }
+  }
+
   override async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    const config = this.options.config()
+    const snapshot = await this.catalogOf(config).forModel(options.model)
+    yield* this.streamWithSnapshot(options, config, snapshot)
+  }
+
+  private async *streamWithSnapshot(
+    options: GenerateOptions,
+    config: OpencodeGoConfig,
+    snapshot: CatalogSnapshot,
+  ): AsyncIterable<StreamChunk> {
     if (options.stop !== undefined) {
       throw new LlmError('dshopencodego does not support GenerateOptions.stop', 'UNSUPPORTED_OPTION')
     }
-    const config = this.options.config()
-    const snapshot = await this.catalogOf(config).forModel(options.model)
     const facts = snapshot.facts.get(options.model)
     if (facts === undefined) throw new LlmError(`opencode-go has no model "${options.model}"`, 'UNKNOWN_MODEL')
     const model = withModelLimit(toPiModel(facts, config.baseURL), config.modelLimits)

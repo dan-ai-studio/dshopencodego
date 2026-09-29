@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { OpencodeGoAdapter } from '../src/adapter.ts'
 import type { OpencodeGoConfig } from '../src/config.ts'
-import { startMockGateway, stubModelsDev, modelsDevDocument } from './mock-gateway.ts'
+import { offlineDocument, startMockGateway, stubModelsDev, modelsDevDocument } from './mock-gateway.ts'
 import type { MockGateway } from './mock-gateway.ts'
 
 const gateways: MockGateway[] = []
@@ -46,6 +46,7 @@ describe('adapter listing', () => {
       const adapter = new OpencodeGoAdapter({
         config: () => configFor(server.baseURL),
         resolveApiKey: async () => 'test-key',
+        readDocument: offlineDocument(),
       })
       const models = await adapter.listModels('opencode-go')
       // Neither id carries a transcribed quota, so the default keeps the
@@ -65,6 +66,7 @@ describe('adapter listing', () => {
       const adapter = new OpencodeGoAdapter({
         config: () => configFor(server.baseURL, { modelVisibility: { 'zz-cheap': false } }),
         resolveApiKey: async () => 'test-key',
+        readDocument: offlineDocument(),
       })
       const models = await adapter.listModels('opencode-go')
       expect(models.map(model => model.id)).toEqual(['aa-expensive'])
@@ -81,6 +83,7 @@ describe('adapter listing', () => {
       const adapter = new OpencodeGoAdapter({
         config: () => configFor(server.baseURL),
         resolveApiKey: async () => 'test-key',
+        readDocument: offlineDocument(),
       })
       await expect(adapter.resolveModel('opencode-go', 'definitely-not-a-real-model', undefined as never))
         .rejects.toMatchObject({ code: 'UNKNOWN_MODEL' })

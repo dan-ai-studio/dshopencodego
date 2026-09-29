@@ -16,6 +16,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { OpencodeGoAdapter } from '../../lib/index.js'
+import { assertCheapModel } from './cost-guard.mjs'
 
 const args = process.argv.slice(2)
 const allowLive = args.includes('--allow-live')
@@ -34,6 +35,9 @@ if (!allowLive) {
     ' Pass --allow-live only when the answer is worth its price.')
   process.exit(2)
 }
+// Price-checked: expensive or unpriced models refuse here, before any
+// credential is read or any request goes out. Override with --allow-expensive.
+assertCheapModel(model, maxTokens, { allowExpensive: args.includes('--allow-expensive') })
 
 const baseURL = process.env['PROXY_BASE'] ?? 'http://127.0.0.1:8787/zen/go/v1'
 
