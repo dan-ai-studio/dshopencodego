@@ -4,6 +4,7 @@
   "description": "OpenCode Go provider for DeepSeek Harness: live gateway catalog, per-conversation session header, usage",
   "type": "module",
   "license": "MIT",
+  "icon": "./icon.svg",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dan-ai-studio/dshopencodego.git"
@@ -27,11 +28,14 @@
       "types": "./lib/types/client/index.d.ts",
       "default": "./lib/client.js"
     },
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "files": [
     "lib",
     "cordis.patch.yml",
+    "icon.svg",
+    "locale",
     "README.md",
     "README.en.md",
     "LICENSE"
