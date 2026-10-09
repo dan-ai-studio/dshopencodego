@@ -64,6 +64,33 @@ function withModelLimit(model: Model<Api>, limits: OpencodeGoModelLimits): Model
   }
 }
 
+/**
+ * Resolve one request's stop sequences against the model's protocol.
+ *
+ * The seam's stop control reaches a route only through the provider's own
+ * field, and pi-ai models none: its Anthropic options carry no stop sequences
+ * and that adapter ignores `samplingParams`, and its Responses options define
+ * no stop-sequence parameter at all. Only the OpenAI-compatible adapters merge
+ * arbitrary body fields, and `stop` is exactly the field Chat Completions
+ * defines, so a completions model can honor it. Every other protocol refuses:
+ * silently dropping the sequences would let a caller believe generation halts
+ * at a string the model never sees.
+ * @param model - the exact model this request will use.
+ * @param stop - the caller's stop sequences, when it named any.
+ * @returns the sequences to send, or undefined when the caller named none.
+ * @throws {LlmError} `UNSUPPORTED_OPTION` for a protocol with no reachable
+ *   stop-sequence parameter.
+ */
+function stopSequencesFor(model: Model<Api>, stop: readonly string[] | undefined): readonly string[] | undefined {
+  if (stop === undefined) return undefined
+  if (model.api === 'openai-completions') return stop
+  throw new LlmError(
+    `opencode-go model "${model.id}" speaks ${model.api}, which has no stop-sequence parameter this adapter can reach;`
+    + ' drop GenerateOptions.stop for this model',
+    'UNSUPPORTED_OPTION',
+  )
+}
+
 /** Image machinery the adapter reads once per request. */
 export interface OpencodeGoImageAccess {
   /** Resolve the durable attachment service at request time. */
@@ -266,12 +293,12 @@ export class OpencodeGoAdapter extends LlmAdapter {
     config: OpencodeGoConfig,
     snapshot: CatalogSnapshot,
   ): AsyncIterable<StreamChunk> {
-    if (options.stop !== undefined) {
-      throw new LlmError('dshopencodego does not support GenerateOptions.stop', 'UNSUPPORTED_OPTION')
-    }
     const facts = snapshot.facts.get(options.model)
     if (facts === undefined) throw new LlmError(`opencode-go has no model "${options.model}"`, 'UNKNOWN_MODEL')
     const model = withModelLimit(toPiModel(facts, config.baseURL), config.modelLimits)
+    // Resolved before the first await so an unsupported protocol fails the
+    // request before any credential is read or any byte is sent.
+    const stop = stopSequencesFor(model, options.stop)
     // `defaultMaxTokens` already carries the route's ceiling for a caller that
     // names none, so only a caller's own cap travels, clamped by a configured
     // per-model ceiling when one exists.
@@ -316,6 +343,10 @@ export class OpencodeGoAdapter extends LlmAdapter {
         ...reasoning === undefined || reasoning === 'off' ? {} : { reasoning },
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...maxTokens === undefined ? {} : { maxTokens },
+        // `samplingParams` is merged into the request body as-is by the
+        // OpenAI-compatible adapters, and `stop` is Chat Completions' own
+        // stop-sequence field — the one place this control reaches the wire.
+        ...stop === undefined ? {} : { samplingParams: { stop: [...stop] } },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
         signal: watchdog.signal,
         // The gateway refuses a request without `x-opencode-session`; the

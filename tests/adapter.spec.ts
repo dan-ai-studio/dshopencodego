@@ -161,6 +161,50 @@ describe('adapter on the wire', () => {
     }
   })
 
+  it('carries stop sequences on a Chat Completions request', async () => {
+    const server = await gateway({ listing: ['glm-5.3'] })
+    const stub = stubModelsDev(DOCUMENT)
+    try {
+      await collect(adapterFor(server).stream(options('glm-5.3', { stop: ['\n\nHuman:'] })))
+      // The same adapter must not carry the sequences into a request that
+      // named none, so a later caller cannot inherit them.
+      await collect(adapterFor(server).stream(options('glm-5.3')))
+      const requests = server.requests.filter(entry => entry.path.endsWith('/chat/completions'))
+      expect(requests).toHaveLength(2)
+      expect((requests[0]!.body as { stop?: string[] }).stop).toEqual(['\n\nHuman:'])
+      expect((requests[1]!.body as { stop?: string[] }).stop).toBeUndefined()
+    } finally {
+      stub.restore()
+    }
+  })
+
+  it('refuses stop sequences on a protocol with no stop parameter', async () => {
+    // Anthropic defines `stop_sequences`, but pi-ai's Anthropic adapter
+    // exposes no such option and ignores `samplingParams`; guessing a body
+    // field the gateway may reject is worse than refusing.
+    const server = await gateway({ listing: ['minimax-m3'] })
+    const stub = stubModelsDev(DOCUMENT)
+    try {
+      await expect(collect(adapterFor(server).stream(options('minimax-m3', { stop: ['x'] }))))
+        .rejects.toMatchObject({ code: 'UNSUPPORTED_OPTION' })
+      expect(server.requests.some(entry => entry.path.endsWith('/v1/messages'))).toBe(false)
+    } finally {
+      stub.restore()
+    }
+  })
+
+  it('refuses stop sequences on an OpenAI Responses model', async () => {
+    const server = await gateway({ listing: ['grok-4.7'] })
+    const stub = stubModelsDev(DOCUMENT)
+    try {
+      await expect(collect(adapterFor(server).stream(options('grok-4.7', { stop: ['x'] }))))
+        .rejects.toMatchObject({ code: 'UNSUPPORTED_OPTION' })
+      expect(server.requests.some(entry => entry.path.endsWith('/responses'))).toBe(false)
+    } finally {
+      stub.restore()
+    }
+  })
+
   it('gives each session-less request its own value', async () => {
     const server = await gateway({ listing: ['glm-5.3'] })
     const stub = stubModelsDev(DOCUMENT)
