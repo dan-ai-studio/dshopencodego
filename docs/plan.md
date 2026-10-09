@@ -15,7 +15,8 @@
 
 - 不改 DSH 核心（`llm-pi-ai` 的 pin、补丁与 compat 门禁不在本次范围）。
 - 不移植 DSH 对 pi-ai 的"工具参数增量解析"补丁（记入风险，后续按实测决定）。
-- 不做运行时协议探测，不做跨会话按日期汇总，不发布 npm。
+- 不做运行时协议探测，不做跨会话按日期汇总。
+- **分发以 GitHub Release tarball 为主**；npm 发布走 `publish-npm.yml` 的 trusted publishing（OIDC，见 README「发布」），与 tarball 并存而非互斥。
 
 ## 2a. 开发边界（用户约束）
 
