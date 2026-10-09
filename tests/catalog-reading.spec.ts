@@ -40,7 +40,10 @@ describe('settings catalog reading', () => {
         readDocument: offlineDocument(),
       })
       const snapshot = await catalog.snapshot()
-      const reading = catalogReading(snapshot, {})
+      // The clock is injected: `brand-new` shipped 2026-09-23 and the "newly
+      // shipped" window is seven days, so an un-injected reading silently
+      // reclassifies it once the wall clock passes 2026-09-30.
+      const reading = catalogReading(snapshot, {}, undefined, Date.parse('2026-09-26T00:00:00Z'))
       expect(reading.stale).toBe(false)
       expect(reading.models.map(model => model.id)).toEqual(['brand-new', 'glm-5.3', 'broken', 'glm-5'])
       expect(reading.counts).toEqual({ total: 4, enabled: 2, deprecated: 1, unconfigured: 1, inferred: 0 })

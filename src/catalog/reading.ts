@@ -45,6 +45,8 @@ export interface CatalogReading {
  * @param snapshot - the catalog snapshot, live or retained.
  * @param visibility - per-model switches; absent entries keep the default.
  * @param listingFailure - the failure message when the listing failed.
+ * @param now - the clock the "newly shipped" ordering reads; injected so a
+ *   reading is a pure function of its inputs rather than of the wall clock.
  * @returns the reading, with unconfigurable ids kept visible so the page can
  *   explain them instead of hiding them.
  */
@@ -52,6 +54,7 @@ export function catalogReading(
   snapshot: CatalogSnapshot,
   visibility: Readonly<Record<string, boolean>>,
   listingFailure?: string,
+  now?: number,
 ): CatalogReading {
   const documentQuotas = snapshot.documentQuotas
   const rows: ModelSummary[] = [
@@ -88,7 +91,7 @@ export function catalogReading(
   const models = rows.map(row => ({ ...row, recommended: recommended.has(row.id) }))
   const enabled = models.filter(model => isModelEnabled(model, visibility)).length
   return {
-    models: sortModels(models),
+    models: sortModels(models, now),
     stale: !snapshot.live,
     ...!snapshot.live && listingFailure !== undefined ? { error: listingFailure } : {},
     fetchedAtMs: snapshot.fetchedAtMs,
