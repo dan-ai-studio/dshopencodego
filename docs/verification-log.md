@@ -1,6 +1,41 @@
 # 验证记录（实机 / 真实网关）
 
-按时间倒序。每节是一次真实环境验证的范围、方法、结论与未覆盖项；操作步骤见 `runbook-m5-live-verification.md`，版本对比见 `comparison-v0.1.13.md`。文中的模型数量是**当时快照**，目录随网关变化。
+按时间倒序。每节是一次真实环境验证的范围、方法、结论与未覆盖项；操作步骤见 `verification-0.2.1-live.md`（0.2.1 适配）与 `runbook-m5-live-verification.md`（M5），版本对比见 `comparison-v0.1.13.md`。文中的模型数量是**当时快照**，目录随网关变化。
+
+## 2026-10-10 · DSH 0.2.1-alpha.2 适配实机（`v021h` headless + 选择性黑洞）
+
+范围：分支 `chore/upgrade-dsh-0.2.1-alpha.2`（0.1.21）在**真实** `dsh-v0.2.1-alpha.2`（检出 `d743267388`，HEAD 与 tag 同位）上，用真实网关跑通安装、注册、推理、会话头、流式终止与路线生命周期。**不含**浏览器 UI（见未覆盖）。
+
+方法与实际偏离（runbook 需要相应修订）：
+
+- **模板用 `headless` 而非 `web`**：`dsh headless "..."` 不是子命令，`headless` 是出货模板；任务驱动的对话必须用它建 profile。`web` 模板的 app 不接受任务参数。
+- **`ERR_PNPM_IGNORED_BUILDS` 有解**：runbook 记为"只能手工补登记"，实际根因是 pnpm 11.28 的 `strictDepBuilds` 把"被忽略的构建脚本"升成错误。在隔离 profile 的 `pnpm-workspace.yaml` 里加 `strictDepBuilds: false` 即恢复 exit 0，**且 bundle 自动登记**（先 `remove` 再 `add`，否则 `pnpm add` 变 no-op 会跳过 reconcile）。
+- **新增 `tools/verify/stream-blackhole.mjs`**：目录/用量端点透传到真实网关、推理端点吞掉不响应——这是唯一能把"流停止输出但传输不关闭"与"目录超时"两种失败分开制造的办法。
+
+结果（真实网关，`node v24.20.0 / pnpm 11.28.5`）：
+
+| 判据 | 结果 |
+|---|---|
+| 安装无 ERESOLVE、无 `dsh-invariants` 残留 | **过**：profile 内 `@earendil-works/pi-ai@1.0.4`、`@deepseek-ai/schemastery@3.18.5-alpha.1`，无 `dsh-invariants` |
+| 插件加载、`apply()` 执行、路由注册 | **过（行为证据）**：见下 |
+| 基础对话 | **过**：`只回复：pong` → `pong`，44.5s |
+| 会话头 | **过**：同会话 3 次推理 `x-opencode-session` 全等（`session-492fb648-…`），`/models` 不带（符合设计），`user-agent` = `deepseek-harness/0.2.1-alpha.2 (+…)` |
+| 流式终止语义 | **过（本次最有价值）**：黑洞上游 + `streamIdleTimeoutMs: 20000` → `LLM_STREAM_IDLE_TIMEOUT after 20000ms`，64.6s 终止，**不挂起** |
+| 全黑洞 | **过**：57.9s 以 `UNKNOWN_MODEL` 终止，不挂起 |
+| 路线生命周期 | **过**：`enabled:false` → `NO_ADAPTER`；恢复 → `pong`；无重复注册 |
+
+"插件已加载"的行为证据（headless 不写启动日志，改用与 2026-09-24 相同的论证）：全黑洞那次报的是 `dsh: UNKNOWN_MODEL: opencode-go has no model "deepseek-v4.1-flash"`——该文案出自本插件适配器，说明 `apply()` 已执行、路线已注册、目录已尝试从网关取回；配合 `enabled:false` 时的 `NO_ADAPTER` 与恢复后的 `pong`，注册/撤除/恢复三段闭环成立。
+
+顺带确认：`stop` 序列的实现路径（`samplingParams`）未在真实网关上验证——单测已在真实 socket 上断言请求体，真机路径留待宿主实际下发 stop。
+
+未覆盖：
+
+- **浏览器 UI 全部**（设置页分区、模型目录计数、逐模型开关、用量按钮三窗口）——本次无浏览器控制，需人驾按 runbook S7 走一遍；
+- `openai-responses` / `anthropic-messages` 两个协议的真实网关端到端（本次默认模型走 `openai-completions`；单测已覆盖三协议的请求体）；
+- 日常 `web` profile 的重装（全程未动，依赖清单已核对未变）；
+- S8 抓包用的任务是"读工作区内文件"，模型对工作区外路径会跳过工具调用直接回答，需要时得挑工作区内文件。
+
+代价：真实网关推理约 6 次最小请求（含两次超时路径，无输出不计费）。
 
 ## 2026-09-30 · 移除 pi-ai 补丁移植（发布物简化 + 决策记录）
 
