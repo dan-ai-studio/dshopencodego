@@ -51,10 +51,10 @@ declare module '@deepseek-ai/cordis' {
 
 export { OpencodeGoAdapter } from './adapter.ts'
 export type { OpencodeGoAdapterOptions, OpencodeGoImageAccess } from './adapter.ts'
-export { DEFAULT_BASE_URL, DISPLAY_NAME, PROVIDER_ID, OpencodeGoCatalog, discoverCatalogModels } from './catalog/index.ts'
+export { DEFAULT_BASE_URL, CONSOLE_BASE_URL, DISPLAY_NAME, PROVIDER_ID, OpencodeGoCatalog, discoverCatalogModels } from './catalog/index.ts'
 export { Config, PlainConfig, assertBaseURL, DEFAULT_API_KEY_ENV } from './config.ts'
 export type { OpencodeGoConfig } from './config.ts'
-export { SESSION_HEADER, opencodeSessionValue, providerHeaders } from './session-header.ts'
+export { SESSION_HEADER, SESSION_AFFINITY_HEADER, opencodeSessionValue, providerHeaders } from './session-header.ts'
 export { isModelEnabled, sortModels } from './models.ts'
 export type { ModelSummary } from './models.ts'
 
@@ -198,7 +198,7 @@ export function apply(ctx: Context, raw?: unknown): void {
   const undiscover = ctx.llm.registerModelDiscovery(name, async (request: LlmModelDiscoveryRequest) => {
     if (request.provider !== PROVIDER_ID && !(request.baseURL ?? '').includes('opencode.ai')) {
       throw new LlmError(
-        'dshopencodego discovers only OpenCode zen/go endpoints; enter this provider\'s models by hand',
+        'dshopencodego discovers only OpenCode Go/Console endpoints; enter this provider\'s models by hand',
         'DISCOVERY_UNSUPPORTED',
       )
     }

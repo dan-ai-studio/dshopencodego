@@ -42,7 +42,7 @@ import { readOnlineMetadata, toPiModel } from './metadata.ts'
 import type { ModelDefaults, ModelFacts } from './metadata.ts'
 import type { GoQuota } from '../go-limits.ts'
 
-export { PROVIDER_ID, DISPLAY_NAME, DEFAULT_BASE_URL } from './constants.ts'
+export { PROVIDER_ID, DISPLAY_NAME, DEFAULT_BASE_URL, CONSOLE_BASE_URL } from './constants.ts'
 export { readModelIds, fetchModelIds } from './gateway.ts'
 export { readOnlineMetadata, toPiModel, modelBaseURL } from './metadata.ts'
 export type { ModelFacts, OnlineMetadata, ModelDefaults } from './metadata.ts'

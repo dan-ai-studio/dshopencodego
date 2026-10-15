@@ -13,6 +13,12 @@
   - 未显式配置 `baseURL` 的实例将自动指向新端点，经实测 `/models` 目录（37个模型）与 `/usage` 配额结构保持 100% 行为等价。
 - **剔除无效模型配置 (R-B4)**：
   - 从预设配额表（`SEED_QUOTAS`）中剔除 `space-bunny-free`。OpenCode Go 官方端点当前并不提供该模型（实测调用返回 400 错误），历史收录源于第三方爬虫元数据偏差。
+- **支持 Console 主端点 (R-C2 / T-21)**：
+  - 新增导出 `CONSOLE_BASE_URL = 'https://opencode.ai/inference/v1'`。
+  - 用户可配置 `baseURL: 'https://opencode.ai/inference/v1'` 接入 OpenCode Console 主端点，完整解锁 86 个按量与免费模型。
+  - 内置健全的四级协议降级与家族推断，确保全量模型正确映射至 Chat Completions、Responses 或 Messages 协议，且在 Console 缺失 `/usage` 时平稳降级，保障系统稳定运行。
+- **补齐会话亲和头 (R-C3 / T-22)**：
+  - 导出 `SESSION_AFFINITY_HEADER = 'x-session-affinity'`，请求同时携带 `x-opencode-session` 与 `x-session-affinity`（同会话内取值严格一致），对齐上游官方行为，增强网关亲和路由与 Prompt Cache 命中率。
 - **运行时环境兼容范围扩大 (R-A3, R-A5)**：
   - 更新 `package.json` 中的 `engines.dsh` 为 `">=0.1.7-alpha.1 <0.2.0 || >=0.2.0-rc.1 <0.2.1 || >=0.2.1-alpha.1 <0.3.0"`，在标准 semver 语义下无缝兼容 `0.2.1-alpha.*` 预发布版本运行时。
 

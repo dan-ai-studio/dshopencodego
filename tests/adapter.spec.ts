@@ -7,7 +7,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { OpencodeGoAdapter } from '../src/adapter.ts'
-import { providerHeaders, opencodeSessionValue, SESSION_HEADER } from '../src/session-header.ts'
+import { providerHeaders, opencodeSessionValue, SESSION_AFFINITY_HEADER, SESSION_HEADER } from '../src/session-header.ts'
 import { classifyPiAiError, mapStopReason, mapUsage } from '../src/conversion/stream.ts'
 import { toPiAssistant, toPiReplayState } from '../src/conversion/replay.ts'
 import { isModelEnabled, sortModels } from '../src/models.ts'
@@ -99,6 +99,7 @@ describe('session header invariants', () => {
   it('keeps the Harness user-agent and lets nothing override the session header', () => {
     const headers = providerHeaders('session-abc')
     expect(headers[SESSION_HEADER]).toBe('session-abc')
+    expect(headers[SESSION_AFFINITY_HEADER]).toBe('session-abc')
     expect(headers['user-agent']).toMatch(/^deepseek-harness\//)
   })
 })
@@ -112,6 +113,7 @@ describe('adapter on the wire', () => {
       const request = server.requests.find(entry => entry.path.endsWith('/chat/completions'))
       expect(request).toBeDefined()
       expect(request!.headers[SESSION_HEADER]).toBe('session-wire')
+      expect(request!.headers[SESSION_AFFINITY_HEADER]).toBe('session-wire')
       expect(request!.headers['user-agent']).toMatch(/^deepseek-harness\//)
       expect(request!.headers.authorization).toBe('Bearer test-key')
       expect((request!.body as { model?: string }).model).toBe('glm-5.3')
@@ -131,6 +133,7 @@ describe('adapter on the wire', () => {
       const request = server.requests.find(entry => entry.path.endsWith('/v1/messages'))
       expect(request).toBeDefined()
       expect(request!.headers[SESSION_HEADER]).toBe('session-messages')
+      expect(request!.headers[SESSION_AFFINITY_HEADER]).toBe('session-messages')
       expect(request!.headers['x-api-key']).toBe('test-key')
     } finally {
       stub.restore()
@@ -145,6 +148,7 @@ describe('adapter on the wire', () => {
       const request = server.requests.find(entry => entry.path.endsWith('/responses'))
       expect(request).toBeDefined()
       expect(request!.headers[SESSION_HEADER]).toBe('session-responses')
+      expect(request!.headers[SESSION_AFFINITY_HEADER]).toBe('session-responses')
       expect(request!.headers['user-agent']).toMatch(/^deepseek-harness\//)
       expect(request!.headers.authorization).toBe('Bearer test-key')
       expect(server.requests.some(entry => entry.path.endsWith('/chat/completions'))).toBe(false)

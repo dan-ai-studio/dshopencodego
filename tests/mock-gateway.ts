@@ -36,6 +36,8 @@ export interface MockGatewayOptions {
   readonly usage?: unknown
   /** Answer the listing with this status instead of 200. */
   readonly listingStatus?: number
+  /** Answer the usage endpoint with this status instead of 200. */
+  readonly usageStatus?: number
   /** Require this bearer token; a mismatch answers 401. */
   readonly apiKey?: string
   /** Stream one tool call instead of plain text on Chat Completions. */
@@ -179,7 +181,7 @@ export async function startMockGateway(options: MockGatewayOptions = {}): Promis
         return
       }
       if (path.endsWith('/usage')) {
-        response.writeHead(200, { 'content-type': 'application/json' })
+        response.writeHead(options.usageStatus ?? 200, { 'content-type': 'application/json' })
         response.end(JSON.stringify(options.usage ?? {
           usage: {
             rolling: { status: 'ok', percent: 12.5, resetsAt: '2026-09-24T20:00:00.000Z' },

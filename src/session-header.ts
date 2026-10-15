@@ -22,6 +22,9 @@ import { attributionHeaders } from '@deepseek-ai/dsh-llm'
 /** Header name the gateway requires. */
 export const SESSION_HEADER = 'x-opencode-session'
 
+/** Session affinity header for gateway routing and prompt caching. */
+export const SESSION_AFFINITY_HEADER = 'x-session-affinity'
+
 /**
  * The header value for one request.
  * @param sessionId - the request's session id, if it names one.
@@ -35,15 +38,17 @@ export function opencodeSessionValue(sessionId: string | undefined): string {
  * Every header one provider request carries.
  *
  * The attribution `user-agent` is Harness-owned and always present; the session
- * header is added on top of it. A caller-supplied header of the same name can
- * never win, because the gateway's routing decision must follow the session,
- * not a deployment string.
+ * and affinity headers are added on top of it. A caller-supplied header of the
+ * same name can never win, because the gateway's routing decision must follow
+ * the session, not a deployment string.
  * @param sessionId - the request's session id, if it names one.
  * @returns headers for the pi-ai request options.
  */
 export function providerHeaders(sessionId: string | undefined): Record<string, string> {
+  const session = opencodeSessionValue(sessionId)
   return {
-    [SESSION_HEADER]: opencodeSessionValue(sessionId),
+    [SESSION_HEADER]: session,
+    [SESSION_AFFINITY_HEADER]: session,
     ...attributionHeaders(),
   }
 }

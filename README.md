@@ -83,7 +83,8 @@ DSH 桌面端是 Electron 壳 + 完整的 dsh Web 应用，本插件对它同样
   config:
     enabled: true                            # false 仅撤下路由，插件保持挂载
     apiKeyEnv: OPENCODE_GO_API_KEY            # 默认值
-    baseURL: https://opencode.ai/inference/go/v1    # 默认值
+    baseURL: https://opencode.ai/inference/go/v1    # 默认值（OpenCode Go 端点，37 个订阅模型）
+                                              # 也可指定为 https://opencode.ai/inference/v1（Console 主端点，包含 86 个按量/免费模型）
     refreshMinutes: 60                        # 目录缓存时长
     modelVisibility:                          # 逐模型开关（弃用模型默认关闭）
       glm-5: true

@@ -9,6 +9,9 @@ export const DISPLAY_NAME = 'OpenCode Go'
 /** Gateway base URL; `/models` and `/usage` hang off it. */
 export const DEFAULT_BASE_URL = 'https://opencode.ai/inference/go/v1'
 
+/** Console base URL (on-demand / free models, pay-as-you-go). */
+export const CONSOLE_BASE_URL = 'https://opencode.ai/inference/v1'
+
 /** Online model metadata: capability, lifecycle, and pricing per model id. */
 export const MODEL_METADATA_URL = 'https://models.dev/api.json'
 

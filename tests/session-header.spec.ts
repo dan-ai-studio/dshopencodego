@@ -3,7 +3,7 @@
  * otherwise, and a gateway-owned header nothing may override.
  */
 import { describe, expect, it } from 'vitest'
-import { opencodeSessionValue, providerHeaders, SESSION_HEADER } from '../src/session-header.ts'
+import { opencodeSessionValue, providerHeaders, SESSION_AFFINITY_HEADER, SESSION_HEADER } from '../src/session-header.ts'
 
 describe('opencodeSessionValue', () => {
   it('sends the conversation id verbatim', () => {
@@ -20,16 +20,19 @@ describe('opencodeSessionValue', () => {
 })
 
 describe('providerHeaders', () => {
-  it('names the mandatory header and keeps the Harness attribution', () => {
+  it('names the mandatory header, affinity header, and keeps the Harness attribution', () => {
     expect(SESSION_HEADER).toBe('x-opencode-session')
+    expect(SESSION_AFFINITY_HEADER).toBe('x-session-affinity')
     const headers = providerHeaders('session-abc')
     expect(headers[SESSION_HEADER]).toBe('session-abc')
+    expect(headers[SESSION_AFFINITY_HEADER]).toBe('session-abc')
     expect(typeof headers['user-agent']).toBe('string')
     expect(headers['user-agent']!.length).toBeGreaterThan(0)
   })
 
-  it('carries a minted value when the request names no session', () => {
+  it('carries a minted value when the request names no session, and matches between headers', () => {
     const headers = providerHeaders(undefined)
     expect(headers[SESSION_HEADER]).toMatch(/^[0-9a-f-]{36}$/)
+    expect(headers[SESSION_AFFINITY_HEADER]).toBe(headers[SESSION_HEADER])
   })
 })

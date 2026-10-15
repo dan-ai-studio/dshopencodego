@@ -83,7 +83,8 @@ Configuration lives in the profile's `cordis.patch.yml`:
   config:
     enabled: true                            # false withdraws the route only
     apiKeyEnv: OPENCODE_GO_API_KEY            # default
-    baseURL: https://opencode.ai/inference/go/v1    # default
+    baseURL: https://opencode.ai/inference/go/v1    # default (OpenCode Go endpoint, 37 subscription models)
+                                              # or https://opencode.ai/inference/v1 (Console main endpoint, 86 pay-as-you-go/free models)
     refreshMinutes: 60                        # live catalog TTL
     modelVisibility:                          # per-model switches (deprecated default off)
       glm-5: true

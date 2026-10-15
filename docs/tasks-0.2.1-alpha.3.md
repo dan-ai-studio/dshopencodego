@@ -78,8 +78,8 @@
 
 | ID | 任务 | 需求 | 说明 | 状态 |
 |---|---|---|---|---|
-| **T-21** | 支持 Console 主端点 `https://opencode.ai/inference/v1`（86 模型） | R-C2 | 需新增路由或做模型级 baseURL 路由；工作量中等 | pending（未批准） |
-| **T-22** | 补齐会话亲和头 `x-session-affinity`（取值同 `x-opencode-session`） | R-C3 | 官方**未要求**；仅为潜在 prompt cache 命中优化，需实测增益后再决定 | pending（未批准） |
+| **T-21** | 支持 Console 主端点 `https://opencode.ai/inference/v1`（86 模型） | R-C2 | 导出 `CONSOLE_BASE_URL`，86 模型离线解析与三协议路由全覆盖，单测见 `tests/console-endpoint.spec.ts` | done |
+| **T-22** | 补齐会话亲和头 `x-session-affinity`（取值同 `x-opencode-session`） | R-C3 | 在 `src/session-header.ts` 中统一派发，单测见 `tests/session-header.spec.ts` | done |
 | **T-23** | 在设置页/限额表标注 Go 端点 3 个免费模型的「额度耗尽后仍可用」语义 | R-C4 | `cat-jam-free`、`step-5-preview-free`、`longcat-2.5-preview-free` | pending（未批准） |
 
 ---
