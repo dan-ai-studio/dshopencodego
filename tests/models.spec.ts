@@ -20,7 +20,6 @@ describe('recommendedIds', () => {
       model('kimi-k3'),             // 490
       model('mimo-v2.6-flash'),     // 150,400
       model('mimo-v2.5'),           // 150,400
-      model('space-bunny-free'),    // unlimited
       model('deepseek-v4.1-flash'), // 130,000
       model('deepseek-v4-flash'),   // 65,000
       model('grok-4.7'),            // 845
@@ -28,7 +27,7 @@ describe('recommendedIds', () => {
     ])
     expect(DEFAULT_ENABLED_COUNT).toBe(5)
     expect([...ids].toSorted()).toEqual([
-      'deepseek-v4-flash', 'deepseek-v4.1-flash', 'mimo-v2.5', 'mimo-v2.6-flash', 'space-bunny-free',
+      'deepseek-v4-flash', 'deepseek-v4.1-flash', 'grok-4.7', 'mimo-v2.5', 'mimo-v2.6-flash',
     ])
   })
 

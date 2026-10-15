@@ -103,3 +103,20 @@ Client（client.js）
 | 网关/在线元数据不可达 | 复用本次运行成功获取的目录，再退到 pi-ai 内置目录；设置页显示陈旧警告与原因 |
 | DSH 跨代改缝（0.2.0 及以后） | peer 范围已覆盖 0.1.7 与 0.2.0 两代；DSH 运行时门禁不匹配即明确报错（可精确版本豁免）；0.3.0 需再次跟版 |
 | 启发式协议猜错 | UI 标注"推断"，配置可逐模型覆盖，错误信息指向覆盖项 |
+
+## 8. 后续演进与版本适配记录
+
+### 0.2.1-alpha.3 运行时适配（2026-10-15，版本 v0.1.22）
+
+为了适配 DeepSeek Harness `0.2.1-alpha.3` 运行时底座并提升插件可靠性，本仓库完成了四个阶段的系统性迭代（M1–M4）：
+1. **依赖升级对齐 (M1)**：Cordis 升级至 `4.0.5-alpha.2`，20 个 DSH 核心包升级至 `0.2.1-alpha.3`，解决了 peer 依赖冲突并扩大 `engines.dsh` 范围。
+2. **测试稳定性加固 (M2)**：录制并固化离线模型元数据，重构全局 fetch mock 机制，达成 100% 零外网依赖与单元测试 20 连跑 0 flake。
+3. **配置与标注清理 (M3)**：剔除不在 Go 端点的无效模型 `space-bunny-free`，并提供用户 Profile 优化建议书。
+4. **端点平滑迁移 (M4)**：默认网关端点从 `/zen/go/v1` 预防性迁移至官方推荐的 `/inference/go/v1`，实测保证数据结构 100% 等价。
+
+**本轮适配完整文档索引**：
+- [需求文档：0.2.1-alpha.3 适配需求规范](file:///d:/prj/dshopencodego/docs/requirements-0.2.1-alpha.3.md)
+- [方案文档：0.2.1-alpha.3 技术设计与调研](file:///d:/prj/dshopencodego/docs/plan-0.2.1-alpha.3.md)
+- [实施清单：0.2.1-alpha.3 任务清单与状态跟踪](file:///d:/prj/dshopencodego/docs/tasks-0.2.1-alpha.3.md)
+- [技术决策：ADR-0006 默认网关端点迁移到 inference](file:///d:/prj/dshopencodego/docs/adr/0006-endpoint-migration-to-inference.md)
+

@@ -9,7 +9,9 @@ describe('goQuotaFor', () => {
   it('answers the documented models', () => {
     expect(goQuotaFor('mimo-v2.6-flash')).toEqual({ monthlyUsd: 60, monthlyRequests: 150_400 })
     expect(goQuotaFor('kimi-k3')).toEqual({ monthlyUsd: 15, monthlyRequests: 490 })
-    expect(goQuotaFor('space-bunny-free')).toEqual({ monthlyUsd: 'unlimited', monthlyRequests: 'unlimited' })
+    // space-bunny-free 不在 Go 端点支持的模型之列，断言其配额为 undefined 且不存在于表中
+    expect(goQuotaFor('space-bunny-free')).toBeUndefined()
+    expect(Object.hasOwn(SEED_QUOTAS, 'space-bunny-free')).toBe(false)
   })
 
   it('answers undefined for an id the docs do not quantify', () => {

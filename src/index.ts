@@ -19,7 +19,7 @@
  *   config:
  *     enabled: true                             # false withdraws the route only
  *     apiKeyEnv: OPENCODE_GO_API_KEY             # default
- *     baseURL: https://opencode.ai/zen/go/v1     # default
+ *     baseURL: https://opencode.ai/inference/go/v1     # default
  *     refreshMinutes: 60                         # live catalog TTL
  *     modelProtocols:                            # last-resort protocol override
  *       some-model: openai-responses

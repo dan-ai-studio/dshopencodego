@@ -1,0 +1,37 @@
+# Changelog
+
+本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
+
+## [0.1.22] - 2026-10-15
+
+本次发布针对 DeepSeek Harness `0.2.1-alpha.3` 运行时底座完成了依赖对齐、测试基础设施加固、无效配置清理与官方端点平滑迁移。
+
+### 🌟 对外可见变更 (User-Facing Changes)
+
+- **默认端点口径迁移 (R-C1)**：
+  - 将默认网关 `DEFAULT_BASE_URL` 从 `https://opencode.ai/zen/go/v1` 迁移至官方推崇的 `https://opencode.ai/inference/go/v1`（详见 [ADR-0006](docs/adr/0006-endpoint-migration-to-inference.md)）。
+  - 未显式配置 `baseURL` 的实例将自动指向新端点，经实测 `/models` 目录（37个模型）与 `/usage` 配额结构保持 100% 行为等价。
+- **剔除无效模型配置 (R-B4)**：
+  - 从预设配额表（`SEED_QUOTAS`）中剔除 `space-bunny-free`。OpenCode Go 官方端点当前并不提供该模型（实测调用返回 400 错误），历史收录源于第三方爬虫元数据偏差。
+- **运行时环境兼容范围扩大 (R-A3, R-A5)**：
+  - 更新 `package.json` 中的 `engines.dsh` 为 `">=0.1.7-alpha.1 <0.2.0 || >=0.2.0-rc.1 <0.2.1 || >=0.2.1-alpha.1 <0.3.0"`，在标准 semver 语义下无缝兼容 `0.2.1-alpha.*` 预发布版本运行时。
+
+### 🛠️ 内部优化与加固 (Internal Improvements)
+
+- **依赖对齐与升级 (R-A1, R-A2, R-A4)**：
+  - 核心依赖对齐至 `@deepseek-ai/cordis@4.0.5-alpha.2`，20 个 `@deepseek-ai/dsh-*` 依赖升至 `0.2.1-alpha.3`，`schemastery@~3.18.5-alpha.2`。
+  - 补全所有缺失的运行时 peer 依赖并配置可选元数据，全新 `npm install` 零 ERESOLVE 冲突。
+- **单元测试零网络依赖与稳定性消除 Flake (R-B1, R-B2)**：
+  - 固化 `models.dev` 真实元数据为本地离线 fixture，测试过程 100% 离线运行。
+  - 全面重构 mock gateway 与全局 fetch 拦截机制，测试生命周期内彻底隔离全局污染，高并发下连续 20 次压测通过率 100%（20/20 全部绿灯）。
+
+---
+
+## [0.1.21] - 2026-09-29
+
+- 适配 DeepSeek Harness `0.2.1-alpha.2`。
+- 增强会话头注入与时钟生命周期管理。
+
+## [0.1.20] - 2026-09-25
+
+- 移除脆弱的 `postinstall` 增量解析补丁，拥抱上游行为（详见 [ADR-0005](docs/adr/0005-drop-pi-ai-patch.md)）。

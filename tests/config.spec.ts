@@ -34,7 +34,7 @@ describe('PlainConfig', () => {
     expect(config.enabled).toBe(true)
     expect(config.modelVisibility).toEqual({})
     expect(config.apiKeyEnv).toBe(DEFAULT_API_KEY_ENV)
-    expect(config.baseURL).toBe('https://opencode.ai/zen/go/v1')
+    expect(config.baseURL).toBe('https://opencode.ai/inference/go/v1')
     expect(config.refreshMinutes).toBe(DEFAULT_REFRESH_MINUTES)
     expect(config.modelLimits).toEqual({})
     expect(config.modelProtocols).toEqual({})

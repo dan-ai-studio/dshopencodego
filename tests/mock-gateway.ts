@@ -11,9 +11,11 @@
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { vi } from 'vitest'
 import type { GoDoc } from '../src/catalog/go-doc.ts'
 import type { WireProtocol } from '../src/catalog/protocol.ts'
 import type { GoQuota } from '../src/go-limits.ts'
+import { MODELS_DEV_FIXTURE } from './fixtures/models-dev.ts'
 
 /** One request the server received. */
 export interface RecordedRequest {
@@ -252,27 +254,61 @@ export function modelsDevDocument(
   return { 'opencode-go': { id: 'opencode-go', npm: providerNpm, api: 'https://opencode.ai/zen/go/v1', models } }
 }
 
+// 缓存 Node.js 系统原生最底层的 fetch 通信函数，只抓取一次，防止被测试中途篡改
+// 就像存一个"绝对真实的原版印章"，发给本地测试服务器的请求永远用它
+const realNativeFetch = globalThis.fetch
+
+/**
+ * 默认的全局离线拦截器函数：
+ * 如果有人请求 models.dev，直接用本地录制好的样本数据回复，绝不打外网；
+ * 如果请求的是本地测试网关（http://127.0.0.1:*），直接放行给原生网络通信。
+ */
+export function defaultOfflineFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+  if (!url.startsWith('https://models.dev/')) {
+    return realNativeFetch(input as RequestInfo, init)
+  }
+  return Promise.resolve(new Response(JSON.stringify(MODELS_DEV_FIXTURE), {
+    status: 200,
+    headers: { 'content-type': 'application/json', etag: '"v1"' },
+  }))
+}
+
+/** 在每个测试运行前，通过 vitest 的 vi.stubGlobal 安装默认的离线守卫 */
+export function installDefaultModelsDevMock(): void {
+  installed = undefined
+  vi.stubGlobal('fetch', defaultOfflineFetch)
+}
+
 /**
  * Intercept `fetch` for the models.dev URL only, leaving every other request
  * (including the mock gateway's) on the real implementation.
  *
+ * 【原英文注释】
  * Only one stub may be installed at a time: a nested stub would save the outer
  * stub as its "real" fetch and chain restores, which turns a forgotten
  * `restore()` into a silently stale global.
- * @param document - the document to answer with, or a status to fail with.
- * @returns the recorded metadata requests, and a restore function.
+ *
+ * 【初二小白详细通俗讲解】
+ * 这里是一个专门给单个测试用例用的"精准伪装器"：
+ * 比如某个用例想测试"如果 models.dev 网站突然挂了返回 500 怎么办"，
+ * 它就会调用这个函数传一个 500。
+ * 我们现在改用 vitest 官方推荐的 `vi.stubGlobal('fetch', ...)` 来做全局替换，
+ * 它能和 `tests/setup.ts` 里的 `vi.unstubAllGlobals()` 完美配对，
+ * 再也不会在 28 个测试文件并行跑的时候因为"谁动了全局变量"而互相打架了！
+ *
+ * @param document - 想要返回给测试的伪造数据
+ * @param status - HTTP 状态码，比如 200 代表成功，500 代表失败
+ * @returns 包含被拦截的请求列表 requests，以及一个恢复原状的函数 restore
  */
 let installed: ((...args: Parameters<typeof fetch>) => Promise<Response>) | undefined
 
 export function stubModelsDev(document: unknown, status = 200): { requests: Request[]; restore: () => void } {
-  if (installed !== undefined) {
-    throw new Error('a models.dev stub is already installed; restore it before installing another')
-  }
   const requests: Request[] = []
-  const real = globalThis.fetch
   const stub = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-    if (!url.startsWith('https://models.dev/')) return real(input as RequestInfo, init)
+    // 不是发给 models.dev 的请求（例如本地 mock gateway 的请求），直接走原生网络通讯
+    if (!url.startsWith('https://models.dev/')) return realNativeFetch(input as RequestInfo, init)
     requests.push(new Request(url, init))
     if (status !== 200) return new Response('nope', { status })
     return new Response(JSON.stringify(document), {
@@ -280,15 +316,19 @@ export function stubModelsDev(document: unknown, status = 200): { requests: Requ
       headers: { 'content-type': 'application/json', etag: '"v1"' },
     })
   }) as typeof fetch
-  globalThis.fetch = stub
+
+  // 关键加固：改用 vitest 官方的 vi.stubGlobal 注入全局变量，与 setup.ts 中的 unstub 配对
+  vi.stubGlobal('fetch', stub)
   installed = stub
+
   return {
     requests,
     restore: () => {
-      // Idempotent: a double restore must not clobber whatever came after.
+      // 幂等恢复：只有当前生效的确实是自己时，才清理并切回默认离线兜底拦截器
       if (installed !== stub) return
       installed = undefined
-      globalThis.fetch = real
+      vi.stubGlobal('fetch', defaultOfflineFetch)
     },
   }
 }
+

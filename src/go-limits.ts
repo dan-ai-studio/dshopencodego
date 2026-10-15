@@ -68,7 +68,7 @@ export const SEED_QUOTAS: Readonly<Record<string, GoQuota>> = {
   'deepseek-v4-flash-vision-exp': { monthlyUsd: 15, monthlyRequests: 32_500 },
   'hy4-preview': { monthlyUsd: 30, monthlyRequests: 6_770 },
   'hy3': { monthlyUsd: 60, monthlyRequests: 21_500 },
-  'space-bunny-free': { monthlyUsd: 'unlimited', monthlyRequests: 'unlimited' },
+  // 注意：space-bunny-free 并不在 Go 端点支持的 37 个模型列表中（请求会返回 400 错误），已依据 R-B4 予以剔除
   'grok-4.7': { monthlyUsd: 15, monthlyRequests: 845 },
   'grok-4.6': { monthlyUsd: 15, monthlyRequests: 845 },
   'gpt-6-luna': { monthlyUsd: 15, monthlyRequests: 21_130 },
