@@ -33,8 +33,20 @@ export class OpencodeGoUpdateService extends TypertRemoteService {
     this.check = (force?: boolean) => checker.check(force)
   }
 
-  /** Whether a newer release is published; `force` bypasses the cache. */
-  readUpdate(force?: boolean): Promise<UpdateStatus> {
-    return this.check(force)
+  /**
+   * Whether a newer release is published (cached reading).
+   *
+   * The wire method takes no arguments — the gateway client rejects any call
+   * whose positional arity differs from the descriptor's `parameters`, so a
+   * `force` flag cannot ride this call. Forced revalidation is the separate
+   * `refreshUpdate` method below, mirroring the catalog's read/refresh pair.
+   */
+  readUpdate(): Promise<UpdateStatus> {
+    return this.check(false)
+  }
+
+  /** Revalidate against the registry, bypassing the cache. */
+  refreshUpdate(): Promise<UpdateStatus> {
+    return this.check(true)
   }
 }

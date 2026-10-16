@@ -34,7 +34,8 @@ export function parseUpdateStatus(value: unknown): UpdateStatus {
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespaceMap {
     opencodeGoUpdate: {
-      readUpdate(force?: boolean): Promise<RemoteResult<UpdateStatus>>
+      readUpdate(): Promise<RemoteResult<UpdateStatus>>
+      refreshUpdate(): Promise<RemoteResult<UpdateStatus>>
     }
   }
 }
@@ -61,6 +62,15 @@ export const updateRemote: TypertRemoteContribution = {
       service: 'opencodeGoUpdate',
       namespace: 'opencodeGoUpdate',
       method: 'readUpdate',
+      invocation: { kind: 'direct' },
+      parameters: [],
+      result: codec('@dan-ai-studio/dshopencodego#UpdateStatus', parseUpdateStatus),
+    },
+    {
+      id: '@dan-ai-studio/dshopencodego#opencodeGoUpdate/refreshUpdate',
+      service: 'opencodeGoUpdate',
+      namespace: 'opencodeGoUpdate',
+      method: 'refreshUpdate',
       invocation: { kind: 'direct' },
       parameters: [],
       result: codec('@dan-ai-studio/dshopencodego#UpdateStatus', parseUpdateStatus),

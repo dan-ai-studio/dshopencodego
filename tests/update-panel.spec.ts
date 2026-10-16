@@ -23,10 +23,24 @@ function services(script: ManagerScript = {}, available = true): SectionServices
         refresh: async () => ({ ok: true, value: undefined }) as never,
       },
       opencodeGoUpdate: {
-        readUpdate: async () => ({
-          ok: true,
-          value: available ? STATUS : { current: '0.1.22', latest: undefined, available: false, checkedAt: 1 },
-        }) as never,
+        // Mirrors the gateway client's arity check: a zero-parameter wire
+        // method rejects any positional argument, so the page must call both
+        // methods with none. A `force` flag riding `readUpdate` would throw on
+        // the wire and hide the banner forever — this fake fails the same way.
+        readUpdate: async (...args: unknown[]) => {
+          if (args.length > 0) throw new Error('client api: opencodeGoUpdate/readUpdate expected 0 argument(s)')
+          return {
+            ok: true,
+            value: available ? STATUS : { current: '0.1.22', latest: undefined, available: false, checkedAt: 1 },
+          } as never
+        },
+        refreshUpdate: async (...args: unknown[]) => {
+          if (args.length > 0) throw new Error('client api: opencodeGoUpdate/refreshUpdate expected 0 argument(s)')
+          return {
+            ok: true,
+            value: available ? STATUS : { current: '0.1.22', latest: undefined, available: false, checkedAt: 1 },
+          } as never
+        },
       },
       pluginManager: {
         inspect: async () => script.inspect ?? {},
@@ -61,6 +75,25 @@ describe('update panel', () => {
     const quiet = new SectionController(services({}, false))
     await settle()
     expect(quiet.snapshot().update.phase).toBe('current')
+  })
+
+  it('routes forced refresh through the zero-arg refreshUpdate method', async () => {
+    // The gateway client rejects any call whose positional arity differs from
+    // the descriptor's `parameters`, and every descriptor here declares none —
+    // so a `force` flag must never ride `readUpdate`. The strict fakes above
+    // throw on any positional argument, exactly like the wire would.
+    const tracking = services()
+    let refreshed = 0
+    tracking.remote.opencodeGoUpdate.refreshUpdate = (async (...args: unknown[]) => {
+      if (args.length > 0) throw new Error('client api: opencodeGoUpdate/refreshUpdate expected 0 argument(s)')
+      refreshed += 1
+      return { ok: true, value: STATUS } as never
+    }) as never
+    const controller = new SectionController(tracking)
+    await settle()
+    await controller.checkUpdate(true)
+    expect(refreshed).toBe(1)
+    expect(controller.snapshot().update.phase).toBe('ready')
   })
 
   it('runs inspect, remove, then install on confirm', async () => {

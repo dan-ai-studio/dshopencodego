@@ -55,6 +55,7 @@ describe('client apply', () => {
       'opencodeGoCatalog/read',
       'opencodeGoCatalog/refresh',
       'opencodeGoUpdate/readUpdate',
+      'opencodeGoUpdate/refreshUpdate',
       'opencodeGoUsage/readMeter',
       'opencodeGoUsage/readWindows',
     ])

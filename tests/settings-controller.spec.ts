@@ -64,6 +64,7 @@ function harness(options: { withScope?: boolean; rejectWrites?: boolean; rejectF
       },
       opencodeGoUpdate: {
         readUpdate: async () => ({ ok: true, value: { current: '0.1.22', latest: undefined, available: false, checkedAt: 0 } }),
+        refreshUpdate: async () => ({ ok: true, value: { current: '0.1.22', latest: undefined, available: false, checkedAt: 0 } }),
       },
       pluginManager: {
         inspect: async () => ({}),

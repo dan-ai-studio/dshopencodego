@@ -2,6 +2,14 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.25] - 2026-10-16
+
+### 🛠️ 内部优化与加固 (Internal Improvements)
+
+- **修复更新检查在线上永远不触发**：`readUpdate(force)` 在线上传了位置参数，而手写描述符声明 `parameters: []`，网关客户端按 arity 直接拒收，页面静默保持无横幅。改为与目录 `read`/`refresh` 对齐的双方法（`readUpdate`/`refreshUpdate`，均零参），并以模拟网关 arity 检查的严格 fake 锁死该约定。
+
+---
+
 ## [0.1.24] - 2026-10-16
 
 ### 🌟 对外可见变更 (User-Facing Changes)

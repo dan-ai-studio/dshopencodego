@@ -51,7 +51,8 @@ export interface SectionServices {
       refresh(): Promise<RemoteResult<CatalogReading>>
     }
     readonly opencodeGoUpdate: {
-      readUpdate(force?: boolean): Promise<RemoteResult<UpdateStatus>>
+      readUpdate(): Promise<RemoteResult<UpdateStatus>>
+      refreshUpdate(): Promise<RemoteResult<UpdateStatus>>
     }
     /**
      * The host's own package manager. The page drives the same two steps the
@@ -235,12 +236,18 @@ export class SectionController {
    * The Host answers from a cached registry reading and fails silent, so an
    * unreachable registry hides the panel instead of erroring the page. Runs
    * once with the page and again only on explicit refresh.
+   *
+   * Both wire methods take zero arguments: the gateway client rejects any
+   * call whose positional arity differs from the descriptor's `parameters`,
+   * so the cached read and the forced refresh are two methods (`readUpdate`
+   * / `refreshUpdate`), never one method with a flag.
    */
   async checkUpdate(force: boolean): Promise<void> {
     const previous = this.state.update
     this.set({ update: { ...previous, phase: 'checking', message: undefined } })
     try {
-      const result = await this.services.remote.opencodeGoUpdate.readUpdate(force)
+      const remote = this.services.remote.opencodeGoUpdate
+      const result = force ? await remote.refreshUpdate() : await remote.readUpdate()
       if (!result.ok) throw result.error
       const status = result.value
       this.set({

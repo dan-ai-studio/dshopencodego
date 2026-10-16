@@ -31,6 +31,7 @@ describe('registerRemotes', () => {
       'opencodeGoCatalog/read',
       'opencodeGoCatalog/refresh',
       'opencodeGoUpdate/readUpdate',
+      'opencodeGoUpdate/refreshUpdate',
       'opencodeGoUsage/readMeter',
       'opencodeGoUsage/readWindows',
     ])

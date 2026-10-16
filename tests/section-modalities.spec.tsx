@@ -34,7 +34,10 @@ const ok = <T,>(value: T): never => ({ ok: true, value }) as never
 const services: SectionServices = {
   remote: {
     opencodeGoCatalog: { read: async () => ok(READING), refresh: async () => ok(READING) },
-    opencodeGoUpdate: { readUpdate: async () => ok({ current: '0.1.22', latest: undefined, available: false, checkedAt: 0 }) },
+    opencodeGoUpdate: {
+      readUpdate: async () => ok({ current: '0.1.22', latest: undefined, available: false, checkedAt: 0 }),
+      refreshUpdate: async () => ok({ current: '0.1.22', latest: undefined, available: false, checkedAt: 0 }),
+    },
     pluginManager: {
       inspect: async () => ({}),
       removeBundle: async () => ok({}),
