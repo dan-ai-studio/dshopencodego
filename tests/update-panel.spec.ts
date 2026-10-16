@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { SectionController } from '../src/client/Section.tsx'
 import type { SectionServices } from '../src/client/Section.tsx'
 
-const STATUS = { current: '0.1.22', latest: '0.1.23', available: true, checkedAt: 1 }
+const STATUS = { current: '0.1.22', latest: '0.1.23', available: true, checkedAt: 1, checked: true }
 
 interface ManagerScript {
   inspect?: unknown
@@ -31,14 +31,14 @@ function services(script: ManagerScript = {}, available = true): SectionServices
           if (args.length > 0) throw new Error('client api: opencodeGoUpdate/readUpdate expected 0 argument(s)')
           return {
             ok: true,
-            value: available ? STATUS : { current: '0.1.22', latest: undefined, available: false, checkedAt: 1 },
+            value: available ? STATUS : { current: '0.1.22', latest: '0.1.22', available: false, checkedAt: 1, checked: true },
           } as never
         },
         refreshUpdate: async (...args: unknown[]) => {
           if (args.length > 0) throw new Error('client api: opencodeGoUpdate/refreshUpdate expected 0 argument(s)')
           return {
             ok: true,
-            value: available ? STATUS : { current: '0.1.22', latest: undefined, available: false, checkedAt: 1 },
+            value: available ? STATUS : { current: '0.1.22', latest: '0.1.22', available: false, checkedAt: 1, checked: true },
           } as never
         },
       },
@@ -105,6 +105,24 @@ describe('update panel', () => {
     await settle()
     expect(controller.snapshot().update).toMatchObject({ phase: 'failed' })
     expect(controller.snapshot().update.message).toContain('registry exploded')
+  })
+
+  it('never reports an unanswered lookup as up to date', async () => {
+    // `checked: false` is the Host saying it could not reach the registry.
+    // Rendering that as "already latest" would be a silent lie — the same
+    // family of defect that hid this panel behind a blank row.
+    const tracking = services()
+    const unanswered = async () => ({
+      ok: true,
+      value: { current: '0.1.22', latest: undefined, available: false, checkedAt: 1, checked: false },
+    })
+    Object.defineProperty(tracking.remote, 'opencodeGoUpdate', {
+      configurable: true,
+      value: { readUpdate: unanswered, refreshUpdate: unanswered },
+    })
+    const controller = new SectionController(tracking)
+    await settle()
+    expect(controller.snapshot().update).toMatchObject({ phase: 'failed', message: 'registry-unreachable' })
   })
 
   it('routes forced refresh through the zero-arg refreshUpdate method', async () => {

@@ -38,6 +38,15 @@ export interface UpdateStatus {
   readonly available: boolean
   /** Milliseconds since the epoch of the lookup backing this reading. */
   readonly checkedAt: number
+  /**
+   * Whether the registry actually answered.
+   *
+   * `false` means the reading is a placeholder for a failed lookup: "no update
+   * known", which is not the same fact as "up to date". The page must not
+   * render the two alike — reporting an unreachable registry as a current
+   * version is a silent lie of exactly the kind that hid the update panel.
+   */
+  readonly checked: boolean
 }
 
 interface ParsedVersion {
@@ -138,9 +147,12 @@ export function createUpdateChecker(deps: UpdateCheckDeps): {
         latest,
         available: isUpdateAvailable(deps.currentVersion, latest),
         checkedAt,
+        checked: true,
       }
     } catch {
-      return { current: deps.currentVersion, latest: undefined, available: false, checkedAt }
+      // The lookup failed, so no version is known. `checked: false` keeps that
+      // distinguishable from a confirmed "already latest" reading.
+      return { current: deps.currentVersion, latest: undefined, available: false, checkedAt, checked: false }
     }
   }
 

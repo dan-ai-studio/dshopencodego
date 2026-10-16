@@ -35,8 +35,8 @@ const services: SectionServices = {
   remote: {
     opencodeGoCatalog: { read: async () => ok(READING), refresh: async () => ok(READING) },
     opencodeGoUpdate: {
-      readUpdate: async () => ok({ current: '0.1.22', latest: undefined, available: false, checkedAt: 0 }),
-      refreshUpdate: async () => ok({ current: '0.1.22', latest: undefined, available: false, checkedAt: 0 }),
+      readUpdate: async () => ok({ current: '0.1.22', latest: '0.1.22', available: false, checkedAt: 0, checked: true }),
+      refreshUpdate: async () => ok({ current: '0.1.22', latest: '0.1.22', available: false, checkedAt: 0, checked: true }),
     },
     credentials: {
       describe: async () => ok({}),

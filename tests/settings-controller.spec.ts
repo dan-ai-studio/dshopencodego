@@ -63,8 +63,8 @@ function harness(options: { withScope?: boolean; rejectWrites?: boolean; rejectF
         unset: async () => ({ ok: true, value: undefined }),
       },
       opencodeGoUpdate: {
-        readUpdate: async () => ({ ok: true, value: { current: '0.1.22', latest: undefined, available: false, checkedAt: 0 } }),
-        refreshUpdate: async () => ({ ok: true, value: { current: '0.1.22', latest: undefined, available: false, checkedAt: 0 } }),
+        readUpdate: async () => ({ ok: true, value: { current: '0.1.22', latest: '0.1.22', available: false, checkedAt: 0, checked: true } }),
+        refreshUpdate: async () => ({ ok: true, value: { current: '0.1.22', latest: '0.1.22', available: false, checkedAt: 0, checked: true } }),
       },
     },
     pluginManager: {

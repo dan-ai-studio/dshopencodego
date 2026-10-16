@@ -49,6 +49,23 @@ describe('client inject declarations', () => {
     expect(used.filter(name => !declared.has(name))).toEqual([])
   })
 
+  it('declares every Remote namespace the client entry itself reads', () => {
+    // The entry file reads namespaces directly too (`scope.remote.…` inside
+    // its own inject callbacks). Collecting the declarations and the reads
+    // from the same source catches a namespace that is read but never
+    // declared anywhere in the file — the shape of the defect this spec was
+    // written for.
+    const source = readFileSync(CLIENT_INDEX, 'utf8')
+    const declared = new Set<string>()
+    for (const call of source.matchAll(/\.inject\(\s*\[([^\]]*)\]/g)) {
+      for (const name of call[1]!.matchAll(/'(remote\.[A-Za-z0-9_]+)'/g)) declared.add(name[1]!)
+    }
+    const read = new Set<string>()
+    for (const use of source.matchAll(/scope\.remote\.([A-Za-z0-9_]+)/g)) read.add(`remote.${use[1]!}`)
+    expect(read.size).toBeGreaterThan(0)
+    expect([...read].toSorted().filter(name => !declared.has(name))).toEqual([])
+  })
+
   it('the page really does read the namespaces this contract claims', () => {
     // A contract entry nobody reads would let the spec above pass while the
     // page silently stops using a namespace.

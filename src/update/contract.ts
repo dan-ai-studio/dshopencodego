@@ -20,6 +20,7 @@ export function parseUpdateStatus(value: unknown): UpdateStatus {
   if (typeof row['current'] !== 'string') throw new Error('invalid update reading')
   if (row['latest'] !== undefined && typeof row['latest'] !== 'string') throw new Error('invalid update reading')
   if (typeof row['available'] !== 'boolean') throw new Error('invalid update reading')
+  if (typeof row['checked'] !== 'boolean') throw new Error('invalid update reading')
   if (typeof row['checkedAt'] !== 'number' || !Number.isFinite(row['checkedAt'])) {
     throw new Error('invalid update reading')
   }
@@ -28,6 +29,7 @@ export function parseUpdateStatus(value: unknown): UpdateStatus {
     latest: typeof row['latest'] === 'string' ? row['latest'] : undefined,
     available: row['available'],
     checkedAt: row['checkedAt'],
+    checked: row['checked'],
   }
 }
 

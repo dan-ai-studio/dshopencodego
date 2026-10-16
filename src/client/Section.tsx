@@ -282,9 +282,14 @@ export class SectionController {
       const status = result.value
       this.set({
         update: {
-          phase: status.available && status.latest !== undefined ? 'ready' : 'current',
+          // An unanswered lookup is not "up to date": rendering the two alike
+          // would report an unreachable registry as a current version, which
+          // is the same silent lie that once hid this panel entirely.
+          phase: !status.checked
+            ? 'failed'
+            : status.available && status.latest !== undefined ? 'ready' : 'current',
           status,
-          message: undefined,
+          message: status.checked ? undefined : 'registry-unreachable',
         },
       })
     } catch (error: unknown) {
@@ -629,6 +634,7 @@ function updateFailureText(message: string | undefined, t: (key: string) => stri
   if (message === undefined || message.length === 0) return ''
   if (message === 'remote-not-mounted') return t('updateRemoteMissing')
   if (message === 'no-plugin-manager') return t('updateNoManager')
+  if (message === 'registry-unreachable') return t('updateUnreachable')
   if (message === 'stop-profile') return t('updateStopProfile')
   if (message === 'incompatible-version') return t('updateIncompatible')
   if (message === 'pending-builds') return t('updatePendingBuilds')

@@ -99,32 +99,41 @@ describe('createUpdateChecker', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
-  it('fails silent when the registry is unreachable', async () => {
+  it('answers `checked: false` when the registry is unreachable', async () => {
+    // The lookup failing is not the same fact as "already latest", so the
+    // status must say the registry never answered.
     const failing = vi.fn(async () => { throw new Error('offline') })
     const checker = createUpdateChecker({ currentVersion: '0.1.22', fetchImpl: failing as never })
     const status = await checker.check()
-    expect(status).toMatchObject({ current: '0.1.22', latest: undefined, available: false })
+    expect(status).toMatchObject({ current: '0.1.22', latest: undefined, available: false, checked: false })
   })
 
-  it('fails silent on a non-200 answer', async () => {
+  it('answers `checked: false` on a non-200 answer', async () => {
     const notFound = vi.fn(async () => new Response('nope', { status: 404 }))
     const checker = createUpdateChecker({ currentVersion: '0.1.22', fetchImpl: notFound as never })
-    expect((await checker.check()).available).toBe(false)
+    const status = await checker.check()
+    expect(status).toMatchObject({ available: false, checked: false })
   })
 })
 
 describe('parseUpdateStatus', () => {
   it('accepts a reading with and without a latest version', () => {
-    expect(parseUpdateStatus({ current: '0.1.22', latest: '0.1.23', available: true, checkedAt: 7 }))
-      .toEqual({ current: '0.1.22', latest: '0.1.23', available: true, checkedAt: 7 })
-    expect(parseUpdateStatus({ current: '0.1.22', available: false, checkedAt: 7 }))
-      .toEqual({ current: '0.1.22', available: false, checkedAt: 7 })
+    expect(parseUpdateStatus({ current: '0.1.22', latest: '0.1.23', available: true, checkedAt: 7, checked: true }))
+      .toEqual({ current: '0.1.22', latest: '0.1.23', available: true, checkedAt: 7, checked: true })
+    expect(parseUpdateStatus({ current: '0.1.22', available: false, checkedAt: 7, checked: false }))
+      .toEqual({ current: '0.1.22', latest: undefined, available: false, checkedAt: 7, checked: false })
   })
 
   it('rejects malformed readings', () => {
-    for (const bad of [null, {}, { current: '0.1.22' }, { current: '0.1.22', available: 'yes', checkedAt: 7 }]) {
-      expect(() => parseUpdateStatus(bad)).toThrow(/invalid update reading/)
-    }
+    // A reading that omits `checked` cannot be trusted to distinguish an
+    // unanswered lookup from a confirmed up-to-date one.
+    const bad = [
+      null, {}, { current: '0.1.22' },
+      { current: '0.1.22', available: 'yes', checkedAt: 7, checked: true },
+      { current: '0.1.22', available: false, checkedAt: 7 },
+      { current: '0.1.22', available: false, checkedAt: 7, checked: 'yes' },
+    ]
+    for (const value of bad) expect(() => parseUpdateStatus(value)).toThrow(/invalid update reading/)
   })
 })
 
