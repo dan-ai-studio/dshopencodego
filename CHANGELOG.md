@@ -2,6 +2,15 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.31] - 2026-10-16
+
+### 🛠️ 内部优化与加固 (Internal Improvements)
+
+- **依赖跟进到 DSH `0.2.1-alpha.4`（T-24）**：21 个 `@deepseek-ai/dsh-*` 开发依赖由 `0.2.1-alpha.3` 升至 `0.2.1-alpha.4`，`@deepseek-ai/cordis` 维持 `4.0.5-alpha.2`。已按 T-01 约定备份 `package.json`/`package-lock.json` 并记录 SHA256（`scratch/t24-backup/`），删除 `node_modules` 与锁文件后全新安装：258 个包、0 漏洞、无 ERESOLVE。运行时用的 peer 范围与 `engines.dsh` 本已覆盖 `alpha.4`，无需改动。
+- **修复用量 pill 测试的时序脆弱性**：该用例只等待按钮出现，而按钮在读数返回前就已渲染（标签先是省略号），读数稍慢便断言到占位符而间歇失败（CI 上会表现为发布失败）。现改为等待**数据**而非元素，并新增一个刻意延迟读取的用例，使该等待契约每次都被执行。
+
+---
+
 ## [0.1.30] - 2026-10-16
 
 ### 🐞 修复 (Fixes)

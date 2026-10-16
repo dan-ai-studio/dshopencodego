@@ -4,7 +4,7 @@
  * and honest about failure.
  */
 import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { UsagePill } from '../src/client/UsagePill.tsx'
 import { en } from '../src/client/locales.ts'
 import type { GoMeter, GoUsageWindows } from '../src/usage/contract.ts'
@@ -47,7 +47,10 @@ describe('UsagePill', () => {
       <UsagePill directory={directory('opencode-go')} readWindows={async () => WINDOWS} readMeter={async () => METER} t={t} />,
     )
     const button = await screen.findByRole('button', { name: /OpenCode Go usage/ })
-    expect(button.textContent).toMatch(/5 hours 4%/)
+    // The button exists before its reading arrives — its label starts as an
+    // ellipsis — so the assertion must wait for the data rather than for the
+    // element. Awaiting the element alone let a slow read fail this test.
+    await waitFor(() => { expect(button.textContent).toMatch(/5 hours 4%/) })
     expect(button.textContent).toMatch(/Week 44%/)
   })
 
@@ -58,7 +61,29 @@ describe('UsagePill', () => {
     const button = await screen.findByRole('button', { name: /OpenCode Go usage/ })
     button.click()
     await screen.findByText('Since this Harness started')
-    expect(document.body.textContent).toMatch(/15/)
+    // The meter figure arrives with the same read as the windows, so it needs
+    // the same wait the label does.
+    await waitFor(() => { expect(document.body.textContent).toMatch(/15/) })
+  })
+
+  it('waits for a slow reading rather than asserting the placeholder', async () => {
+    // The label starts as an ellipsis and only becomes data once the read
+    // resolves. A test that awaited the button but not the reading failed
+    // intermittently wherever the read was slow; this one delays the read on
+    // purpose so the waiting contract is exercised every run.
+    render(
+      <UsagePill
+        directory={directory('opencode-go')}
+        readWindows={async () => {
+          await new Promise(resolve => { setTimeout(resolve, 50) })
+          return WINDOWS
+        }}
+        readMeter={async () => METER}
+        t={t}
+      />,
+    )
+    const button = await screen.findByRole('button', { name: /OpenCode Go usage/ })
+    await waitFor(() => { expect(button.textContent).toMatch(/5 hours 4%/) })
   })
 
   it('shows unavailable without inventing zeros when the read fails', async () => {
