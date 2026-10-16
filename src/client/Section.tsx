@@ -77,7 +77,8 @@ export interface SectionServices {
    * run.
    */
   readonly pluginManager?: {
-    inspect(spec: string): Promise<unknown>
+    /** Two business arguments: the spec and its options (both declared in the descriptor). */
+    inspect(spec: string, options?: { registry?: unknown }): Promise<unknown>
     removeBundle(name: string): Promise<RemoteResult<PluginManagerChange>>
     installBundle(spec: string, options?: { saveExact?: boolean; enabled?: boolean }): Promise<RemoteResult<PluginManagerChange>>
   }
@@ -349,10 +350,27 @@ export class SectionController {
     const fail = (message: string): void => {
       this.set({ update: { phase: 'failed', status, message } })
     }
+    // Pre-flight the target before touching the installed version.
+    //
+    // `inspect` declares two business arguments (spec and options) in its
+    // descriptor, and the gateway client rejects a call whose positional
+    // arity differs — even though `options` is optional in TypeScript. The
+    // inspection result is also a union: a refused target has no `bundle`
+    // field at all, so only an explicit `false` or `refused` status may stop
+    // the update. Treating "no answer" as "fine" once meant a failed check
+    // would proceed to uninstall the running version, which is why a refusal
+    // now aborts before anything is removed.
     try {
-      const inspected = await manager.inspect(spec)
+      const inspected = await manager.inspect(spec, {})
+      if (SectionController.field(inspected, 'status') === 'refused') {
+        const reason = SectionController.field(inspected, 'reason')
+        fail(typeof reason === 'string' && reason.length > 0
+          ? `inspect-refused: ${reason}`
+          : 'inspect-refused')
+        return
+      }
       if (SectionController.field(inspected, 'bundle') === false) {
-        fail(`the registry target is not a DSH bundle: ${spec}`)
+        fail('not-a-bundle')
         return
       }
     } catch (error: unknown) {
@@ -635,6 +653,13 @@ function updateFailureText(message: string | undefined, t: (key: string) => stri
   if (message === 'remote-not-mounted') return t('updateRemoteMissing')
   if (message === 'no-plugin-manager') return t('updateNoManager')
   if (message === 'registry-unreachable') return t('updateUnreachable')
+  if (message === 'not-a-bundle') return t('updateNotBundle')
+  if (message === 'inspect-refused' || message.startsWith('inspect-refused: ')) {
+    const detail = message.slice('inspect-refused: '.length)
+    return detail.length > 0 && detail !== 'inspect-refused'
+      ? `${t('updateInspectRefused')} ${detail}`
+      : t('updateInspectRefused')
+  }
   if (message === 'stop-profile') return t('updateStopProfile')
   if (message === 'incompatible-version') return t('updateIncompatible')
   if (message === 'pending-builds') return t('updatePendingBuilds')

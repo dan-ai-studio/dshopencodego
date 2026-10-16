@@ -49,9 +49,29 @@ function services(script: ManagerScript = {}, available = true): SectionServices
       },
     },
     pluginManager: {
-      inspect: async () => script.inspect ?? {},
-      removeBundle: async () => (script.remove ?? { ok: true, value: {} }) as never,
-      installBundle: async () => (script.install ?? { ok: true, value: { application: 'applied' } }) as never,
+      // Strict arity, mirroring the gateway client: each descriptor declares
+      // its business arguments, and a call whose positional arity differs is
+      // rejected before it reaches the Host. `inspect` declares two (spec and
+      // options) even though options is optional in TypeScript — calling it
+      // with one argument failed in a live run.
+      inspect: async (...args: unknown[]) => {
+        if (args.length !== 2) {
+          throw new Error(`client api: pluginManager/inspect expected 2 business argument(s) plus an optional AbortSignal, got ${String(args.length)}`)
+        }
+        return script.inspect ?? { status: 'accepted', kind: 'registry', bundle: true }
+      },
+      removeBundle: async (...args: unknown[]) => {
+        if (args.length !== 1) {
+          throw new Error(`client api: pluginManager/removeBundle expected 1 argument(s), got ${String(args.length)}`)
+        }
+        return (script.remove ?? { ok: true, value: {} }) as never
+      },
+      installBundle: async (...args: unknown[]) => {
+        if (args.length !== 2) {
+          throw new Error(`client api: pluginManager/installBundle expected 2 business argument(s) plus an optional AbortSignal, got ${String(args.length)}`)
+        }
+        return (script.install ?? { ok: true, value: { application: 'applied' } }) as never
+      },
     },
     scope: undefined,
   }
@@ -214,7 +234,10 @@ describe('update panel', () => {
   it('stops before removing when inspection fails', async () => {
     let removed = false
     const tracking = services()
-    tracking.pluginManager!.inspect = async () => { throw new Error('registry unreachable') }
+    tracking.pluginManager!.inspect = async (...args: unknown[]) => {
+      expect(args).toHaveLength(2)
+      throw new Error('registry unreachable')
+    }
     tracking.pluginManager!.removeBundle = async () => { removed = true; return { ok: true, value: {} } as never }
     const controller = new SectionController(tracking)
     await settle()
@@ -222,5 +245,25 @@ describe('update panel', () => {
     await controller.applyUpdate()
     expect(removed).toBe(false)
     expect(controller.snapshot().update.phase).toBe('failed')
+  })
+
+  it('never uninstalls the running version when the target cannot be verified', async () => {
+    // A refused inspection has no `bundle` field, so treating a missing answer
+    // as "fine" would uninstall the running version and then fail to install
+    // its replacement — leaving the user with no plugin at all.
+    for (const inspected of [
+      { status: 'refused', problem: 'network', reason: 'registry unreachable' },
+      { status: 'accepted', kind: 'registry', bundle: false },
+    ]) {
+      let removed = false
+      const tracking = services({ inspect: inspected })
+      tracking.pluginManager!.removeBundle = async () => { removed = true; return { ok: true, value: {} } as never }
+      const controller = new SectionController(tracking)
+      await settle()
+      controller.armUpdate()
+      await controller.applyUpdate()
+      expect(removed).toBe(false)
+      expect(controller.snapshot().update.phase).toBe('failed')
+    }
   })
 })
