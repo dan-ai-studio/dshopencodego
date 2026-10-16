@@ -2,6 +2,22 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.23] - 2026-10-16
+
+### 🌟 对外可见变更 (User-Facing Changes)
+
+- **设置页一键更新**：
+  - 设置页打开时检查 npm 是否有新版本；有则显示横幅（新版本号、当前版本、更新说明链接）与“立即更新”按钮。
+  - 点击后经二次确认，依次调用宿主 `pluginManager` 的 `inspect`、`removeBundle`、`installBundle`（与官方插件更新按钮完全相同的两步流程），无需手动卸载重装。
+  - 插件自身绝不下载或替换自己的文件：清单锁、peer 兼容检查、构建审批与 HMR 生命周期仍归宿主；不兼容版本、待批准构建、需重启移除等情况均以指引文案呈现，绝不静默重试或自动豁免。
+
+### 🛠️ 内部优化与加固 (Internal Improvements)
+
+- **错误分类修正**：网关以 `429` + `"type":"server_error"` 上报上游不可用时，分类为 `SERVER` 而非 `RATE_LIMIT`（此前仅按状态码误判；两者均可重试，行为不变，诊断与遥测更准）。
+- **回归锁定**：补 `reasoning_options` 缺席时沿用 installed level map 的用例；新 models.dev 形态（`budget_tokens`、空数组、混合）已有覆盖。
+
+---
+
 ## [0.1.22] - 2026-10-15
 
 本次发布针对 DeepSeek Harness `0.2.1-alpha.3` 运行时底座完成了依赖对齐、测试基础设施加固、无效配置清理与官方端点平滑迁移。

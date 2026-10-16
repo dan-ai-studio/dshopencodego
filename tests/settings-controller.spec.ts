@@ -62,6 +62,14 @@ function harness(options: { withScope?: boolean; rejectWrites?: boolean; rejectF
         set: async () => ({ ok: true, value: undefined }),
         unset: async () => ({ ok: true, value: undefined }),
       },
+      opencodeGoUpdate: {
+        readUpdate: async () => ({ ok: true, value: { current: '0.1.22', latest: undefined, available: false, checkedAt: 0 } }),
+      },
+      pluginManager: {
+        inspect: async () => ({}),
+        removeBundle: async () => ({ ok: true, value: {} }),
+        installBundle: async () => ({ ok: true, value: { application: 'applied' } }),
+      },
     },
     scope: options.withScope === false ? undefined : scope,
   }

@@ -14,6 +14,8 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { CatalogReading } from '../catalog/contract.ts'
+import type { UpdateStatus } from '../update/contract.ts'
+import { PACKAGE_NAME } from '../update/check.ts'
 import { SEED_TRANSCRIBED } from '../go-limits.ts'
 import { isModelEnabled } from '../models.ts'
 import { compactCount, INITIAL_FILTER, inputModalityLabels, visibleModels } from './model-view.ts'
@@ -48,6 +50,21 @@ export interface SectionServices {
       read(): Promise<RemoteResult<CatalogReading>>
       refresh(): Promise<RemoteResult<CatalogReading>>
     }
+    readonly opencodeGoUpdate: {
+      readUpdate(force?: boolean): Promise<RemoteResult<UpdateStatus>>
+    }
+    /**
+     * The host's own package manager. The page drives the same two steps the
+     * official plugin-update button drives — `removeBundle` then
+     * `installBundle` — so the manifest lock, peer checks, build approvals,
+     * and HMR lifecycle all stay with the host. The plugin never replaces its
+     * own files.
+     */
+    readonly pluginManager: {
+      inspect(spec: string): Promise<unknown>
+      removeBundle(name: string): Promise<RemoteResult<PluginManagerChange>>
+      installBundle(spec: string, options?: { saveExact?: boolean; enabled?: boolean }): Promise<RemoteResult<PluginManagerChange>>
+    }
     readonly credentials: {
       describe(refs: string[]): Promise<RemoteResult<Record<string, { configured: boolean }>>>
       set(ref: string, value: string): Promise<RemoteResult<unknown>>
@@ -56,6 +73,25 @@ export interface SectionServices {
   }
   /** Absent in a composition without a settings surface: the page turns read-only. */
   readonly scope: SettingsScopeLike | undefined
+}
+
+/** The host package-manager outcome fields this page reads; anything else rides along untouched. */
+export interface PluginManagerChange {
+  readonly application?: string
+  readonly version?: string
+  readonly pendingBuilds?: unknown
+  readonly error?: { readonly code?: string; readonly message?: string }
+}
+
+/** Where the one-click update stands. `idle` hides the panel entirely. */
+export type UpdatePhase = 'idle' | 'checking' | 'ready' | 'confirming' | 'updating' | 'done' | 'failed'
+
+/** Update panel state; absence-shaped so a partial update can clear it. */
+export interface UpdatePanel {
+  readonly phase: UpdatePhase
+  readonly status: UpdateStatus | undefined
+  /** Raw host detail; the page prefixes a translated label at render. */
+  readonly message: string | undefined
 }
 
 /** Why a settings write did not land, in a form the page can translate. */
@@ -80,6 +116,8 @@ export interface SectionState {
   readonly saving: boolean
   /** The human's narrowing of the model list; never written to the Host. */
   readonly filter: ModelFilter
+  /** One-click update panel; `idle` renders nothing. */
+  readonly update: UpdatePanel
 }
 
 /** How long a burst of switch flips is coalesced before one settings write. */
@@ -96,6 +134,7 @@ const INITIAL: SectionState = {
   writable: false,
   saving: false,
   filter: INITIAL_FILTER,
+  update: { phase: 'idle', status: undefined, message: undefined },
 }
 
 /** Read the two fields this page owns out of a settings snapshot value. */
@@ -137,6 +176,7 @@ export class SectionController {
     }
     void this.load(false)
     void this.loadKey()
+    void this.checkUpdate(false)
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -186,6 +226,125 @@ export class SectionController {
     } catch {
       // An undescribed credential is reported as unknown, never as absent.
       this.set({ keyConfigured: undefined })
+    }
+  }
+
+  /**
+   * Ask the Host whether a newer release is published.
+   *
+   * The Host answers from a cached registry reading and fails silent, so an
+   * unreachable registry hides the panel instead of erroring the page. Runs
+   * once with the page and again only on explicit refresh.
+   */
+  async checkUpdate(force: boolean): Promise<void> {
+    const previous = this.state.update
+    this.set({ update: { ...previous, phase: 'checking', message: undefined } })
+    try {
+      const result = await this.services.remote.opencodeGoUpdate.readUpdate(force)
+      if (!result.ok) throw result.error
+      const status = result.value
+      this.set({
+        update: {
+          phase: status.available && status.latest !== undefined ? 'ready' : 'idle',
+          status,
+          message: undefined,
+        },
+      })
+    } catch (error: unknown) {
+      // Fail silent like the Host: keep whatever the panel showed, if anything.
+      this.set({
+        update: {
+          ...previous,
+          phase: previous.phase === 'checking' ? 'idle' : previous.phase,
+          message: error instanceof Error ? error.message : undefined,
+        },
+      })
+    }
+  }
+
+  /** Arm the confirm step; the destructive two-step runs only from `applyUpdate`. */
+  armUpdate(): void {
+    if (this.state.update.phase === 'ready') {
+      this.set({ update: { ...this.state.update, phase: 'confirming' } })
+    }
+  }
+
+  /** Stand down from the confirm step without doing anything. */
+  disarmUpdate(): void {
+    if (this.state.update.phase === 'confirming') {
+      this.set({ update: { ...this.state.update, phase: 'ready' } })
+    }
+  }
+
+  /** Read one field off an unknown host answer without guessing its shape. */
+  private static field(value: unknown, key: string): unknown {
+    return value !== null && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined
+  }
+
+  /**
+   * One-click update: inspect, then the host's own remove + install.
+   *
+   * This mirrors the official plugin-update button exactly — the plugin never
+   * touches its own files. `removeBundle` stops the running build first, so
+   * the install call that follows is issued by this page (which survives),
+   * not by the Host code being removed. Outcomes that need a human —
+   * incompatibility (never auto-exempted), pending build approvals, a removal
+   * that needs a restart first — surface as guidance, never as silent retries.
+   */
+  async applyUpdate(): Promise<void> {
+    const status = this.state.update.status
+    const latest = status?.latest
+    if (this.state.update.phase !== 'confirming' || latest === undefined) return
+    const manager = this.services.remote.pluginManager
+    const spec = `${PACKAGE_NAME}@${latest}`
+    this.set({ update: { phase: 'updating', status, message: undefined } })
+    const fail = (message: string): void => {
+      this.set({ update: { phase: 'failed', status, message } })
+    }
+    try {
+      const inspected = await manager.inspect(spec)
+      if (SectionController.field(inspected, 'bundle') === false) {
+        fail(`the registry target is not a DSH bundle: ${spec}`)
+        return
+      }
+    } catch (error: unknown) {
+      fail(error instanceof Error ? error.message : `could not inspect ${spec}`)
+      return
+    }
+    try {
+      const removed = await manager.removeBundle(PACKAGE_NAME)
+      if (!removed.ok) throw removed.error
+      const stopCode = SectionController.field(removed.value, 'error')
+      const code = typeof stopCode === 'object' && stopCode !== null
+        ? SectionController.field(stopCode, 'code')
+        : undefined
+      if (code === 'stop-profile') {
+        fail('stop-profile')
+        return
+      }
+    } catch (error: unknown) {
+      fail(error instanceof Error ? error.message : `could not remove ${PACKAGE_NAME}`)
+      return
+    }
+    try {
+      const installed = await manager.installBundle(spec, { saveExact: true })
+      if (!installed.ok) throw installed.error
+      const value = (installed.value ?? {}) as PluginManagerChange
+      if (value.error?.code === 'incompatible-version') {
+        fail('incompatible-version')
+        return
+      }
+      if (value.pendingBuilds !== undefined) {
+        fail('pending-builds')
+        return
+      }
+      if (value.application === 'restart-required') {
+        this.set({ update: { phase: 'done', status, message: 'restart-required' } })
+        return
+      }
+      this.set({ update: { phase: 'done', status, message: undefined } })
+    } catch (error: unknown) {
+      fail(error instanceof Error ? error.message : `could not install ${spec}`)
     }
   }
 
@@ -358,6 +517,72 @@ function quotaLabel(model: CatalogReading['models'][number], t: (key: string) =>
   return `${usd} · ${requests}`
 }
 
+/** One-click update banner; renders nothing while the panel is idle. */
+function UpdateBanner({ controller, t, busy, act, update }: {
+  controller: SectionController
+  t: (key: string) => string
+  busy: boolean
+  act: (operation: () => Promise<void>) => void
+  update: UpdatePanel
+}): React.JSX.Element | null {
+  if (update.phase === 'idle') return null
+  const status = update.status
+  const notes = `https://www.npmjs.com/package/${encodeURIComponent(PACKAGE_NAME)}`
+  return <div className={css.block}>
+    <div className={css.row}>
+      <strong>{t('updateTitle')}</strong>
+      {update.phase === 'checking' && <span className={css.hint}>{t('updateChecking')}</span>}
+      {update.phase === 'ready' && status?.latest !== undefined && <>
+        <span className={css.hint}>
+          {`${t('updateAvailable')} ${status.latest} (${t('updateCurrent')} ${status.current})`}
+        </span>
+        <button type="button" className={css.button} disabled={busy}
+          onClick={() => { controller.armUpdate() }}>
+          {t('updateNow')}
+        </button>
+        <a className={css.hint} href={notes} target="_blank" rel="noreferrer">{t('updateNotes')}</a>
+        <button type="button" className={css.button} disabled={busy}
+          onClick={() => { void act(async () => { await controller.checkUpdate(true) }) }}>
+          {t('updateRecheck')}
+        </button>
+      </>}
+      {update.phase === 'confirming' && status?.latest !== undefined && <>
+        <span className={css.hint}>{`${t('updateConfirmHint')} ${status.latest}`}</span>
+        <button type="button" className={css.button} disabled={busy}
+          onClick={() => { void act(async () => { await controller.applyUpdate() }) }}>
+          {t('updateConfirm')}
+        </button>
+        <button type="button" className={css.button} disabled={busy}
+          onClick={() => { controller.disarmUpdate() }}>
+          {t('updateCancel')}
+        </button>
+      </>}
+      {update.phase === 'updating' && <span className={css.hint}>{t('updateApplying')}</span>}
+      {update.phase === 'done' && <>
+        <span className={css.ok}>{`${t('updateDone')} ${status?.latest ?? ''}`.trim()}</span>
+        {update.message === 'restart-required' && <span className={css.warn}>{t('updateRestart')}</span>}
+      </>}
+      {update.phase === 'failed' && <>
+        <span className={css.warn}>{t('updateFailed')}</span>
+        <span className={css.hint}>{updateFailureText(update.message, t)}</span>
+        <button type="button" className={css.button} disabled={busy}
+          onClick={() => { void act(async () => { await controller.checkUpdate(true) }) }}>
+          {t('updateRecheck')}
+        </button>
+      </>}
+    </div>
+  </div>
+}
+
+/** Translate the controller's sentinel failure notes; raw host detail passes through. */
+function updateFailureText(message: string | undefined, t: (key: string) => string): string {
+  if (message === undefined || message.length === 0) return ''
+  if (message === 'stop-profile') return t('updateStopProfile')
+  if (message === 'incompatible-version') return t('updateIncompatible')
+  if (message === 'pending-builds') return t('updatePendingBuilds')
+  return message
+}
+
 /** The settings page. */
 export function Section({ controller, t, getLocale }: SectionInjected): React.JSX.Element {
   const state = useSyncExternalStore(controller.subscribe, controller.snapshot, controller.snapshot)
@@ -385,6 +610,7 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
   return <section className={css.root}>
     <h2 className={css.title}>{t('nav')}</h2>
     <p className={css.hint}>{t('intro')}</p>
+    <UpdateBanner controller={controller} t={t} busy={busy} act={act} update={state.update} />
 
     <div className={css.block}>
       <div className={css.row}>

@@ -54,6 +54,7 @@ describe('client apply', () => {
     expect(contribution.descriptors.map(entry => `${entry.namespace}/${entry.method}`).toSorted()).toEqual([
       'opencodeGoCatalog/read',
       'opencodeGoCatalog/refresh',
+      'opencodeGoUpdate/readUpdate',
       'opencodeGoUsage/readMeter',
       'opencodeGoUsage/readWindows',
     ])

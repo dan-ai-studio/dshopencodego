@@ -61,6 +61,11 @@ const ACCOUNT_QUOTA_CODE = 'ACCOUNT_QUOTA'
 export function classifyPiAiError(message: string): string {
   if (/\b(?:401|403)\b/.test(message)) return 'AUTH'
   if (isQuotaExceededError(message)) return ACCOUNT_QUOTA_CODE
+  // A 429 typed as `server_error` is the gateway reporting an unavailable
+  // upstream, not the caller exceeding a rate limit: the remedy is waiting for
+  // the endpoint to recover rather than slowing down, so it classifies as
+  // SERVER even though the status code alone reads as a rate limit.
+  if (/server_error/i.test(message)) return 'SERVER'
   if (/\b429\b|rate.?limit/i.test(message)) return 'RATE_LIMIT'
   if (/\b413\b|payload too large|request body too large|length limit exceeded/i.test(message)) return 'INVALID_REQUEST'
   if (/\b400\b|invalid.?request/i.test(message)) return 'INVALID_REQUEST'

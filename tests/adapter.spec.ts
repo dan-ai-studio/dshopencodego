@@ -408,6 +408,16 @@ describe('stream mapping', () => {
     expect(classifyPiAiError('something odd')).toBe('PI_AI_ERROR')
   })
 
+  it('classifies a 429 typed as server_error as SERVER, not a rate limit', () => {
+    // Observed live: the gateway reports an unavailable upstream with status
+    // 429 but `"type":"server_error"`. The typed failure wins over the status
+    // code, because the remedy is waiting for the endpoint, not slowing down.
+    expect(classifyPiAiError('429: {"type":"server_error","message":"Upstream request failed: Endpoint is unavailable."}'))
+      .toBe('SERVER')
+    // An untyped 429 keeps the rate-limit reading.
+    expect(classifyPiAiError('429 Too Many Requests')).toBe('RATE_LIMIT')
+  })
+
   it('reports an exhausted balance as account quota, not a transient limit', () => {
     // This gateway meters a prepaid balance, so the remedy is a top-up. Neither
     // quota code is retryable, so only the diagnosis the UI shows changes — and

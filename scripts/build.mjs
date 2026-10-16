@@ -29,6 +29,7 @@ await build({
   format: 'esm',
   platform: 'node',
   target: 'node22',
+  define: { __DSHOPENCODEGO_VERSION__: JSON.stringify(pkg.version) },
 })
 
 /** Identities the DSH Web module table provides to every plugin bundle. */

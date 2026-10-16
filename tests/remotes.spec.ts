@@ -30,6 +30,7 @@ describe('registerRemotes', () => {
     expect(methods).toEqual([
       'opencodeGoCatalog/read',
       'opencodeGoCatalog/refresh',
+      'opencodeGoUpdate/readUpdate',
       'opencodeGoUsage/readMeter',
       'opencodeGoUsage/readWindows',
     ])

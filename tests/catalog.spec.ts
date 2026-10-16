@@ -7,6 +7,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
+import type { Api, Model } from '@earendil-works/pi-ai'
 import { OpencodeGoCatalog, discoverCatalogModels } from '../src/catalog/index.ts'
 import { readOnlineMetadata, toPiModel } from '../src/catalog/metadata.ts'
 import { decideProtocol, inferProtocol, protocolOfNpm } from '../src/catalog/protocol.ts'
@@ -128,6 +129,20 @@ describe('online metadata parsing', () => {
     }), sources)
     expect(models.get('qwen3.8-max')?.thinkingLevelMap).toMatchObject({ off: null, low: 'low', medium: 'medium', xhigh: 'xhigh' })
     expect(models.get('qwen3.7-max')?.thinkingLevelMap).toMatchObject({ off: null, low: null, medium: null, high: null })
+  })
+
+  it('keeps the installed level map when the document names no options', () => {
+    // An absent `reasoning_options` list is silence, not "no levels": the
+    // installed entry's map survives, so the settings page keeps offering the
+    // levels the wire already accepts instead of dropping the control.
+    const builtin = new Map(Object.entries({
+      'steady-model': { api: 'openai-completions', thinkingLevelMap: { off: null, low: 'low', high: 'high' } },
+    })) as unknown as ReadonlyMap<string, Model<Api>>
+    const { models, errors } = readOnlineMetadata(modelsDevDocument({
+      'steady-model': { name: 'Steady', reasoning: true, limit: { context: 1000, output: 100 } },
+    }), { ...sources, builtin })
+    expect(errors.size).toBe(0)
+    expect(models.get('steady-model')?.thinkingLevelMap).toMatchObject({ off: null, low: 'low', high: 'high' })
   })
 
   it('marks a model whose capacities no source states as assumed', () => {

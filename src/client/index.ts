@@ -22,6 +22,7 @@ import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { catalogRemote } from '../catalog/contract.ts'
+import { updateRemote } from '../update/contract.ts'
 import { usageRemote } from '../usage/contract.ts'
 import type { TypertDisposer } from '@deepseek-ai/dsh-typert-protocol'
 import { en, zh } from './locales.ts'
@@ -63,7 +64,7 @@ export function apply(ctx: ClientContext): void {
   // `src/remotes.ts`.
   const mounted = ctx.remote.$mount({
     package: usageRemote.package,
-    descriptors: [...usageRemote.descriptors, ...catalogRemote.descriptors],
+    descriptors: [...usageRemote.descriptors, ...catalogRemote.descriptors, ...updateRemote.descriptors],
   })
   ctx.effect(() => {
     let dispose: TypertDisposer | undefined

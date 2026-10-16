@@ -41,6 +41,8 @@ import { assertBaseURL, PlainConfig, readConfig } from './config.ts'
 import type { LiveConfig, OpencodeGoConfig } from './config.ts'
 import { registerRemotes } from './remotes.ts'
 import { OpencodeGoCatalogService } from './catalog/service.ts'
+import { OpencodeGoUpdateService } from './update/index.ts'
+import { PLUGIN_VERSION } from './update/index.ts'
 import { OpencodeGoUsageService, UsageMeter } from './usage/index.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -135,6 +137,7 @@ export function apply(ctx: Context, raw?: unknown): void {
     catalog: () => adapter.catalogOf(current()),
     visibility: () => current().modelVisibility,
   })
+  ctx.plugin(OpencodeGoUpdateService, { currentVersion: PLUGIN_VERSION })
 
   let registration: AdapterRegistrationHandle | undefined
   let visibilityFacts = JSON.stringify(current().modelVisibility)
