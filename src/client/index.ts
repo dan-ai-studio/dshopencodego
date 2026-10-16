@@ -73,13 +73,22 @@ export function apply(ctx: ClientContext): void {
     })
     return () => { void dispose?.() }
   }, 'dshopencodego: usage Remote')
-  ctx.inject(['configForms', 'remote.opencodeGoCatalog', 'remote.credentials'], (scope) => {
+  // `remote.opencodeGoUpdate` belongs in this list: Cordis refuses an
+  // undeclared service read with `cannot get property "…" without inject`
+  // rather than returning undefined, and leaving it out made the settings
+  // page's first update check throw into a panel that hid the failure —
+  // a blank row for three releases.
+  ctx.inject(['configForms', 'remote.opencodeGoCatalog', 'remote.opencodeGoUpdate', 'remote.credentials'], (scope) => {
     // 0.1.7 keeps profile-entry forms on `configForms`; the entry id is this
     // plugin's, and a composition without the form renders the page read-only.
     const forms = scope.get('configForms') as
       { get(id: string): SettingsScopeLike | undefined } | undefined
     const controller = new SectionController({
       remote: scope.remote,
+      // Lenient lookup on purpose: the plugin manager is a separate host
+      // plugin a composition may omit, and declaring it as a required
+      // dependency would withdraw this whole settings section when absent.
+      pluginManager: scope.get('remote.pluginManager') as never,
       scope: forms?.get('dshopencodego'),
     })
     const translate = scope.locale.bind(NS)

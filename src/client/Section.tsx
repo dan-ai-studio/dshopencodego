@@ -60,23 +60,26 @@ export interface SectionServices {
       readUpdate(): Promise<RemoteResult<UpdateStatus>>
       refreshUpdate(): Promise<RemoteResult<UpdateStatus>>
     }
-    /**
-     * The host's own package manager. The page drives the same two steps the
-     * official plugin-update button drives — `removeBundle` then
-     * `installBundle` — so the manifest lock, peer checks, build approvals,
-     * and HMR lifecycle all stay with the host. The plugin never replaces its
-     * own files.
-     */
-    readonly pluginManager: {
-      inspect(spec: string): Promise<unknown>
-      removeBundle(name: string): Promise<RemoteResult<PluginManagerChange>>
-      installBundle(spec: string, options?: { saveExact?: boolean; enabled?: boolean }): Promise<RemoteResult<PluginManagerChange>>
-    }
     readonly credentials: {
       describe(refs: string[]): Promise<RemoteResult<Record<string, { configured: boolean }>>>
       set(ref: string, value: string): Promise<RemoteResult<unknown>>
       unset(ref: string): Promise<RemoteResult<unknown>>
     }
+  }
+  /**
+   * The host's own package manager, used only to apply an update.
+   *
+   * Resolved through the lenient `ctx.get()` rather than declared as a
+   * required dependency: the plugin manager is a separate host plugin that a
+   * composition may omit, and making the settings page depend on it would
+   * withdraw this whole section when it is absent. Without it the page still
+   * reports update availability; only the one-click apply says why it cannot
+   * run.
+   */
+  readonly pluginManager?: {
+    inspect(spec: string): Promise<unknown>
+    removeBundle(name: string): Promise<RemoteResult<PluginManagerChange>>
+    installBundle(spec: string, options?: { saveExact?: boolean; enabled?: boolean }): Promise<RemoteResult<PluginManagerChange>>
   }
   /** Absent in a composition without a settings surface: the page turns read-only. */
   readonly scope: SettingsScopeLike | undefined
@@ -129,16 +132,6 @@ export interface SectionState {
 
 /** How long a burst of switch flips is coalesced before one settings write. */
 export const VISIBILITY_WRITE_DELAY_MS = 250
-
-/**
- * How long the page waits for the update Remote namespace to mount before
- * reporting a visible failure. The namespace rides the same asynchronous
- * mount as the catalog, which the section may already be reading.
- */
-export const UPDATE_MOUNT_WAIT_MS = 2_000
-
-/** Poll interval while waiting for that namespace. */
-export const UPDATE_MOUNT_POLL_MS = 50
 
 const INITIAL: SectionState = {
   loading: true,
@@ -247,28 +240,24 @@ export class SectionController {
   }
 
   /**
-   * The update Remote, waiting for its namespace to finish mounting.
+   * The update Remote.
    *
-   * The settings section is constructed as soon as the catalog and credentials
-   * are visible, which can precede the rest of this package's own Remote
-   * contribution. Reading `opencodeGoUpdate` too early made the first check
-   * throw a TypeError into the page's catch, which returned the panel to
-   * `idle` — a permanently blank panel with no retry. This is the defect a
-   * live run reported, so the race is waited out here instead of hidden.
+   * `client/index.ts` declares `remote.opencodeGoUpdate` in its inject list,
+   * so by the time this controller exists the namespace is mounted. The guard
+   * below is therefore a defensive assertion, not a wait: Cordis throws
+   * `cannot get property "…" without inject` on an undeclared read rather
+   * than returning undefined, which is how an omitted dependency once turned
+   * this panel into a permanently blank row.
    * @returns the mounted update Remote.
-   * @throws {Error} `remote-not-mounted` when it never appears.
+   * @throws {Error} `remote-not-mounted` when the namespace is absent.
    */
-  private async updateRemote(): Promise<{
+  private updateRemote(): {
     readUpdate(): Promise<RemoteResult<UpdateStatus>>
     refreshUpdate(): Promise<RemoteResult<UpdateStatus>>
-  }> {
-    const deadline = Date.now() + UPDATE_MOUNT_WAIT_MS
-    for (;;) {
-      const remote = this.services.remote.opencodeGoUpdate
-      if (remote !== undefined) return remote
-      if (Date.now() >= deadline) throw new Error('remote-not-mounted')
-      await new Promise<void>(resolve => { setTimeout(resolve, UPDATE_MOUNT_POLL_MS) })
-    }
+  } {
+    const remote = this.services.remote.opencodeGoUpdate
+    if (remote === undefined) throw new Error('remote-not-mounted')
+    return remote
   }
 
   /**
@@ -287,7 +276,7 @@ export class SectionController {
     const previous = this.state.update
     this.set({ update: { ...previous, phase: 'checking', message: undefined } })
     try {
-      const remote = await this.updateRemote()
+      const remote = this.updateRemote()
       const result = force ? await remote.refreshUpdate() : await remote.readUpdate()
       if (!result.ok) throw result.error
       const status = result.value
@@ -345,7 +334,11 @@ export class SectionController {
     const status = this.state.update.status
     const latest = status?.latest
     if (this.state.update.phase !== 'confirming' || latest === undefined) return
-    const manager = this.services.remote.pluginManager
+    const manager = this.services.pluginManager
+    if (manager === undefined) {
+      this.set({ update: { phase: 'failed', status, message: 'no-plugin-manager' } })
+      return
+    }
     const spec = `${PACKAGE_NAME}@${latest}`
     this.set({ update: { phase: 'updating', status, message: undefined } })
     const fail = (message: string): void => {
@@ -635,6 +628,7 @@ function UpdateBanner({ controller, t, busy, act, update }: {
 function updateFailureText(message: string | undefined, t: (key: string) => string): string {
   if (message === undefined || message.length === 0) return ''
   if (message === 'remote-not-mounted') return t('updateRemoteMissing')
+  if (message === 'no-plugin-manager') return t('updateNoManager')
   if (message === 'stop-profile') return t('updateStopProfile')
   if (message === 'incompatible-version') return t('updateIncompatible')
   if (message === 'pending-builds') return t('updatePendingBuilds')

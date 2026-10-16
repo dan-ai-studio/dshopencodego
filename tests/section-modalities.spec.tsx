@@ -38,20 +38,19 @@ const services: SectionServices = {
       readUpdate: async () => ok({ current: '0.1.22', latest: undefined, available: false, checkedAt: 0 }),
       refreshUpdate: async () => ok({ current: '0.1.22', latest: undefined, available: false, checkedAt: 0 }),
     },
-    pluginManager: {
-      inspect: async () => ({}),
-      removeBundle: async () => ok({}),
-      installBundle: async () => ok({ application: 'applied' }),
-    },
     credentials: {
       describe: async () => ok({}),
       set: async () => ok(undefined),
       unset: async () => ok(undefined),
     },
   },
+  pluginManager: {
+    inspect: async () => ({}),
+    removeBundle: async () => ok({}),
+    installBundle: async () => ok({ application: 'applied' }),
+  },
   scope: undefined,
 }
-
 const t = (key: string): string => (en as Record<string, string>)[key] ?? key
 
 afterEach(() => { cleanup() })

@@ -42,16 +42,16 @@ function services(script: ManagerScript = {}, available = true): SectionServices
           } as never
         },
       },
-      pluginManager: {
-        inspect: async () => script.inspect ?? {},
-        removeBundle: async () => (script.remove ?? { ok: true, value: {} }) as never,
-        installBundle: async () => (script.install ?? { ok: true, value: { application: 'applied' } }) as never,
-      },
       credentials: {
         describe: async () => ({ ok: true, value: {} }) as never,
         set: async () => ({ ok: true, value: undefined }) as never,
         unset: async () => ({ ok: true, value: undefined }) as never,
       },
+    },
+    pluginManager: {
+      inspect: async () => script.inspect ?? {},
+      removeBundle: async () => (script.remove ?? { ok: true, value: {} }) as never,
+      installBundle: async () => (script.install ?? { ok: true, value: { application: 'applied' } }) as never,
     },
     scope: undefined,
   }
@@ -77,23 +77,19 @@ describe('update panel', () => {
     expect(quiet.snapshot().update.phase).toBe('current')
   })
 
-  it('survives an update namespace that mounts after the page opens', async () => {
-    // The section is built as soon as the catalog and credentials are visible,
-    // which can precede the rest of this package's own Remote contribution:
-    // the mount is asynchronous and registers namespace by namespace. Reading
-    // `opencodeGoUpdate` before it exists threw a TypeError into the page's
-    // catch, which returned the panel to `idle` — a permanently blank panel
-    // with no retry, the defect a live run reported.
+  it('survives a namespace that is absent when the first check runs', async () => {
+    // The declared dependency is what guarantees the namespace exists. When it
+    // is missing anyway, the page must say so rather than render nothing: an
+    // earlier release returned the panel to `idle`, which hides every failure
+    // behind a blank row with no retry.
     const tracking = services()
-    const real = tracking.remote.opencodeGoUpdate!
-    let reads = 0
     Object.defineProperty(tracking.remote, 'opencodeGoUpdate', {
       configurable: true,
-      get: () => { reads += 1; return reads > 1 ? real : undefined },
+      value: undefined,
     })
     const controller = new SectionController(tracking)
-    await new Promise(resolve => { setTimeout(resolve, 200) })
-    expect(controller.snapshot().update.phase).toBe('ready')
+    await settle()
+    expect(controller.snapshot().update).toMatchObject({ phase: 'failed', message: 'remote-not-mounted' })
   })
 
   it('keeps a failed check visible with a retry instead of vanishing', async () => {
@@ -133,15 +129,15 @@ describe('update panel', () => {
   it('runs inspect, remove, then install on confirm', async () => {
     const calls: string[] = []
     const tracking = services()
-    const manager = tracking.remote.pluginManager
+    const manager = tracking.pluginManager!
     const inspect = manager.inspect
     const remove = manager.removeBundle
     const install = manager.installBundle
-    tracking.remote.pluginManager.inspect = async (...args: unknown[]) => { calls.push('inspect'); return inspect(...args as [string]) }
-    tracking.remote.pluginManager.removeBundle = async (...args: unknown[]) => {
+    manager.inspect = async (...args: unknown[]) => { calls.push('inspect'); return inspect(...args as [string]) }
+    manager.removeBundle = async (...args: unknown[]) => {
       calls.push('remove'); return remove(...args as [string])
     }
-    tracking.remote.pluginManager.installBundle = async (...args: unknown[]) => {
+    manager.installBundle = async (...args: unknown[]) => {
       calls.push('install'); return install(...args as [string])
     }
     const controller = new SectionController(tracking)
@@ -200,8 +196,8 @@ describe('update panel', () => {
   it('stops before removing when inspection fails', async () => {
     let removed = false
     const tracking = services()
-    tracking.remote.pluginManager.inspect = async () => { throw new Error('registry unreachable') }
-    tracking.remote.pluginManager.removeBundle = async () => { removed = true; return { ok: true, value: {} } as never }
+    tracking.pluginManager!.inspect = async () => { throw new Error('registry unreachable') }
+    tracking.pluginManager!.removeBundle = async () => { removed = true; return { ok: true, value: {} } as never }
     const controller = new SectionController(tracking)
     await settle()
     controller.armUpdate()

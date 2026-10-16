@@ -72,9 +72,15 @@ describe('client apply', () => {
       },
     )
     apply(ctx)
-    // Both inject callbacks ran without throwing on a minimal scope.
+    // Both inject callbacks ran without throwing on a minimal scope. Every
+    // namespace a closure reads must appear here: Cordis throws
+    // `cannot get property "…" without inject` on an undeclared read, and a
+    // missing `remote.opencodeGoUpdate` once made the update panel blank for
+    // three releases. `remote.pluginManager` is deliberately absent — it is
+    // read through the lenient `ctx.get()` so a composition without a plugin
+    // manager still renders this section.
     expect(injected.map(([services]) => services)).toEqual([
-      ['configForms', 'remote.opencodeGoCatalog', 'remote.credentials'],
+      ['configForms', 'remote.opencodeGoCatalog', 'remote.opencodeGoUpdate', 'remote.credentials'],
       ['modelDirectories', 'remote.opencodeGoUsage'],
     ])
   })

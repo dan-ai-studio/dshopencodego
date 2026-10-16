@@ -2,6 +2,16 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.27] - 2026-10-16
+
+### 🛠️ 内部优化与加固 (Internal Improvements)
+
+- **真正的根因：Cordis 的 inject 声明缺失**（0.1.23–0.1.26 的更新面板空白全部由此而来）。Cordis 对**未声明**的服务读取不是返回 `undefined`，而是抛 `cannot get property "…" without inject`（见 `vendor/cordis/src/reflect.ts`）。设置页读取 `remote.opencodeGoUpdate` 却从未声明它，首查即在客户端抛错，被面板的 catch 吞成永久空白。
+- 同一缺陷的第二处：`remote.pluginManager`（一键更新用）同样未声明，按下“立即更新”必然失败。它改为通过宽松的 `ctx.get()` 获取而非必需依赖——插件管理器是独立宿主插件、组合可能不含它，声明为必需会让整个设置页在缺失时消失；缺失时仅一键更新给出可见说明。
+- **新增静态一致性测试**（`tests/inject-declarations.spec.ts`）：比对设置页读取的 Remote 命名空间与客户端 inject 声明，遗漏即失败。该测试在落地时立刻抓出了上述第二个缺陷。真实框架行为也在 `tests/update-panel.spec.ts` 中以避免静默的方式锁定（失败必须可见）。
+
+---
+
 ## [0.1.26] - 2026-10-16
 
 ### 🛠️ 内部优化与加固 (Internal Improvements)
