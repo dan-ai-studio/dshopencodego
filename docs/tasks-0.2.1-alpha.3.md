@@ -1,6 +1,6 @@
 # 任务列表：DSH 0.2.1-alpha.3 适配与接口跟进
 
-- **状态**：M1–M4 已完成（T-01–T-22 `done`）；T-23 `pending`（未批准，需用户明确追加）
+- **状态**：M1–M4 已完成（T-01–T-22 `done`）；后续追加的 T-24、T-25 已完成并在真实页面验证；T-23 `pending`（未批准，需用户明确追加）
 - **日期**：2026-10-15
 - **需求依据**：`docs/requirements-0.2.1-alpha.3.md`
 - **计划依据**：`docs/plan-0.2.1-alpha.3.md`
@@ -81,6 +81,22 @@
 | **T-21** | 支持 Console 主端点 `https://opencode.ai/inference/v1`（86 模型） | R-C2 | 导出 `CONSOLE_BASE_URL`，86 模型离线解析与三协议路由全覆盖，单测见 `tests/console-endpoint.spec.ts` | done |
 | **T-22** | 补齐会话亲和头 `x-session-affinity`（取值同 `x-opencode-session`） | R-C3 | 在 `src/session-header.ts` 中统一派发，单测见 `tests/session-header.spec.ts` | done |
 | **T-23** | 在设置页/限额表标注 Go 端点 3 个免费模型的「额度耗尽后仍可用」语义 | R-C4 | `cat-jam-free`、`step-5-preview-free`、`longcat-2.5-preview-free` | pending（未批准） |
+| **T-24** | 依赖跟进到 DSH `0.2.1-alpha.4` | 计划 §7 | 21 个 `dsh-*` devDeps 升至 alpha.4（cordis 维持 `4.0.5-alpha.2`）；按 T-01 约定备份并记录 SHA256；全新安装 258 包 / 0 漏洞 / 无 ERESOLVE；三关全绿。peer 范围与 `engines.dsh` 本已覆盖，无需改动。证据：`scratch/t24-backup/` | done（v0.1.31） |
+| **T-25** | 设置页一键更新（检查新版本 → 卸载旧版 → 安装新版） | 用户追加 | Remote `opencodeGoUpdate`（`readUpdate`/`refreshUpdate`）+ 设置页横幅与二次确认；实际安装交由宿主 `pluginManager`，插件不改写自身文件 | done（v0.1.23–v0.1.31） |
+
+### T-25 的验证记录
+
+一键更新在真实页面上**已跑通**（2026-10-16，用户确认「立即更新功能正常」，0.1.30 → 0.1.31 由该按钮完成）。
+该功能共修复六类缺陷，每一类都由新增测试锁定：
+
+1. **调用参数个数（v0.1.25）**：`readUpdate(force)` 传了位置参数，而描述符声明零参数，网关按 arity 拒收 → 改为与目录一致的 `readUpdate`/`refreshUpdate` 双零参方法。
+2. **失败静默（v0.1.26）**：检查失败时 phase 回落 `idle`，而 `idle` 不渲染任何内容，导致任何失败都不可见也无法重试 → 改为可见的 `failed` 态并给重试。
+3. **Cordis 依赖声明（v0.1.27）**：读取未在 `inject` 声明的服务不是返回 `undefined` 而是抛 `cannot get property "…" without inject`；`remote.opencodeGoUpdate` 与 `remote.pluginManager` 都曾遗漏（后者由新增的静态一致性测试当场抓出）。
+4. **查询失败冒充成功（v0.1.28）**：registry 不可达与"确认无更新"读数相同，页面会显示"已是最新"这句谎话 → `UpdateStatus.checked` 区分两者。
+5. **先卸载再失败（v0.1.29）**：预检把联合类型的 `refused` 结果当作通过，会径直卸载运行中的版本，安装失败即让用户失去插件 → `refused`/`bundle: false` 都在动手前中止。
+6. **目录冷启动不重验证（v0.1.30）**：`forModel` 用"快照是否仍等于 await 前的缓存"判断是否重验证，冷目录下恒为假，首次构建缺失的模型直接以 `UNKNOWN_MODEL` 失败 → 改为按 id 是否可服务判断（该缺陷同时是 `adapter.spec.ts` 长期间歇失败的根因）。
+
+无功能影响的已知噪声：启动 DSH 时可能看到 `Accessing non-existent property 'Allow' of module exports inside circular dependency`，来源为 `pi-ai → partial-json` 的循环依赖，非本项目代码（详见 v0.1.31 起 CHANGELOG 与本次排查结论）。
 
 ---
 
