@@ -5,7 +5,7 @@
  * The gateway is a real HTTP server and models.dev is intercepted at the fetch
  * boundary, so these tests exercise the same code path a session does.
  */
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { OpencodeGoCatalog, discoverCatalogModels } from '../src/catalog/index.ts'
@@ -283,6 +283,54 @@ describe('live catalog', () => {
       const snapshot = await catalog.forModel('brand-new')
       expect(snapshot.facts.has('brand-new')).toBe(true)
       expect(server.requests.filter(request => request.path.endsWith('/models'))).toHaveLength(2)
+    } finally {
+      stub.restore()
+    }
+  })
+
+  it('revalidates when a cold catalog cannot serve the requested model', async () => {
+    // The pre-warmed case above compares the awaited snapshot with what was
+    // cached before it — a comparison that is only ever true when something
+    // was cached at all. On a cold catalog nothing is cached, so the check was
+    // false and the revalidation was skipped: the id fell through as
+    // UNKNOWN_MODEL instead of being retried. That is what an intermittent
+    // adapter failure looked like in practice: the first build had simply
+    // raced the listing, and the model was never re-read.
+    const server = await gateway({ listing: ['glm-5.3'] })
+    const stub = stubModelsDev(modelsDevDocument({}))
+    try {
+      const catalog = catalogFor(server.baseURL)
+      const forces: boolean[] = []
+      const original = catalog.snapshot.bind(catalog)
+      vi.spyOn(catalog, 'snapshot').mockImplementation((force?: boolean) => {
+        forces.push(force === true)
+        // The model appears only after the first build, which is what a
+        // metadata race looks like from the catalog's side.
+        if (force === true) server.setListing(['glm-5.3', 'brand-new'])
+        return original(force)
+      })
+      const snapshot = await catalog.forModel('brand-new')
+      expect(snapshot.facts.has('brand-new')).toBe(true)
+      expect(forces).toEqual([false, true])
+    } finally {
+      stub.restore()
+    }
+  })
+
+  it('does not revalidate a model the first snapshot already serves', async () => {
+    const server = await gateway({ listing: ['glm-5.3'] })
+    const stub = stubModelsDev(modelsDevDocument({}))
+    try {
+      const catalog = catalogFor(server.baseURL)
+      const forces: boolean[] = []
+      const original = catalog.snapshot.bind(catalog)
+      vi.spyOn(catalog, 'snapshot').mockImplementation((force?: boolean) => {
+        forces.push(force === true)
+        return original(force)
+      })
+      const snapshot = await catalog.forModel('glm-5.3')
+      expect(snapshot.facts.has('glm-5.3')).toBe(true)
+      expect(forces).toEqual([false])
     } finally {
       stub.restore()
     }

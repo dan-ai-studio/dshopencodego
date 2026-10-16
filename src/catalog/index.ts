@@ -183,9 +183,21 @@ export class OpencodeGoCatalog {
    *   the id but this build cannot configure it, naming the reason.
    */
   async forModel(id: string): Promise<CatalogSnapshot> {
-    const cached = this.served
     let snapshot = await this.snapshot()
-    if (!snapshot.facts.has(id) && snapshot === cached) snapshot = await this.snapshot(true)
+    // A snapshot that cannot serve this id forces one revalidation, because
+    // "this build has not seen the id" and "the id was just published" are
+    // indistinguishable from here.
+    //
+    // The condition must not compare the snapshot with what was cached before
+    // the await: on a cold catalog there is nothing cached, so that comparison
+    // was false and the revalidation was skipped — an id missing from the
+    // very first build then failed as UNKNOWN_MODEL instead of being retried.
+    // Presence in `unavailable` is a positive statement (the gateway
+    // advertises the id but this build cannot configure it), so it needs no
+    // revalidation and is reported below.
+    if (!snapshot.facts.has(id) && !snapshot.unavailable.has(id)) {
+      snapshot = await this.snapshot(true)
+    }
     const reason = snapshot.unavailable.get(id)
     if (reason !== undefined) {
       throw new LlmError(
