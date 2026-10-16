@@ -84,7 +84,7 @@ export interface PluginManagerChange {
 }
 
 /** Where the one-click update stands. `idle` hides the panel entirely. */
-export type UpdatePhase = 'idle' | 'checking' | 'ready' | 'confirming' | 'updating' | 'done' | 'failed'
+export type UpdatePhase = 'idle' | 'checking' | 'current' | 'ready' | 'confirming' | 'updating' | 'done' | 'failed'
 
 /** Update panel state; absence-shaped so a partial update can clear it. */
 export interface UpdatePanel {
@@ -245,7 +245,7 @@ export class SectionController {
       const status = result.value
       this.set({
         update: {
-          phase: status.available && status.latest !== undefined ? 'ready' : 'idle',
+          phase: status.available && status.latest !== undefined ? 'ready' : 'current',
           status,
           message: undefined,
         },
@@ -532,6 +532,13 @@ function UpdateBanner({ controller, t, busy, act, update }: {
     <div className={css.row}>
       <strong>{t('updateTitle')}</strong>
       {update.phase === 'checking' && <span className={css.hint}>{t('updateChecking')}</span>}
+      {update.phase === 'current' && <>
+        <span className={css.hint}>{`${t('updateLatest')} ${status?.current ?? ''}`.trim()}</span>
+        <button type="button" className={css.button} disabled={busy}
+          onClick={() => { void act(async () => { await controller.checkUpdate(true) }) }}>
+          {t('updateRecheck')}
+        </button>
+      </>}
       {update.phase === 'ready' && status?.latest !== undefined && <>
         <span className={css.hint}>
           {`${t('updateAvailable')} ${status.latest} (${t('updateCurrent')} ${status.current})`}

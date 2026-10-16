@@ -60,7 +60,7 @@ describe('update panel', () => {
     expect(controller.snapshot().update.phase).toBe('ready')
     const quiet = new SectionController(services({}, false))
     await settle()
-    expect(quiet.snapshot().update.phase).toBe('idle')
+    expect(quiet.snapshot().update.phase).toBe('current')
   })
 
   it('runs inspect, remove, then install on confirm', async () => {
