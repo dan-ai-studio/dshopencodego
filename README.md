@@ -86,6 +86,10 @@ DSH 桌面端是 Electron 壳 + 完整的 dsh Web 应用，本插件对它同样
     baseURL: https://opencode.ai/inference/go/v1    # 默认值（OpenCode Go 端点，37 个订阅模型）
                                               # 也可指定为 https://opencode.ai/inference/v1（Console 主端点，包含 86 个按量/免费模型）
     refreshMinutes: 60                        # 目录缓存时长
+    streamIdleTimeoutMs: 300000               # 流空闲超时：两次流事件之间的最长静默（毫秒）
+    maxRequestImageBytes: 6291456             # 整个请求的图片载荷上限（base64 之后，字节）
+    requestImagePixelBudget: 1440000          # 单张图的总像素预算
+    requestImageMaxBytes: 400000              # 单张图编码前的字节目标（base64 之前）
     modelVisibility:                          # 逐模型开关（弃用模型默认关闭）
       glm-5: true
     modelLimits:                              # 逐模型容量覆盖
@@ -101,6 +105,18 @@ DSH 桌面端是 Electron 壳 + 完整的 dsh Web 应用，本插件对它同样
 ```
 
 API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），也可以直接 `export OPENCODE_GO_API_KEY=...`。
+
+**流超时**：`streamIdleTimeoutMs` 约束的是**两次流事件之间的最长静默**，不是请求总时长——长思考模型只要持续产出事件就不会被误判。默认 5 分钟，上限为 `2147483647`（约 24.8 天）。超时抛出 `TIMEOUT`（可重试类）。
+
+**图片**：三个字段各管一层，超限的图片会被明确拒绝，而不是静默降质或丢弃：
+
+| 字段 | 约束对象 | 默认 |
+| --- | --- | --- |
+| `requestImageMaxBytes` | 单张图，base64 **之前**的字节目标 | 400 KB |
+| `requestImagePixelBudget` | 单张图的总像素（按宽×高限制分辨率） | 144 万像素 |
+| `maxRequestImageBytes` | **整个请求**里图片载荷的总字节（base64 **之后**） | 6 MiB |
+
+模型自身不支持图片输入时，适配器会在发请求前就拒绝（`UNSUPPORTED_CONTENT`），不会把图发出去再等网关报错。
 
 **输出上限**：调用方给了 `maxTokens` 就用它（仍受 `modelLimits` 的逐模型上限约束）；没给时由宿主按路由上限物化——该上限就是目录里的输出容量，或 `modelLimits` 覆盖后的值。
 

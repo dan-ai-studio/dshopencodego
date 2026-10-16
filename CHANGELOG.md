@@ -2,6 +2,15 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.32] - 2026-10-16
+
+### 📖 文档 (Documentation)
+
+- **补齐配置文档中缺失的四个字段**（中英双语 README）：`streamIdleTimeoutMs`、`maxRequestImageBytes`、`requestImagePixelBudget`、`requestImageMaxBytes` 在代码里一直有默认值与校验，但 README 从未列出，使用者只能读源码才能发现。
+- 新增两段说明：**流超时**约束的是两次流事件之间的最长静默（而非请求总时长，故长思考模型不会被误判），以及**三个图片字段各管一层**（单图编码前字节 / 单图总像素 / 整请求 base64 后载荷）——附对照表，并说明不支持图片的模型在发请求前即被拒绝。
+
+---
+
 ## [0.1.31] - 2026-10-16
 
 ### 🛠️ 内部优化与加固 (Internal Improvements)

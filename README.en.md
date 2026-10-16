@@ -86,6 +86,10 @@ Configuration lives in the profile's `cordis.patch.yml`:
     baseURL: https://opencode.ai/inference/go/v1    # default (OpenCode Go endpoint, 37 subscription models)
                                               # or https://opencode.ai/inference/v1 (Console main endpoint, 86 pay-as-you-go/free models)
     refreshMinutes: 60                        # live catalog TTL
+    streamIdleTimeoutMs: 300000               # stream idle timeout: longest silence between events (ms)
+    maxRequestImageBytes: 6291456             # whole-request image payload cap (after base64, bytes)
+    requestImagePixelBudget: 1440000          # total-pixel budget for one image
+    requestImageMaxBytes: 400000              # encoded-byte target for one image (before base64)
     modelVisibility:                          # per-model switches (deprecated default off)
       glm-5: true
     modelLimits:                              # per-model capacity overrides
@@ -101,6 +105,18 @@ Configuration lives in the profile's `cordis.patch.yml`:
 ```
 
 The API key comes from the Harness credential store (reference name `OPENCODE_GO_API_KEY`), or from `export OPENCODE_GO_API_KEY=...`.
+
+**Stream timeout**: `streamIdleTimeoutMs` bounds the **longest silence between two stream events**, not the total request duration — a long-thinking model that keeps producing events is never cut off. Default 5 minutes; the ceiling is `2147483647` (about 24.8 days). Exceeding it raises `TIMEOUT`, which is retryable.
+
+**Images**: three fields, one layer each. An image outside a bound is refused explicitly rather than silently downscaled or dropped:
+
+| Field | What it bounds | Default |
+| --- | --- | --- |
+| `requestImageMaxBytes` | one image, encoded bytes **before** base64 | 400 KB |
+| `requestImagePixelBudget` | one image's total pixels (width × height) | 1.44M pixels |
+| `maxRequestImageBytes` | the **whole request's** image payload, **after** base64 | 6 MiB |
+
+A model that does not accept image input is rejected before the request is sent (`UNSUPPORTED_CONTENT`), so nothing is uploaded only to be refused by the gateway.
 
 **Output cap**: a caller's own `maxTokens` travels as given, still clamped by a `modelLimits` ceiling. When a caller names none, the host materializes the route's ceiling — the catalog's output capacity, or whatever `modelLimits` overrode it with.
 
