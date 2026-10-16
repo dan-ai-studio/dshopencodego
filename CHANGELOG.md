@@ -2,6 +2,17 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.26] - 2026-10-16
+
+### 🛠️ 内部优化与加固 (Internal Improvements)
+
+- **修复更新面板在真实页面永远空白**（两个缺陷叠加，0.1.23–0.1.25 均受影响）：
+  1. 检查失败时 phase 回落到 `idle`，而 `idle` 不渲染任何内容——于是**任何失败都不可见、也无法重试**；现改为进入可见的 `failed` 态并给出“重新检查”。
+  2. 设置页在 catalog/credentials 可见时即构造 controller，而 `remote.opencodeGoUpdate` 排在同一个异步 mount 的末尾，首查时可能尚未注册，`undefined.readUpdate()` 抛 TypeError 后被 catch 吞掉——这正是“日志干净、刷新正常、就是没有横幅”的成因。现等待该 namespace 挂载（最多 2s，50ms 轮询），超时才报可见失败。
+- 新增两个回归用例锁死上述行为（延迟挂载自愈、失败可见），并在 client bundle 中确认修复已随构建注入。
+
+---
+
 ## [0.1.25] - 2026-10-16
 
 ### 🛠️ 内部优化与加固 (Internal Improvements)

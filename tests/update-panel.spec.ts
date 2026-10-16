@@ -77,6 +77,40 @@ describe('update panel', () => {
     expect(quiet.snapshot().update.phase).toBe('current')
   })
 
+  it('survives an update namespace that mounts after the page opens', async () => {
+    // The section is built as soon as the catalog and credentials are visible,
+    // which can precede the rest of this package's own Remote contribution:
+    // the mount is asynchronous and registers namespace by namespace. Reading
+    // `opencodeGoUpdate` before it exists threw a TypeError into the page's
+    // catch, which returned the panel to `idle` — a permanently blank panel
+    // with no retry, the defect a live run reported.
+    const tracking = services()
+    const real = tracking.remote.opencodeGoUpdate!
+    let reads = 0
+    Object.defineProperty(tracking.remote, 'opencodeGoUpdate', {
+      configurable: true,
+      get: () => { reads += 1; return reads > 1 ? real : undefined },
+    })
+    const controller = new SectionController(tracking)
+    await new Promise(resolve => { setTimeout(resolve, 200) })
+    expect(controller.snapshot().update.phase).toBe('ready')
+  })
+
+  it('keeps a failed check visible with a retry instead of vanishing', async () => {
+    // A silent return to `idle` renders nothing at all, so no failure was ever
+    // observable and none could be retried from the page.
+    const tracking = services()
+    const boom = async () => { throw new Error('registry exploded') }
+    Object.defineProperty(tracking.remote, 'opencodeGoUpdate', {
+      configurable: true,
+      value: { readUpdate: boom, refreshUpdate: boom },
+    })
+    const controller = new SectionController(tracking)
+    await settle()
+    expect(controller.snapshot().update).toMatchObject({ phase: 'failed' })
+    expect(controller.snapshot().update.message).toContain('registry exploded')
+  })
+
   it('routes forced refresh through the zero-arg refreshUpdate method', async () => {
     // The gateway client rejects any call whose positional arity differs from
     // the descriptor's `parameters`, and every descriptor here declares none —
@@ -84,7 +118,7 @@ describe('update panel', () => {
     // throw on any positional argument, exactly like the wire would.
     const tracking = services()
     let refreshed = 0
-    tracking.remote.opencodeGoUpdate.refreshUpdate = (async (...args: unknown[]) => {
+    tracking.remote.opencodeGoUpdate!.refreshUpdate = (async (...args: unknown[]) => {
       if (args.length > 0) throw new Error('client api: opencodeGoUpdate/refreshUpdate expected 0 argument(s)')
       refreshed += 1
       return { ok: true, value: STATUS } as never

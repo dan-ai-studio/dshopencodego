@@ -50,7 +50,13 @@ export interface SectionServices {
       read(): Promise<RemoteResult<CatalogReading>>
       refresh(): Promise<RemoteResult<CatalogReading>>
     }
-    readonly opencodeGoUpdate: {
+    /**
+     * The update Remote. Optional because the section is built as soon as the
+     * catalog and credentials are visible, which can precede the rest of this
+     * package's own Remote contribution — the mount is asynchronous and
+     * registers namespace by namespace.
+     */
+    readonly opencodeGoUpdate?: {
       readUpdate(): Promise<RemoteResult<UpdateStatus>>
       refreshUpdate(): Promise<RemoteResult<UpdateStatus>>
     }
@@ -123,6 +129,16 @@ export interface SectionState {
 
 /** How long a burst of switch flips is coalesced before one settings write. */
 export const VISIBILITY_WRITE_DELAY_MS = 250
+
+/**
+ * How long the page waits for the update Remote namespace to mount before
+ * reporting a visible failure. The namespace rides the same asynchronous
+ * mount as the catalog, which the section may already be reading.
+ */
+export const UPDATE_MOUNT_WAIT_MS = 2_000
+
+/** Poll interval while waiting for that namespace. */
+export const UPDATE_MOUNT_POLL_MS = 50
 
 const INITIAL: SectionState = {
   loading: true,
@@ -231,11 +247,36 @@ export class SectionController {
   }
 
   /**
+   * The update Remote, waiting for its namespace to finish mounting.
+   *
+   * The settings section is constructed as soon as the catalog and credentials
+   * are visible, which can precede the rest of this package's own Remote
+   * contribution. Reading `opencodeGoUpdate` too early made the first check
+   * throw a TypeError into the page's catch, which returned the panel to
+   * `idle` — a permanently blank panel with no retry. This is the defect a
+   * live run reported, so the race is waited out here instead of hidden.
+   * @returns the mounted update Remote.
+   * @throws {Error} `remote-not-mounted` when it never appears.
+   */
+  private async updateRemote(): Promise<{
+    readUpdate(): Promise<RemoteResult<UpdateStatus>>
+    refreshUpdate(): Promise<RemoteResult<UpdateStatus>>
+  }> {
+    const deadline = Date.now() + UPDATE_MOUNT_WAIT_MS
+    for (;;) {
+      const remote = this.services.remote.opencodeGoUpdate
+      if (remote !== undefined) return remote
+      if (Date.now() >= deadline) throw new Error('remote-not-mounted')
+      await new Promise<void>(resolve => { setTimeout(resolve, UPDATE_MOUNT_POLL_MS) })
+    }
+  }
+
+  /**
    * Ask the Host whether a newer release is published.
    *
    * The Host answers from a cached registry reading and fails silent, so an
-   * unreachable registry hides the panel instead of erroring the page. Runs
-   * once with the page and again only on explicit refresh.
+   * unreachable registry still answers "no update known" rather than erroring
+   * the page. Runs once with the page and again only on explicit refresh.
    *
    * Both wire methods take zero arguments: the gateway client rejects any
    * call whose positional arity differs from the descriptor's `parameters`,
@@ -246,7 +287,7 @@ export class SectionController {
     const previous = this.state.update
     this.set({ update: { ...previous, phase: 'checking', message: undefined } })
     try {
-      const remote = this.services.remote.opencodeGoUpdate
+      const remote = await this.updateRemote()
       const result = force ? await remote.refreshUpdate() : await remote.readUpdate()
       if (!result.ok) throw result.error
       const status = result.value
@@ -258,12 +299,14 @@ export class SectionController {
         },
       })
     } catch (error: unknown) {
-      // Fail silent like the Host: keep whatever the panel showed, if anything.
+      // A failed check stays visible with its own retry. Returning to `idle`
+      // renders nothing at all, which once hid every failure — including the
+      // mount race above — behind a blank panel.
       this.set({
         update: {
-          ...previous,
-          phase: previous.phase === 'checking' ? 'idle' : previous.phase,
-          message: error instanceof Error ? error.message : undefined,
+          phase: 'failed',
+          status: previous.status,
+          message: error instanceof Error ? error.message : 'the update check failed',
         },
       })
     }
@@ -591,6 +634,7 @@ function UpdateBanner({ controller, t, busy, act, update }: {
 /** Translate the controller's sentinel failure notes; raw host detail passes through. */
 function updateFailureText(message: string | undefined, t: (key: string) => string): string {
   if (message === undefined || message.length === 0) return ''
+  if (message === 'remote-not-mounted') return t('updateRemoteMissing')
   if (message === 'stop-profile') return t('updateStopProfile')
   if (message === 'incompatible-version') return t('updateIncompatible')
   if (message === 'pending-builds') return t('updatePendingBuilds')
