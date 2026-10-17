@@ -2,6 +2,21 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.34] - 2026-10-17
+
+### 🛠️ 内部优化与加固 (Internal Improvements)
+
+- **依赖跟进到 DSH `0.2.1-alpha.5`（T-26）**：21 个 `@deepseek-ai/dsh-*` 开发依赖升至 `0.2.1-alpha.5`（cordis 维持 `4.0.5-alpha.2`）。全新安装 258 包 / 0 漏洞，三关全绿。先核对过上游：`llm`、`typert`、`settings`、`client` 等契约层**源码零变更**（仅版本号），因此**无需适配**。
+- **README 兼容性表修正四处漂移**：该表是读者判断兼容性的依据，却已过期——`pi-ai` 仍写着"精确锁 `0.87.1`"（实际 `~1.0.2`，差三个大版本）、cordis peer 少了 `4.0.5-alpha.1/alpha.2` 两个分支（DSH `0.2.1-alpha.3`+ 实际使用）、`engines.dsh` 少了 `0.2.1-alpha` 段、`schemastery` 写作 `^3.18.3`（实际 `~3.18.5-alpha.2`）。中英双语同步修正。
+- **新增 README 一致性测试**：从 `package.json` 读取声明，逐条断言兼容性表**对应表格行**的内容（中英各一份）。断言精确到行而非整篇——整篇 `toContain` 曾因版本串在故障排查节里再次出现而放过了漂移；测试有效性已通过临时回退验证。
+- **插件管理器持有对象补齐清理**：`inject` 回调返回 disposer，服务 fiber 消失时清空引用，避免调用已释放的命名空间。
+
+### 📌 已知噪声
+
+- 本仓库全新 `npm install` 会出现 `npm warn ERESOLVE overriding peer dependency`：`dsh-settings@alpha.5` 声明 `cordis-plugin-loader ~1.0.6-alpha.2`，该范围按 semver **同时接受正式版 `1.0.6`**，而正式版要求正式版 cordis，与宿主使用的 `4.0.5-alpha.2` 不匹配。这些包仅是本仓库 devDependencies 的传递依赖，测试不加载它们（`tests/` 中无引用），发布产物也不含 node_modules —— 纯警告，无功能影响。
+
+---
+
 ## [0.1.33] - 2026-10-17
 
 ### 🐞 修复 (Fixes)

@@ -62,7 +62,8 @@ export interface PluginManagerLike {
  * composition that plainly has one.
  */
 export interface PluginManagerHolder {
-  current?: PluginManagerLike
+  /** Explicitly `undefined`-able: the holder is cleared when the fiber goes away. */
+  current?: PluginManagerLike | undefined
 }
 
 /** The subset of the client context this page uses. */

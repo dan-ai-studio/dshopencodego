@@ -100,6 +100,9 @@ export function apply(ctx: ClientContext): void {
     // thing instead.
     scope.inject(['remote.pluginManager'], (managerScope) => {
       pluginManager.current = managerScope.remote.pluginManager as never
+      // Drop the reference when the providing fiber goes away, so a stale
+      // namespace is never called after its owner is disposed.
+      return () => { pluginManager.current = undefined }
     })
     const translate = scope.locale.bind(NS)
     scope.effect(() => () => { controller.dispose() })
