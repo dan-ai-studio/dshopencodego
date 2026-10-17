@@ -227,7 +227,10 @@ export async function startMockGateway(options: MockGatewayOptions = {}): Promis
       // The SDKs pool keep-alive sockets; waiting for them to drain would hang
       // teardown, so open connections are dropped before closing.
       server.closeAllConnections()
-      server.close(error => { error === undefined ? resolve() : reject(error) })
+      server.close(error => {
+        if (error === undefined) resolve()
+        else reject(error)
+      })
     }),
   }
 }

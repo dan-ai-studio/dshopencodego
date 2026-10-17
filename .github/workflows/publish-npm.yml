@@ -52,6 +52,9 @@ jobs:
           package-manager-cache: false # never cache in release builds
       # `prepare` builds the bundle, so a broken build fails the install step.
       - run: npm ci
+      # Static checks first: they are the fastest way to fail, and a release
+      # should not spend minutes on the suite to then die on a lint error.
+      - run: npm run lint
       - run: npm run test:coverage
       - name: The tag must match the packaged version
         run: |

@@ -58,6 +58,8 @@
     }
   },
   "scripts": {
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
     "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.host.json --noEmit && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.tests.json --noEmit",
     "test": "vitest run",
@@ -129,6 +131,8 @@
     "@deepseek-ai/dsh-timeout": "0.2.1-alpha.5",
     "@deepseek-ai/dsh-typert-protocol": "0.2.1-alpha.5",
     "@deepseek-ai/dsh-typert-registry": "0.2.1-alpha.5",
+    "@deepseek-ai/schemastery": "~3.18.5-alpha.2",
+    "@earendil-works/pi-ai": "~1.3.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.0",
     "@types/node": "^22.20.0",
@@ -138,12 +142,11 @@
     "esbuild": "^0.28.2",
     "jsdom": "^29.0.0",
     "lightningcss": "^1.32.0",
+    "oxlint": "^1.88.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8",
-    "@earendil-works/pi-ai": "~1.3.0",
-    "@deepseek-ai/schemastery": "~3.18.5-alpha.2"
+    "vitest": "^4.1.8"
   },
   "keywords": [
     "deepseek-harness",
