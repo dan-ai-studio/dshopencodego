@@ -13,7 +13,7 @@
  * @module @dan-ai-studio/dshopencodego/adapter
  */
 
-import type { Api, Model, ModelThinkingLevel } from '@earendil-works/pi-ai'
+import type { Api, AssistantMessageEvent, Model, ModelThinkingLevel, Usage as PiUsage } from '@earendil-works/pi-ai'
 // Subpath imports: the package root also re-exports every provider's wire
 // implementation, which this plugin does not mount. See catalog/index.ts.
 import { getSupportedThinkingLevels } from '@earendil-works/pi-ai/models'
@@ -29,12 +29,12 @@ import {
 import type {
   GenerateOptions,
   ImageAttachmentAccess,
+  LlmImageRequestPricing,
   LlmModelInfo,
   LlmResolvedModelInfo,
   PreparedAdapterCall,
   ResolvedRetryPolicy,
   StreamChunk,
-  TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
@@ -48,6 +48,8 @@ import { toPiContext, toStreamChunks } from './conversion/index.ts'
 import type { PiImageRequestContext } from './conversion/index.ts'
 import { isModelEnabled, recommendedIds } from './models.ts'
 import { providerHeaders } from './session-header.ts'
+import { usableRates } from './usage/meter.ts'
+import type { MeteredUsage } from './usage/meter.ts'
 
 /**
  * pi-ai thinking formats that answer an unset effort with an explicit disable.
@@ -102,6 +104,30 @@ export interface OpencodeGoImageAccess {
   readonly resolveImageAccess: (attachments: AttachmentStore, ref: ImageAttachmentRef) => ImageAttachmentAccess | undefined
 }
 
+/**
+ * Read the reasoning breakdown off the raw pi-ai stream.
+ *
+ * `toStreamChunks` projects pi-ai usage onto the Harness counts and drops the
+ * reasoning breakdown with it (`conversion/stream.ts`, `mapUsage`), and this
+ * adapter converts nothing itself — so the count is taken here, where it is
+ * still attached to the same terminal event the usage chunk is derived from,
+ * and handed to the meter with that chunk. pi-ai reports it as a subset of
+ * `output`, which is why the meter counts it without adding it to a total.
+ * @param events - the pi-ai event stream for one call.
+ * @param observe - receives each terminal event's usage before conversion.
+ * @returns the same events, unchanged and in order.
+ */
+async function* observingTerminalUsage(
+  events: AsyncIterable<AssistantMessageEvent>,
+  observe: (usage: PiUsage) => void,
+): AsyncIterable<AssistantMessageEvent> {
+  for await (const event of events) {
+    if (event.type === 'done') observe(event.message.usage)
+    else if (event.type === 'error') observe(event.error.usage)
+    yield event
+  }
+}
+
 /** Constructor inputs for {@link OpencodeGoAdapter}. */
 export interface OpencodeGoAdapterOptions {
   /** Current configuration, re-read at every operation. */
@@ -124,9 +150,11 @@ export interface OpencodeGoAdapterOptions {
   /**
    * Observe the provider's own usage for one completed call. This is the only
    * honest source of token counts: the gateway's `/usage` endpoint reports
-   * account percentages, not tokens.
+   * account percentages, not tokens. The value carries the rates that were
+   * published for the model when the call ran, so the meter can price it
+   * without ever looking a rate up after the fact.
    */
-  readonly onUsage?: (detail: { model: string; usage: TokenUsage }) => void
+  readonly onUsage?: (detail: { model: string; usage: MeteredUsage }) => void
 }
 
 /** The catalog and the configuration facts it was built from. */
@@ -180,6 +208,29 @@ export class OpencodeGoAdapter extends LlmAdapter {
 
   override providerInfo(provider: string): { id: string; name: string } {
     return { id: provider, name: DISPLAY_NAME }
+  }
+
+  /**
+   * This route declares no request-image pricing, and that is a decision
+   * rather than an omission.
+   *
+   * `priceImages` must answer with the visual tokens the wire actually carries
+   * for every image occurrence, and nothing available to this plugin can
+   * answer that. The route fronts several model families behind three
+   * protocols whose vision accounting differs and is not published by the
+   * gateway; the catalog carries text rates only (`ModelCost` is input,
+   * output, cache read and cache write) and states no vision rule; and the one
+   * implementation shipped upstream anchors on a single provider's own
+   * published accounting (`dsh-llm-deepseek`). An invented number would not
+   * fail loudly: the token meter sums these values into its surface estimate
+   * and the retention policy spends real budget against them, so a wrong
+   * answer is worse than the contract's own default — declaring none, which
+   * leaves every consumer on its neutral estimate. Revisit this once the
+   * gateway's per-family visual accounting is known and checked against the
+   * usage it reports.
+   */
+  override imageRequestPricing(_provider: string, _model: string): LlmImageRequestPricing | undefined {
+    return undefined
   }
 
   override async listModels(_provider: string): Promise<readonly LlmModelInfo[]> {
@@ -299,6 +350,10 @@ export class OpencodeGoAdapter extends LlmAdapter {
     const facts = snapshot.facts.get(options.model)
     if (facts === undefined) throw new LlmError(`opencode-go has no model "${options.model}"`, 'UNKNOWN_MODEL')
     const model = withModelLimit(toPiModel(facts, config.baseURL), config.modelLimits)
+    // The rates this call will be priced at, captured before the first byte:
+    // the catalog may be refreshed long before the meter is read, and a later
+    // price must not re-price tokens that are already spent.
+    const rates = usableRates(facts.cost)
     // Resolved before the first await so an unsupported protocol fails the
     // request before any credential is read or any byte is sent.
     const stop = stopSequencesFor(model, options.stop)
@@ -318,6 +373,11 @@ export class OpencodeGoAdapter extends LlmAdapter {
     const consumer = new AbortController()
     const upstream = options.signal === undefined ? consumer.signal : AbortSignal.any([options.signal, consumer.signal])
     using watchdog = idleWatchdog(upstream, config.streamIdleTimeoutMs, 'LLM_STREAM_IDLE_TIMEOUT')
+    // This call's own deadline is a fact to capture before `consumer.abort`
+    // below: `AbortSignal.any` reports the reason of the last source that
+    // aborted, so our own abort would overwrite the watchdog's TimeoutReason
+    // and the catch would read a plain cancellation instead of the timeout.
+    let timedOut = false
 
     try {
       const containsImage = options.messages.some(message => contentHasImage(message.content))
@@ -341,7 +401,11 @@ export class OpencodeGoAdapter extends LlmAdapter {
       const context = imageRequest === undefined
         ? await toPiContext(options, undefined, this.options.onReplayDegrade)
         : await toPiContext({ ...options, signal: watchdog.signal }, imageRequest, this.options.onReplayDegrade)
-      const events = snapshot.provider.streamSimple(model, normalizeContext(context), {
+      // The terminal event's reasoning count, read before the conversion drops
+      // it; only the event carrying it is observed, so a turn that reports none
+      // leaves this undefined rather than zero.
+      let reportedReasoning: number | undefined
+      const events = observingTerminalUsage(snapshot.provider.streamSimple(model, normalizeContext(context), {
         apiKey,
         ...reasoning === undefined || reasoning === 'off' ? {} : { reasoning },
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
@@ -358,7 +422,7 @@ export class OpencodeGoAdapter extends LlmAdapter {
         // The agent recovery layer owns visible attempts; one adapter call is
         // one SDK attempt.
         maxRetries: 0,
-      })
+      }), usage => { reportedReasoning = usage.reasoning })
       const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
       let exhausted = false
       try {
@@ -372,22 +436,41 @@ export class OpencodeGoAdapter extends LlmAdapter {
             return
           }
           if (result.value.type === 'usage') {
-            this.options.onUsage?.({ model: options.model, usage: result.value.usage })
+            this.options.onUsage?.({
+              model: options.model,
+              usage: {
+                ...result.value.usage,
+                // pi-ai reports this as part of `output`, and `mapUsage` drops
+                // it; the meter records it without adding it to a total.
+                ...reportedReasoning === undefined || reportedReasoning <= 0
+                  ? {}
+                  : { reasoningTokens: reportedReasoning },
+                ...rates === undefined ? {} : { rates },
+              },
+            })
           }
           yield result.value
         }
       } finally {
         if (!exhausted) {
+          timedOut = timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT') !== undefined
           consumer.abort('opencode-go stream consumer stopped')
           try {
-            await iterator.return(undefined)
+            // The deadline owns a demand the iterator may never settle, and an
+            // async generator queues its own return behind that demand, so
+            // awaiting this release would park the failure — including the
+            // TIMEOUT error below — behind work that never finishes. The abort
+            // above owns SDK termination; this call only hands the iterator
+            // back, and a rejection while unwinding the abandoned stream is
+            // already covered by that signal.
+            void Promise.resolve(iterator.return(undefined)).catch(() => {})
           } catch (_abortedSdkTeardown) {
             // The stable signal already owns SDK termination.
           }
         }
       }
     } catch (error: unknown) {
-      if (timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT') !== undefined) {
+      if (timedOut || timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT') !== undefined) {
         throw new LlmError('opencode-go stream idle timeout', 'TIMEOUT', { cause: error })
       }
       if (options.signal?.aborted) {

@@ -4,6 +4,8 @@
 
 **方案**：新建隔离 profile `m5web`（从 shipped `web` 模板初始化），装 v0.1.3 tarball 验证。**全程不动日常 `web` profile**，删掉 `m5web` 即完全回滚。
 
+> **产物性质**：本手册让执行者把抓包、快照与日志写到 `scratch/`。该目录被 `.gitignore` 忽略，**从未入库、不随仓库分发**——任何克隆里都不存在这些产物，他人也无法核对；要重新得到它们，只能按本手册在本机重跑一次（且需要真实 Harness 与真实凭证）。本手册的可交付结论应写回 `docs/verification-log.md`，而不是留在 `scratch/` 里。
+
 ## 0. 前置事实（2026-09-25 只读探测所得）
 
 | 事实 | 值 | 影响 |
@@ -122,6 +124,8 @@ node -e "require('fs').writeFileSync('scratch/red-dot.png', Buffer.from('iVBORw0
 
 仅在愿意多做一步时做，已有构建产物层的 live 证据，Harness 内的完整证据补这一步：
 
+> **这是"本地抓包验证"手段，日志里不含凭证明文（自 v0.1.44 起）**：代理写盘前会把 `authorization` / `x-api-key` / `cookie` 等凭据头替换成 `Bearer <redacted len=41>` 形态，`x-opencode-session` 等非凭据头原样保留。**v0.1.44 之前**产生的 `*.jsonl`（包括 `scratch/` 下的历史文件）可能仍有明文 `Bearer oc_sk_…`——不要分享、粘贴或提交这些文件，也不要从 `scratch/` 复制出来。
+
 ```powershell
 # 终端 A（仓库根）
 cd D:\prj\dshopencodego
@@ -134,7 +138,9 @@ node tools\verify\recording-proxy.mjs 8787 scratch\m5web-proxy.jsonl
 
 ### S9 归档结果（仓库内）
 
-新建 `docs/verification-m5-live.md`，记录：启动日志、UI 各检查点的实际结果、两条对话与图片的结果、发现的问题、以及"未覆盖"的遗留项。
+把结果写回 `docs/verification-log.md`（M5 分节），记录：启动日志、UI 各检查点的实际结果、两条对话与图片的结果、发现的问题、以及"未覆盖"的遗留项。
+
+> 本手册原文要求"新建 `docs/verification-m5-live.md`"——该文件**从未创建**：M5 的实际记录落在 `docs/verification-log.md` 的对应分节里。此处按现实修正，免得读者去找一个不存在的文件。
 
 ### S10 收尾
 

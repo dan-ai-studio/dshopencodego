@@ -157,9 +157,10 @@ export interface CatalogOptions {
   readonly observers?: CatalogObservers
   /**
    * Read the provider documentation. Defaults to the real fetch; tests inject a
-   * fixed document so the suite stays offline.
+   * fixed document so the suite stays offline. The signal is the caller's
+   * cancellation, forwarded to every documentation request.
    */
-  readonly readDocument?: () => Promise<GoDoc>
+  readonly readDocument?: (signal?: AbortSignal) => Promise<GoDoc>
 }
 
 /**
@@ -180,12 +181,19 @@ export class OpencodeGoCatalog {
     this.options = options
   }
 
-  /** The cached snapshot, refreshed when it is older than the configured TTL. */
-  snapshot(force = false): Promise<CatalogSnapshot> {
+  /**
+   * The cached snapshot, refreshed when it is older than the configured TTL.
+   * @param force - revalidate every source, ignoring the cache.
+   * @param signal - caller cancellation, forwarded to the documentation read,
+   *   the slowest source and the only one a caller can cancel; a build already
+   *   in flight keeps the signal of the caller that started it, because one
+   *   shared snapshot cannot carry two different cancellations.
+   */
+  snapshot(force = false, signal?: AbortSignal): Promise<CatalogSnapshot> {
     if (!force && this.served !== undefined && Date.now() - this.served.fetchedAtMs < this.options.refreshMs) {
       return Promise.resolve(this.served)
     }
-    this.pending ??= this.build()
+    this.pending ??= this.build(signal)
       .then((snapshot) => {
         this.served = snapshot
         return snapshot
@@ -200,11 +208,12 @@ export class OpencodeGoCatalog {
    * A model this build has never seen forces one revalidation even inside the
    * TTL, because "unknown" and "newly added" look identical from here.
    * @param id - the requested model id.
+   * @param signal - caller cancellation, forwarded to a forced revalidation.
    * @returns the snapshot holding the model.
    * @throws {LlmError} `MODEL_METADATA_UNAVAILABLE` when the gateway advertises
    *   the id but this build cannot configure it, naming the reason.
    */
-  async forModel(id: string): Promise<CatalogSnapshot> {
+  async forModel(id: string, signal?: AbortSignal): Promise<CatalogSnapshot> {
     let snapshot = await this.snapshot()
     // A snapshot that cannot serve this id forces one revalidation, because
     // "this build has not seen the id" and "the id was just published" are
@@ -218,7 +227,7 @@ export class OpencodeGoCatalog {
     // advertises the id but this build cannot configure it), so it needs no
     // revalidation and is reported below.
     if (!snapshot.facts.has(id) && !snapshot.unavailable.has(id)) {
-      snapshot = await this.snapshot(true)
+      snapshot = await this.snapshot(true, signal)
     }
     const reason = snapshot.unavailable.get(id)
     if (reason !== undefined) {
@@ -231,14 +240,17 @@ export class OpencodeGoCatalog {
     return snapshot
   }
 
-  /** Revalidate every source, reusing the metadata document when it is unchanged. */
-  private async build(): Promise<CatalogSnapshot> {
+  /**
+   * Revalidate every source, reusing the metadata document when it is unchanged.
+   * @param signal - caller cancellation, forwarded to the documentation read.
+   */
+  private async build(signal?: AbortSignal): Promise<CatalogSnapshot> {
     const builtin = builtinModels(this.options.baseURL)
     const readDocument = this.options.readDocument ?? fetchGoDocument
     const [listing, metadata, documentation] = await Promise.allSettled([
       fetchModelIds(this.options.baseURL),
       this.refreshMetadata(builtin),
-      readDocument(),
+      readDocument(signal),
     ])
     if (metadata.status === 'rejected') {
       this.options.observers?.onFallback?.({
@@ -441,12 +453,18 @@ function inferFamily(id: string): ModelFacts['api'] {
 /**
  * Interrogate the gateway for explicit discovery, bypassing the TTL.
  * @param catalog - the catalog to revalidate.
+ * @param signal - the discovery request's cancellation. The harness states
+ *   implementations "must honor the supplied signal", so it reaches the
+ *   documentation fetch and a cancelled interrogation stops waiting on it.
  * @returns the advertised models, including the unconfigured ones so the
  *   settings surface can explain what is missing.
  * @throws {LlmError} `DISCOVERY_FAILED` when the listing itself failed.
  */
-export async function discoverCatalogModels(catalog: OpencodeGoCatalog): Promise<readonly LlmDiscoveredModel[]> {
-  const snapshot = await catalog.snapshot(true)
+export async function discoverCatalogModels(
+  catalog: OpencodeGoCatalog,
+  signal?: AbortSignal,
+): Promise<readonly LlmDiscoveredModel[]> {
+  const snapshot = await catalog.snapshot(true, signal)
   if (!snapshot.live) {
     const detail = snapshot.listingFailure instanceof LlmError
       ? snapshot.listingFailure.message

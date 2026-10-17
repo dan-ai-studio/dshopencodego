@@ -7,6 +7,13 @@
  * to a JSONL file, so the session-header claim is checked on a live run rather
  * than asserted from the adapter's own view of itself.
  *
+ * The log is an evidence record, not a credential store: credential-bearing
+ * headers are redacted before they are written (see `loggableHeaders`). Only
+ * the copy on disk is masked — the upstream request still carries the real
+ * values, so the proxy keeps working exactly as before. Without this the log
+ * held `authorization: Bearer oc_sk_…` in clear text for as long as the file
+ * survived, and the docs recommended running it as a matter of course.
+ *
  * Usage: node tools/verify/recording-proxy.mjs <port> <logfile> [target]
  */
 import { createServer } from 'node:http'
@@ -23,6 +30,38 @@ const HOP_BY_HOP = new Set([
   // describe what this proxy sends back.
   'content-encoding', 'content-length',
 ])
+
+/** Headers whose value is a credential and must never reach the log in clear. */
+const SENSITIVE_HEADERS = new Set([
+  'authorization',
+  'proxy-authorization',
+  'x-api-key',
+  'api-key',
+  'cookie',
+  'set-cookie',
+])
+
+/**
+ * Mask one header value, keeping only what makes two runs comparable.
+ *
+ * The auth scheme (`Bearer`, `Basic`, …) and the total length survive; every
+ * character of the credential itself is dropped. A scheme plus a length is
+ * enough to tell "the adapter sent a key" from "it sent none", and to tell one
+ * run from another, while a bare key with no scheme is reduced to its length.
+ */
+function redactHeaderValue(value) {
+  const text = Array.isArray(value) ? value.join(', ') : String(value ?? '')
+  const scheme = /^([A-Za-z][A-Za-z0-9!#$%&'*+.^_`|~-]*) /.exec(text)?.[1]
+  return `${scheme === undefined ? '' : `${scheme} `}<redacted len=${text.length}>`
+}
+
+/** A copy of the received headers that is safe to persist. */
+function loggableHeaders(headers) {
+  return Object.fromEntries(Object.entries(headers).map(([name, value]) => [
+    name,
+    SENSITIVE_HEADERS.has(name.toLowerCase()) ? redactHeaderValue(value) : value,
+  ]))
+}
 
 const server = createServer((request, response) => {
   void (async () => {
@@ -51,7 +90,7 @@ const server = createServer((request, response) => {
       method: request.method,
       url: request.url,
       status: upstream.status,
-      headers: request.headers,
+      headers: loggableHeaders(request.headers),
       bodyBytes: body.byteLength,
       bodyHead: body.toString('utf8').slice(0, 300),
     })}\n`)

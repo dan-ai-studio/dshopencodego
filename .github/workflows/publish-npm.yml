@@ -38,9 +38,16 @@ permissions:
   contents: read
   id-token: write # OIDC token for trusted publishing and provenance
 
+# Two publishes must never overlap, and neither may be cancelled after the
+# registry has accepted a version (registry versions are immutable).
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
         with:
@@ -50,11 +57,15 @@ jobs:
           node-version: '24'
           registry-url: https://registry.npmjs.org
           package-manager-cache: false # never cache in release builds
-      # `prepare` builds the bundle, so a broken build fails the install step.
       - run: npm ci
+      # Explicit rather than a side effect of `prepare` during `npm ci`: a
+      # tarball with no `lib/` cannot be caught by anything downstream (npm
+      # packs whatever exists), and `npm publish` has no undo.
+      - run: npm run build
       # Static checks first: they are the fastest way to fail, and a release
       # should not spend minutes on the suite to then die on a lint error.
       - run: npm run lint
+      - run: npm run typecheck
       - run: npm run test:coverage
       - name: The tag must match the packaged version
         run: |
@@ -72,3 +83,22 @@ jobs:
           fi
       # OIDC authentication is detected automatically, and --provenance is implied.
       - run: npm publish --access public
+      # `npm publish` exiting 0 is not proof the version is installable: the
+      # release is only real once the registry serves it. `npm view` is a
+      # read-only query and needs no token, so it works under trusted
+      # publishing. The registry can lag a publish by a few seconds, hence the
+      # retries; never appearing is a failed release.
+      - name: The registry must serve the version just published
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          for attempt in 1 2 3 4 5; do
+            published="$(npm view "@dan-ai-studio/dshopencodego@$version" version 2>/dev/null || true)"
+            if [ "$published" = "$version" ]; then
+              echo "registry serves @dan-ai-studio/dshopencodego@$published"
+              exit 0
+            fi
+            echo "attempt $attempt/5: registry returned '${published:-<nothing>}' for $version; retrying in 10s"
+            sleep 10
+          done
+          echo "::error::@dan-ai-studio/dshopencodego@$version is not served by the registry after publish"
+          exit 1

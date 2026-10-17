@@ -7,3 +7,13 @@ coverage/
 .DS_Store
 scratch/
 .playwright-mcp/
+
+# Local debug credentials: the plugin takes its key from the DSH credentials
+# service, so a .env here is always someone's local shortcut — keep it out.
+.env
+.env.*
+!.env.example
+
+# Ad-hoc audit/verification notes. Generated material lives outside the
+# published surface, like `scratch/`.
+notes/

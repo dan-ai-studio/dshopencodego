@@ -2,6 +2,67 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.44] - 2026-10-18
+
+本版来自一轮四维度独立审计（代码 / 测试 / 交付 / 文档），共 41 项修复与增强。
+
+### ⚠️ 破坏性变更 (Breaking changes)
+
+- **`baseURL` 不再接受非本机的明文 `http://`**：凭证走 `authorization` 头，明文 http 会让 API Key 裸露在链路上。现在只有 `localhost` / `127.0.0.1` / `[::1]` 允许 http（本地 mock 与验证代理不受影响），其余主机**必须 https**，违规在加载或写入配置时立即报错。**若你把 `baseURL` 指向内网 http 网关，请先改为 https，否则升级后插件会被门禁拒绝加载。**
+- **`exports["./client"].types` 已移除**：它指向 `./lib/types/client/index.d.ts`，而客户端半边是 `noEmit` 的浏览器 bundle，该文件**从未被生成过**——TypeScript 消费者此前拿到的是坏指针。
+- **peer 上界由 `<0.3.0` 收紧为 `<0.3.0-0`**：DSH 的兼容判定含预发布，原范围会把 `0.3.0-rc.1` 判为兼容，从而放行一个从未验证过的主版本。`engines.dsh` 与 17 个 `dsh-*` peer 全部更新。
+- **`prepare` 脚本已移除**：`npm ci` 不再隐式构建，请显式 `npm run build`（三个 CI workflow 已显式构建；`prepack` 仍保证发布产物是当次构建）。
+
+### 🐞 修正 (Fixes)
+
+- **流空闲超时会挂死，而不是抛出可重试的 `TIMEOUT`**：`adapter` 在 teardown 里 `await iterator.return()`，而契约明确要求不得等待（被放弃的 demand 会把 return 排在它之后）；同时 `AbortSignal.any` 会用后 abort 的源覆盖 watchdog 的 reason，导致超时被读成普通取消。两处一起修好。
+- **CI 缺少 lint 门禁**：`ci.yml` 从未跑过 `npm run lint`，lint 失败要等到手工发布那一步才暴露——而那时 tag 与公开 Release 已经存在。现已加入。
+- **验证脚本失败时仍返回退出码 0**：`model-probe.mjs` 的失败分支只打印不置码，"失败"会被误读成通过；`live-check.mjs` 还把模型 id 钉死在一个早已从内置目录消失的条目上，根本跑不起来。两者都改为用退出码表达结果，并补上真实断言。
+- **`ctx.llm.registerModelDiscovery` 是死注册**：从不注册 provider 目录条目，而 DSH 只为目录条目发起 discovery；`signal` 也被忽略（上游契约明文要求 honoring）。现已注册目录条目、改用 profile 条目 id 作 `settingsNs`、并透传 `signal`。
+- **冷启动首次推理最坏要等 20 秒**：目录构建被文档抓取绑架——两个文档 URL 串行、各 10 秒超时。现改为并行，并把取消信号贯通整个 snapshot/build 路径。
+- **`loader/volatile-update` 裸注册**：`syncRoute` 内的注册被释放时会抛错，而 Cordis 的 emit 是 `Array.map`，一个同步抛错会饿死其后的所有 listener。现已包上 try/catch 并记日志。
+- **目录失败复用了用量的错误码**（`catalogFailure` 是死代码且码值与 usage 相同，界面会按错误码走错分支）：改为独立的 `dshopencodego/catalog-unavailable` 并真正使用。
+- **会话回放状态自己读不回来**：写侧允许的 `stopReason` 集合不是读侧白名单的子集，`pending`/`deferred` 会被写进日志、下一轮降级并丢签名。写侧现收敛到可回放集合。
+- **`rc.10` 被判成比 `rc.9` 旧**：更新检查用字典序比较预发布标识符，现按 semver 规则比较（数字按数值、数字小于字母）。
+- **发布说明脚本的正则用了 JavaScript 不支持的 `\Z`**：它退化成字面量 `Z`，导致 CHANGELOG 的**最后一段**（通常正是要发布的版本）整体匹配失败、发布被中止。
+- **构建脚本依赖调用者的当前目录**：从其他目录执行会删掉该目录下的 `lib/`，并因找不到本地 `tsc` 而失败。现以包根定位。
+
+### ✨ 新增 (Features)
+
+- **估算花费**：用量面板新增按 models.dev 单价 × provider 回传 token 的**估算金额**（不是账单；订阅端点仅供参考，按量端点才有对账意义）。**没有单价的模型如实显示「未定价」并列出模型名，绝不以 0 冒充免费**；单价随每次调用记录，目录刷新不会重算已花掉的 token。
+- **推理 token**：provider 报告的思考 token 单独显示。它是 `outputTokens` 的**子集**，因此**不计入总量**，避免同一批 token 被算两次。
+- **插件出现在 DSH 的 provider 配置界面**：注册了 provider 目录条目，并声明默认端点；缺凭证时给出可修复的诊断，而不是静默缺席。
+- **无效模型开关诊断**：`modelVisibility` 里写了但网关并不提供的模型 id（例如已下线的模型）现在会被一次性警告指出，而不是静默无效。
+
+### 🔒 安全 (Security)
+
+- **验证代理不再把凭证明文落盘**：`recording-proxy.mjs` 记录请求头前会脱敏 `authorization` / `x-api-key` / `cookie`（只保留 scheme 与长度，供比对）；文档标注历史产物可能仍含明文，不要分享或提交。
+- **`.gitignore` 覆盖 `.env` / `.env.*`**（此前只靠"仓库里没有该文件"）。
+
+### ⚙️ 发布与工程 (Release & engineering)
+
+- **`release.yml` 门禁对齐 `ci.yml`**：它创建**对外可见**的 Release，此前却只跑 `npm test`（无覆盖率地板、无 lint、无 typecheck）。现为 build → lint → typecheck → test:coverage。
+- **npm 发布后有核验**：`publish-npm` 发布后确认 registry 真的 served 该版本（失败非零退出）；另新增只读的 `verify-registry` workflow，每周核对最新 tag 与 registry（历史上 0.1.0–0.1.4 只有 tag、从未上 npm）。
+- **workflow 硬化**：补 `permissions`（最小化）、`concurrency`、`timeout-minutes`，并新增 Dependabot 跟踪 `github-actions` 与 `npm`。
+- **`lib/types` 不再携带 31 个 `.js` 编译副产物**（−157 KiB，这些文件运行时用不到且会绕开 bundle 走另一条解析路径）。
+- **客户端 external 表与 DSH 平台模块表做机械校验**：原先的检查是自证的（被 `external` 命中的说明符永远不会出现在 `unsupported` 一侧），发现不了上游改名。
+
+### 🧪 测试
+
+- **43 个测试文件 / 317 个用例**；覆盖率 statements 81.9% / branches 76.9% / functions 74.8% / lines 85.5%（地板 75/70/70/80）。
+- 新增覆盖：流空闲超时与 teardown、验证脚本的退出码契约、运行时装配与目录条目、回放与更新检查、花费与用量观测、`baseURL` 边界、发布说明提取。
+- 修正一处**负载敏感的时序脆弱**：`adapter-stream-teardown` 的 stall 窗口原为 100 ms，在全量并发 + v8 插桩下会在收到首批 delta 前就触发 watchdog，导致 `test:coverage` 间歇失败（CI 更慢，几乎必然踩到）。
+
+### 📖 文档
+
+- **README 兼容性章节按源码修正**：真正生效的门禁是 `engines.dsh`（声明了它就**只**用它，peer 范围被整体跳过），原文说反了；同时给出上界为何必须是 `<0.3.0-0` 的解释，以及"如何确认装成功"的正确方法（原先给的 `--dump-config | grep` 对被门禁拒绝的行同样会输出，证明不了加载成功）。
+- **`CONTEXT.md`** 端点修正为 `inference/go/v1`（ADR-0006 迁移后名词表未同步）。
+- **ADR-0004** 删除代码中从不存在的 `qwen* → anthropic-messages` 家族规则并留修订痕；**ADR-0006** 的快照计数标注为当时值；**新增 ADR-0007** 记录显式传递 peer 的意图。
+- **`docs/` 增加索引**，四份阶段性文档归档至 `docs/archive/` 并补状态行，ADR 0001–0005 补齐 Status/Decision/Consequences。
+- **README 补配置约束**（`baseURL` 形状、`refreshMinutes` 上限、`modelLimits` 的 `null` 语义、`modelProtocols` 合法值、`retryPolicy`）与用量口径说明；默认开关规则的描述改为与代码一致的"逐模型覆盖 + 未列出仍走 top5"。
+
+---
+
 ## [0.1.43] - 2026-10-17
 
 ### 🔧 依赖跟进 (Dependency tracking)

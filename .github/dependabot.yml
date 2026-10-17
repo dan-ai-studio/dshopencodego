@@ -1,0 +1,30 @@
+# Dependency update PRs for the two ecosystems this repository actually has:
+# the actions the workflows call, and the npm manifest.
+#
+# Neither is auto-merged: `open-pull-requests-limit` only bounds how many
+# proposals wait at once. The `dsh` peer range (`>=0.2.0-rc.1 <0.3.0-0`) and the
+# exact devDependency pins are maintained by hand, so a DSH bump arrives as one
+# reviewable PR rather than twenty-one.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    groups:
+      deepseek-ai:
+        patterns:
+          - "@deepseek-ai/*"

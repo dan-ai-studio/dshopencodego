@@ -7,9 +7,16 @@ on:
 permissions:
   contents: write
 
+# A release is never cancelled midway: the tag is already public, and a
+# half-written GitHub Release is worse than a slow one.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -17,7 +24,15 @@ jobs:
           node-version: 22
           package-manager-cache: false
       - run: npm ci
-      - run: npm test
+      # This workflow creates the *public* GitHub Release, and it used to run
+      # the weakest gate of the three chains: `npm test` (no coverage floor),
+      # no lint, no typecheck. It now runs the same gate as ci.yml, in the same
+      # order, with the build made explicit rather than hidden inside the
+      # install step's `prepare`.
+      - run: npm run build
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:coverage
       - run: npm pack
       - name: Publish the tarball as the release asset
         env:

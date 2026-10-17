@@ -5,11 +5,11 @@
 ## Language
 
 **OpenCode Go（Go）**：
-OpenCode 推出的每月 $10 订阅制托管推理服务，独立于按量付费的 OpenCode Zen 目录，端点在 `https://opencode.ai/zen/go/v1`。
+OpenCode 推出的每月 $10 订阅制托管推理服务，独立于按量付费的 OpenCode Zen 目录，默认端点为 `https://opencode.ai/inference/go/v1`（历史 `https://opencode.ai/zen/go/v1` 的迁移见 ADR-0006）。
 _Avoid_: opencode 订阅、Go 套餐、zen go
 
 **OpenCode Zen（Zen）**：
-OpenCode 的按量付费模型网关（`https://opencode.ai/zen`），与 Go 共用品牌但目录、计费与端点不同。
+OpenCode 的按量付费模型网关，与 Go 共用品牌但目录、计费与端点不同；现行端点为 `https://opencode.ai/inference/v1`（Console 主端点，历史 `https://opencode.ai/zen` 的迁移见 ADR-0006）。
 _Avoid_: 用"opencode"泛指两者
 
 **路由（route）**：

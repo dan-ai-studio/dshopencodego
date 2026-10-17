@@ -85,4 +85,30 @@ describe('pack contents', () => {
       expect((dictionary.meta[field] as string).trim().length).toBeGreaterThan(0)
     }
   })
+
+  // The manifest advertised `./lib/types/client/index.d.ts` as the client
+  // entry's types while no build step ever produced it: `tsconfig.client.json`
+  // is `noEmit`, and the only declaration emit (`tsconfig.host.json`) excludes
+  // `src/client/**`. A consumer resolving the `/client` subpath therefore got a
+  // dangling type pointer, and nothing here could notice — this spec checked
+  // only the patch, the icon and the dictionaries.
+  //
+  // Answering it needs a built tree, so the check runs only when `lib/` exists:
+  // CI always builds (npm ci → prepare → build), and a bare local `vitest run`
+  // reports it as skipped rather than failing for a missing build.
+  const built = statSync(resolve(import.meta.dirname, '..', 'lib', 'index.js'), { throwIfNoEntry: false }) !== undefined
+
+  it.runIf(built)('points every exports target at a file that exists and is packed', () => {
+    const exports = packageJson.exports as Record<string, string | Record<string, string>>
+    const targets = Object.entries(exports).flatMap(([key, value]) =>
+      (typeof value === 'string' ? [value] : Object.values(value)).map(target => [key, target] as const))
+    expect(targets.length).toBeGreaterThan(0)
+    for (const [key, target] of targets) {
+      // A wildcard is a family, not a file; the packer always ships the manifest.
+      if (target.includes('*') || target === './package.json') continue
+      expect(packedByFiles(target, files), `${key} -> ${target} is inside files`).toBe(true)
+      expect(statSync(resolve(import.meta.dirname, '..', target), { throwIfNoEntry: false })?.isFile(),
+        `${key} -> ${target} exists on disk`).toBe(true)
+    }
+  })
 })

@@ -32,10 +32,13 @@ describe('usageFailure', () => {
 })
 
 describe('catalogFailure', () => {
-  it('is always retryable and retaining', () => {
+  it('carries the catalog code, never the usage one', () => {
     const error = catalogFailure(new Error('offline'))
     expect(error).toBeInstanceOf(RemoteError)
-    expect(error.code).toBe('dshopencodego/usage-unavailable')
+    // The usage Remote's code is what `client/UsagePill.tsx:39` branches on;
+    // sharing it made a catalog failure render as a usage-account fact.
+    expect(error.code).toBe('dshopencodego/catalog-unavailable')
+    expect(error.code).not.toBe('dshopencodego/usage-unavailable')
     expect(error.details).toMatchObject({ retryable: true, retainPrevious: true })
   })
 })

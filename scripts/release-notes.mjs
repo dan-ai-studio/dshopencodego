@@ -27,7 +27,13 @@ if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(requested)) {
 
 const changelog = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8')
 const escaped = requested.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const section = new RegExp(`^## \\[${escaped}\\][^\\n]*\\n([\\s\\S]*?)(?=^## \\[|\\Z)`, 'm').exec(changelog)
+// The lookahead means "the next version heading, or the end of input".
+// It used to end in `\Z`, which JavaScript's RegExp does not define: in a
+// non-unicode pattern an unrecognized escape is the literal character, so the
+// alternative was really `Z` and the section had to be followed by a capital Z.
+// Any section that is last in the file — the normal case for the version being
+// released — matched only if a `Z` happened to follow it.
+const section = new RegExp(`^## \\[${escaped}\\][^\\n]*\\n([\\s\\S]*?)(?=^## \\[|(?![\\s\\S]))`, 'm').exec(changelog)
 
 if (section === null) {
   console.error(`release-notes: CHANGELOG.md has no "## [${requested}]" section — refusing to emit an empty description`)

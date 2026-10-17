@@ -1,0 +1,250 @@
+/**
+ * Plugin mount wiring: the configurable-provider directory entry that makes
+ * model discovery reachable at all, the settings namespace shared by that
+ * entry and the discovery registration, the reparability diagnostic the entry
+ * carries, the discovery signal, and the loader listener that must never throw
+ * into Cordis's emitter.
+ */
+import { describe, expect, it, vi } from 'vitest'
+import { LlmError } from '@deepseek-ai/dsh-llm'
+import type { LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
+import { apply } from '../src/index.ts'
+import { GO_DOC_URLS } from '../src/catalog/go-doc.ts'
+import { modelsDevDocument, startMockGateway } from './mock-gateway.ts'
+
+type Discover = (request: unknown, signal?: AbortSignal) => Promise<unknown>
+
+interface Harness {
+  ctx: Record<string, unknown>
+  directoryRegistrations: LlmConfigurableProvider[][]
+  directoryReplacements: LlmConfigurableProvider[][]
+  discoveryNs: string[]
+  discover: Discover | undefined
+  volatileUpdate: (() => void) | undefined
+  registerAdapter: ReturnType<typeof vi.fn>
+  errors: string[]
+  infos: string[]
+}
+
+/** The live references a loader hands a plugin, with `get()` per field. */
+function live(getters: Record<string, () => unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(getters).map(([key, get]) => [key, { get }]))
+}
+
+const BASE_GETTERS = (): Record<string, () => unknown> => ({
+  enabled: () => true,
+  modelVisibility: () => ({}),
+  baseURL: () => 'https://opencode.ai/inference/go/v1',
+  apiKeyEnv: () => 'OPENCODE_GO_API_KEY',
+  refreshMinutes: () => 60,
+  streamIdleTimeoutMs: () => 300_000,
+  maxRequestImageBytes: () => 6_000_000,
+  requestImagePixelBudget: () => 1_440_000,
+  requestImageMaxBytes: () => 400_000,
+  modelLimits: () => ({}),
+  modelProtocols: () => ({}),
+})
+
+function context(options: {
+  configured?: boolean
+  entryId?: string
+  bareMount?: boolean
+  adapterReplaceThrows?: boolean
+  directoryThrows?: boolean
+} = {}): Harness {
+  const directoryRegistrations: LlmConfigurableProvider[][] = []
+  const directoryReplacements: LlmConfigurableProvider[][] = []
+  const discoveryNs: string[] = []
+  const errors: string[] = []
+  const infos: string[] = []
+  const state: Partial<Harness> = {}
+
+  const directoryHandle = Object.assign((): void => {}, {
+    replace: (entries: readonly LlmConfigurableProvider[]): void => {
+      if (options.directoryThrows === true) throw new LlmError('directory disposed', 'REGISTRATION_DISPOSED')
+      directoryReplacements.push([...entries])
+    },
+  })
+  const adapterHandle = Object.assign((): void => {}, {
+    replace: (): void => {
+      if (options.adapterReplaceThrows === true) throw new LlmError('route disposed', 'REGISTRATION_DISPOSED')
+    },
+  })
+  const registerAdapter = vi.fn(() => adapterHandle)
+
+  const ctx: Record<string, unknown> = {
+    // A bare mount (a programmatic `apply`) has no loader fiber at all.
+    ...options.bareMount === true ? {} : { fiber: { entry: { options: { id: options.entryId ?? 'dshopencodego' } } } },
+    get: (name: string) => name === 'credentials'
+      ? { describe: async () => ({ configured: options.configured ?? true }), resolve: async () => undefined }
+      : undefined,
+    llm: {
+      registerAdapter,
+      registerModelDiscovery: vi.fn((ns: string, discover: Discover) => {
+        discoveryNs.push(ns)
+        state.discover = discover
+        return (): void => {}
+      }),
+      registerConfigurableProviders: vi.fn((entries: readonly LlmConfigurableProvider[]) => {
+        directoryRegistrations.push([...entries])
+        if (options.directoryThrows === true) throw new LlmError('directory refused', 'DUPLICATE_DIRECTORY')
+        return directoryHandle
+      }),
+    },
+    plugin: vi.fn(),
+    effect: vi.fn(),
+    on: vi.fn((event: string, listener: () => void) => {
+      if (event === 'loader/volatile-update') state.volatileUpdate = listener
+    }),
+    inject: vi.fn(),
+    logger: {
+      info: vi.fn((message: string) => { infos.push(message) }),
+      warn: vi.fn(),
+      error: vi.fn((message: string) => { errors.push(message) }),
+    },
+  }
+  return {
+    ctx,
+    registerAdapter,
+    errors,
+    infos,
+    directoryRegistrations,
+    directoryReplacements,
+    discoveryNs,
+    // Read through the mutable state: `apply` fills these once it registers.
+    get discover() { return state.discover },
+    get volatileUpdate() { return state.volatileUpdate },
+  } as Harness
+}
+
+const tick = (): Promise<void> => new Promise(resolve => { setTimeout(resolve, 0) })
+
+describe('configurable-provider directory', () => {
+  it('declares the route under the loader entry id, and keys discovery by it', () => {
+    const harness = context({ configured: true, entryId: 'my-opencode-go' })
+    apply(harness.ctx as never, { enabled: true })
+    expect(harness.directoryRegistrations).toHaveLength(1)
+    const entry = harness.directoryRegistrations[0]![0]!
+    expect(entry).toMatchObject({
+      provider: 'opencode-go',
+      displayName: 'OpenCode Go',
+      // DSH starts model discovery for a directory entry by its `settingsNs`;
+      // the module name was never that key, so discovery was dead code.
+      settingsNs: 'my-opencode-go',
+      // The entry's whole `config:` mapping is this plugin's profile.
+      settingsPath: [],
+      defaultBaseURL: 'https://opencode.ai/inference/go/v1',
+    })
+    expect(harness.discoveryNs).toEqual(['my-opencode-go'])
+  })
+
+  it('falls back to the module name on a bare mount', () => {
+    const harness = context({ configured: true, bareMount: true })
+    apply(harness.ctx as never, { enabled: true })
+    expect(harness.directoryRegistrations[0]![0]!.settingsNs).toBe('dshopencodego')
+    expect(harness.discoveryNs).toEqual(['dshopencodego'])
+  })
+
+  it('publishes a repair diagnostic while the credential is missing', async () => {
+    const harness = context({ configured: false })
+    apply(harness.ctx as never, { enabled: true })
+    await tick()
+    expect(harness.registerAdapter).not.toHaveBeenCalled()
+    const entry = harness.directoryReplacements.at(-1)![0]!
+    expect(entry.error).toContain('OPENCODE_GO_API_KEY')
+  })
+
+  it('publishes no diagnostic for a route disabled on purpose', async () => {
+    const harness = context({ configured: true })
+    apply(harness.ctx as never, { enabled: false })
+    await tick()
+    expect(harness.registerAdapter).not.toHaveBeenCalled()
+    expect(harness.directoryRegistrations[0]![0]).not.toHaveProperty('error')
+  })
+
+  it('keeps the route alive when the directory seam refuses the entry', () => {
+    const harness = context({ configured: true, directoryThrows: true })
+    expect(() => { apply(harness.ctx as never, { enabled: true }) }).not.toThrow()
+    expect(harness.errors.join('\n')).toMatch(/configurable-provider entry/)
+  })
+})
+
+describe('loader/volatile-update listener', () => {
+  it('contains a REGISTRATION_DISPOSED replace instead of starving later listeners', async () => {
+    let visibility: Record<string, boolean> = { 'glm-5.3': true }
+    const harness = context({ configured: true, entryId: 'go', adapterReplaceThrows: true })
+    apply(harness.ctx as never, live({ ...BASE_GETTERS(), modelVisibility: () => visibility }))
+    await tick()
+    expect(harness.registerAdapter).toHaveBeenCalledTimes(1)
+
+    // A profile edit changes the switch set, so the mount re-registers the
+    // owned route — the call that throws REGISTRATION_DISPOSED once the
+    // registration was released.
+    const laterListener = vi.fn()
+    const emit = (): void => {
+      // Cordis emits with `Array.map` (harness `llm/src/index.ts:367-370`):
+      // a synchronous throw here starves every listener after this one.
+      for (const listener of [harness.volatileUpdate!, laterListener]) listener()
+    }
+    visibility = { 'glm-5.3': false }
+
+    expect(() => { emit() }).not.toThrow()
+    expect(laterListener).toHaveBeenCalledTimes(1)
+    expect(harness.errors.join('\n')).toMatch(/could not re-evaluate the route/)
+  })
+})
+
+describe('discovery cancellation', () => {
+  it('forwards its signal to the documentation fetch and settles on abort', async () => {
+    const server = await startMockGateway({ listing: ['glm-5.3'] })
+    const original = globalThis.fetch
+    const documentSignals: AbortSignal[] = []
+    const metadata = modelsDevDocument({
+      'glm-5.3': { reasoning: true, limit: { context: 1000, output: 100 } },
+    })
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('https://models.dev/')) {
+        return Promise.resolve(new Response(JSON.stringify(metadata), {
+          status: 200,
+          headers: { 'content-type': 'application/json', etag: '"v1"' },
+        }))
+      }
+      if (!GO_DOC_URLS.includes(url)) return original(input as RequestInfo, init)
+      const signal = init?.signal
+      return new Promise<Response>((_resolve, reject) => {
+        if (signal === null || signal === undefined) return
+        documentSignals.push(signal)
+        // Real fetch semantics: an aborted request rejects.
+        signal.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'))
+        }, { once: true })
+      })
+    })
+    const harness = context({ configured: true, entryId: 'go' })
+    try {
+      apply(harness.ctx as never, { enabled: true, baseURL: server.baseURL, apiKeyEnv: 'TEST_KEY' })
+      const discover = harness.discover!
+      const controller = new AbortController()
+      const pending = discover({ provider: 'opencode-go' }, controller.signal)
+      await tick()
+      expect(documentSignals).toHaveLength(GO_DOC_URLS.length)
+      expect(documentSignals.every(signal => !signal.aborted)).toBe(true)
+
+      controller.abort()
+      const settled = await Promise.race([
+        pending,
+        new Promise((_resolve, reject) => {
+          setTimeout(() => { reject(new Error('discovery did not settle after the caller aborted')) }, 2000)
+        }),
+      ])
+      // The cancelled documentation read degrades to the retained seed; the
+      // listing still answers, so discovery completes rather than hanging.
+      expect((settled as { id: string }[]).map(model => model.id)).toContain('glm-5.3')
+      expect(documentSignals.every(signal => signal.aborted)).toBe(true)
+    } finally {
+      spy.mockRestore()
+      await server.close()
+    }
+  })
+})

@@ -119,6 +119,27 @@ export function isModelEnabled(
   return typeof model.recommended === 'boolean' ? model.recommended : model.deprecated !== true
 }
 
+/**
+ * Configured visibility switches naming ids no source advertises.
+ *
+ * A switch exists to change one model's presence, so one for an id the
+ * gateway does not serve can only be inert — nothing else in the plugin can
+ * report it, because the model is absent from every list a surface renders.
+ * The reverse case (advertised but unbuildable) is reported where the catalog
+ * assembles; this is the diagnostic for the other direction.
+ * @param visibility - the configured per-model switches.
+ * @param advertised - every id the gateway currently advertises, whether or
+ *   not this build can configure it.
+ * @returns the configured ids with no advertised counterpart, sorted.
+ */
+export function unadvertisedVisibilityIds(
+  visibility: Readonly<Record<string, boolean>>,
+  advertised: Iterable<string>,
+): string[] {
+  const known = new Set(advertised)
+  return Object.keys(visibility).filter(id => !known.has(id)).sort()
+}
+
 /** A calendar date as models.dev states it, without a timezone. */
 export function validReleaseDate(value: unknown): value is string {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)

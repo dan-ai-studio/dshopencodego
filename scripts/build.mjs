@@ -8,22 +8,42 @@
  * a CommonJS factory registered through `window.__ModuleLoader__`, with React
  * and the DSH Client packages left to the page, and CSS Modules compiled to a
  * scoped `<style>` tag at load.
+ *
+ * Every path is anchored to this file (see `packageRoot`), so `npm run build`
+ * and `node D:\...\scripts\build.mjs` from any directory do the same thing.
  */
 import { build } from 'esbuild'
 import { transform } from 'lightningcss'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { basename, resolve } from 'node:path'
+import { createRequire } from 'node:module'
+import { basename, dirname, join, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+
+const packageRoot = fileURLToPath(new URL('..', import.meta.url))
+const require = createRequire(import.meta.url)
+// `require.resolve('typescript/bin/tsc')` throws ERR_PACKAGE_PATH_NOT_EXPORTED:
+// TypeScript 7's `exports` map declares only `.` and `./package.json`. Go
+// through the manifest's own `bin` entry instead — the same mapping npm uses
+// to create the `tsc` shim.
+const typescriptDir = dirname(require.resolve('typescript/package.json'))
+const typescriptBin = JSON.parse(await readFile(join(typescriptDir, 'package.json'), 'utf8')).bin
+const tsc = join(typescriptDir, typescriptBin.tsc)
 
 const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
-await rm('lib', { recursive: true, force: true })
-await mkdir('lib', { recursive: true })
+const libDir = join(packageRoot, 'lib')
+// Absolute and package-rooted: a bare `rm('lib')` was relative to the caller's
+// cwd, so running this script from another directory deleted that directory's
+// `lib/` instead of this package's.
+await rm(libDir, { recursive: true, force: true })
+await mkdir(libDir, { recursive: true })
 
 for (const face of ['host', 'client']) {
-  execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '-p', `tsconfig.${face}.json`], { stdio: 'inherit' })
+  execFileSync(process.execPath, [tsc, '-p', join(packageRoot, `tsconfig.${face}.json`)], { stdio: 'inherit', cwd: packageRoot })
 }
 
 await build({
+  absWorkingDir: packageRoot,
   entryPoints: ['src/index.ts'],
   outfile: 'lib/index.js',
   bundle: true,
@@ -48,12 +68,56 @@ await build({
 const clientExternals = [
   'react',
   'react/jsx-runtime',
+  // The next two are pre-provisioned rather than currently imported by
+  // `src/client/**` (grep: 0 hits for both). They stay declared because the
+  // shell has already seeded those identities: declaring them makes a future
+  // import resolve to the shell's copy instead of bundling a second one.
+  // Dropping `react-dom` would still build and then hand the page two React
+  // runtimes (a hooks failure); `ui-primitives` is only correct as the shell's
+  // own instance. Both are `PLATFORM_MODULES` members, so the subset assertion
+  // below is what keeps them honest.
   'react-dom',
   '@deepseek-ai/cordis',
   '@deepseek-ai/dsh-client-store',
   '@deepseek-ai/dsh-client-ui-slots',
   '@deepseek-ai/dsh-client-ui-primitives',
 ]
+
+/**
+ * The specifiers the DSH Web shell seeds into its frozen module table, copied
+ * verbatim from `packages/client/web/src/platform.ts` (`PLATFORM_MODULES`) at
+ * **DSH 0.2.1-rc.2** — the version this package's devDependencies pin and the
+ * floor of its `dsh` peer range.
+ *
+ * Copied rather than imported on purpose: the assertion below must fail when
+ * DSH renames or drops an identity. A specifier the shell no longer provides is
+ * not a build error — esbuild is happy to mark anything external — it is a
+ * `require()` failure inside the browser factory, which nothing else in this
+ * repo could see. Re-check this list whenever the `dsh` peer range moves.
+ */
+const DSH_PLATFORM_MODULES = [
+  'react',
+  'react/jsx-runtime',
+  'react-dom',
+  'react-dom/client',
+  '@deepseek-ai/cordis',
+  'zod',
+  '@tanstack/react-virtual',
+  '@deepseek-ai/dsh-client-store',
+  '@deepseek-ai/dsh-client-ui-slots',
+  '@deepseek-ai/dsh-client-ui-primitives',
+  '@deepseek-ai/dsh-client-ui-dockkit',
+]
+
+const notProvided = clientExternals.filter(specifier => !DSH_PLATFORM_MODULES.includes(specifier))
+if (notProvided.length > 0) {
+  throw new Error(
+    `Unsupported DSH client external(s): ${notProvided.join(', ')}. `
+    + 'The Web shell does not provide them (PLATFORM_MODULES @ DSH 0.2.1-rc.2), so the client factory '
+    + 'would fail at require() time. Stop importing them, or update DSH_PLATFORM_MODULES together with '
+    + 'the `dsh` peer range.',
+  )
+}
 
 const cssModules = {
   name: 'plugin-css-modules',
@@ -99,6 +163,7 @@ const cssModules = {
 }
 
 const client = await build({
+  absWorkingDir: packageRoot,
   entryPoints: ['src/client/index.ts'],
   outfile: 'lib/client.js',
   bundle: true,
@@ -117,6 +182,11 @@ const client = await build({
   footer: { js: 'return module.exports; } });' },
 })
 
+// The other direction of the client contract: every specifier esbuild actually
+// left external must be one this file declared. It cannot fail while `external`
+// is exactly `clientExternals`, and it is kept as the pin for that assumption
+// if `external` ever grows a pattern; the DSH-side rename check is the
+// `notProvided` assertion above, which can fail.
 for (const output of Object.values(client.metafile.outputs)) {
   for (const item of output.imports) {
     if (item.external && !clientExternals.includes(item.path)) {
@@ -125,4 +195,4 @@ for (const output of Object.values(client.metafile.outputs)) {
   }
 }
 
-await writeFile('lib/build-info.json', `${JSON.stringify({ clientExternals }, null, 2)}\n`)
+await writeFile(join(libDir, 'build-info.json'), `${JSON.stringify({ clientExternals }, null, 2)}\n`)

@@ -27,11 +27,14 @@ Prerequisites: a DSH `0.2.0` release (`0.2.0-rc.1` or later; see "Compatibility"
 dsh plugin --profile web add @dan-ai-studio/dshopencodego@<version>
 ```
 
-Confirm the composition picked it up:
+**After installing, confirm it actually loaded** — `--dump-config` cannot prove that:
 
-```sh
-dsh --profile web --dump-config | grep dshopencodego
-```
+1. The startup output should carry the plugin's own registration line, `dshopencodego: route "opencode-go" registered as OpenCode Go` (with `enabled: false` it is `dshopencodego: disabled by configuration; …`). No line means no load — when the compatibility gate refuses the plugin, the same output stream carries `Plugin … is incompatible with dsh …`.
+2. A profile without HMR reports `restart-required` (`restartReason: no-hmr`) after the install: the plugin takes effect only after you **restart DSH**.
+3. Where the logs are: a failed startup writes the full diagnostic to `$DSH_HOME/logs/startup-<timestamp>-<uuid>.log` and prints that path; a failed `dsh plugin` run prints `dsh: plugin command failed; diagnostics: <path>` (a file under the profile's `.plugin-manager/logs/operation-*/pnpm.log`).
+4. Whether the session header really goes out: `node tools/verify/live-check.mjs --check-only` is a **zero-cost** local pre-flight that prints the `x-opencode-session` and `x-session-affinity` this run would carry; dropping `--check-only` and adding `--allow-live` sends **one** minimal request instead (it costs money; rules in `tools/verify/README.md`), after which the script asserts and prints `OK x-opencode-session: <session id>`.
+
+> `dsh --profile web --dump-config | grep dshopencodego` is **not** load evidence: a plugin row the gate denied still appears in the dump (`packages/boot/app-boot/README.md`). It only proves the row was written into the composition.
 
 ### Option 2: GitHub Release
 
@@ -83,26 +86,34 @@ Configuration lives in the profile's `cordis.patch.yml`:
   config:
     enabled: true                            # false withdraws the route only
     apiKeyEnv: OPENCODE_GO_API_KEY            # default
-    baseURL: https://opencode.ai/inference/go/v1    # default (OpenCode Go endpoint, 37 subscription models)
-                                              # or https://opencode.ai/inference/v1 (Console main endpoint, 86 pay-as-you-go/free models)
-    refreshMinutes: 60                        # live catalog TTL
+    baseURL: https://opencode.ai/inference/go/v1    # default (OpenCode Go endpoint)
+                                              # http(s) only, and no query or fragment; writing ?x=1 is refused when the profile is saved
+                                              # or https://opencode.ai/inference/v1 (Console main endpoint, pay-as-you-go/free models)
+    refreshMinutes: 60                        # live catalog TTL, 1 ~ 10080 (7 days)
     streamIdleTimeoutMs: 300000               # stream idle timeout: longest silence between events (ms)
     maxRequestImageBytes: 6291456             # whole-request image payload cap (after base64, bytes)
     requestImagePixelBudget: 1440000          # total-pixel budget for one image
     requestImageMaxBytes: 400000              # encoded-byte target for one image (before base64)
-    modelVisibility:                          # per-model switches (deprecated default off)
+    modelVisibility:                          # per-model switches; unlisted models follow the default rule (see "The model list in the settings page")
       glm-5: true
     modelLimits:                              # per-model capacity overrides
       kimi-k3:
         contextWindow: 262144
+        maxTokens: 32768                      # optional: this model's output cap
+      some-legacy-model: null                 # a whole-entry null: both fields explicitly fall back to the catalog values
     modelProtocols:                           # last resort: per-model protocol override
-      some-new-model: openai-responses
+      some-new-model: openai-responses        # the only legal values are anthropic-messages / openai-completions / openai-responses
     retryPolicy:                              # optional: this route's retry policy, executed by dsh-llm-retry
-      mode: normal
-      maxRetries: 2
+      mode: normal                            # or always (retry every failure; maxRetries is ignored)
+      maxRetries: 2                           # default 5
+      retryableCodes: [RATE_LIMIT, TIMEOUT]   # optional: retry only these codes (defaults RATE_LIMIT / SERVER / TIMEOUT / TRANSPORT / EMPTY_RESPONSE)
       backoff:
-        initialDelayMs: 500
+        initialDelayMs: 500                   # default 500
+        maxDelayMs: 10000                     # default 10000, ceiling 2147483647
+        jitterRatio: 0.1                      # default 0.1, range 0 ~ 1
 ```
+
+**Validated on save**: those constraints are checked when the profile is **written**, not at the first request — `baseURL` must be http(s) with no query or fragment; `refreshMinutes` ranges from 1 to 10080; every `modelLimits` field may be `null`, meaning "select the catalog value explicitly" (`modelLimits.<id>: null` sends both fields back); `modelProtocols` accepts only those three values, and a wrong one makes that model appear as *configuration missing* (switch off, not selectable) rather than falling back to a guess; `retryPolicy` is a union (`normal` reads `maxRetries`/`retryableCodes`/`backoff`, `always` reads only `backoff`) and unknown keys are rejected.
 
 The API key comes from the Harness credential store (reference name `OPENCODE_GO_API_KEY`), or from `export OPENCODE_GO_API_KEY=...`.
 
@@ -154,45 +165,52 @@ The "OpenCode Go" section shows the live gateway catalog (the count follows the 
 - **Input modalities**: a separate line lists the input modes models.dev declares (text / image / audio / video / PDF). These are the **model's own metadata**, not what the Harness can forward — the Harness sends text and images natively; audio/video/PDF travel as attachments and tool reads. The line is absent when the document declares none.
 - filtering (by name/id, enabled-only, show-deprecated — **deprecated hidden by default**), sorting (newest first, monthly requests, input price, context, name, enabled first); the list is the only view, one model per row.
 
-**Default switches**: with no explicit `modelVisibility` entries at all, the **top five models by published monthly request estimate** are enabled (deprecated, unconfigurable, and training-"contributor" models never qualify). The first explicit entry switches the whole list to explicit values. The Host picker and the settings page compute this from one rule, so they never disagree.
+**Default switches**: `modelVisibility` is **per model** — an id listed with `true`/`false` follows that explicit value, and **ids you do not list still follow the default rule**: the **top five models by published monthly request estimate** are enabled (deprecated, unconfigurable, and training-"contributor" models never qualify) and the rest stay off. That top-five set is recomputed unconditionally on every catalog refresh, whether or not any explicit entry exists. The Host picker and the settings page compute this from one rule, so they never disagree. **The consequence**: once you write any explicit entry, a model the gateway adds later is **not** automatically visible unless it lands in the top five — add `id: true` for it explicitly.
 
 ## Usage
 
 - **Quota windows**: `GET /usage` reports 5-hour / weekly / monthly percentages with reset times and rate-limit flags; a failed read keeps the last reading and marks it stale, and an account or endpoint change invalidates it.
 - **Actual spend**: the in-conversation button reports calls and tokens (input/output/cache-read) this process spent since it started, from the usage the provider returns on each call. The gateway publishes no per-model tokens, so the numbers are labelled for what they are instead of faking a per-model quota.
+- **Estimated cost**: models.dev per-million-token rates multiplied by the tokens the provider returned — an **estimate, not a bill**. On the subscription endpoint (Go) it is indicative only; it is only reconcilable on the metered Console endpoint. The rate is captured per call, so a catalog refresh never reprices tokens already spent; when the catalog publishes no separate cache rate, cached tokens are estimated at the **input** rate (an upper bound). **A model with no published rate shows "unpriced" with its name — never `0`, which would read as free.** Very small amounts render as `<$0.0001`.
+- **Reasoning tokens**: the thinking tokens a provider reports are a **subset of `outputTokens`**, so they are shown on their own line but **excluded from the total** (adding them would count the same tokens twice). A model that reports no breakdown hides the line — that means "no data", not `0`.
 
 ## Compatibility
 
-**Supported**: DSH `0.2.0` releases (`0.2.0-rc.1` and later) and the `0.2.1` line. Every `@deepseek-ai/dsh-*` peer dependency declares `>=0.2.0-rc.1 <0.3.0`.
+**Supported**: DSH `0.2.0` releases (`0.2.0-rc.1` and later) and the `0.2.1` line. `engines.dsh` and every `@deepseek-ai/dsh-*` peer dependency declare `>=0.2.0-rc.1 <0.3.0-0`.
 
-**`0.2.0` and earlier are no longer supported**: support for the `0.1.7` line and older was removed in v0.1.36 — the runtime seam across that range differs from the one this plugin is built against, and continuing to declare it would only let the gate admit an untested combination. (`0.1.8` and `0.1.9` were never published.)
+**Anything before `0.2.0` is no longer supported**: support for the `0.1.7` line and older was removed in v0.1.36 — the runtime seam across that range differs from the one this plugin is built against, and continuing to declare it would only let the gate admit an untested combination. (`0.1.8` and `0.1.9` were never published.)
 
-**The mechanism (not a hard pin)**: before mounting a plugin, DSH reads its `package.json` `peerDependencies` and semver-checks each against the **running DSH version** (prereleases participate):
+**The mechanism (not a hard pin)**: before mounting a plugin, DSH reads its `package.json` declarations and semver-checks the **running DSH version** against them (prereleases participate, i.e. `includePrerelease`). There are two levels, first match wins:
 
-- all satisfied → the plugin loads;
-- any mismatch → **that plugin row is disabled with a printed reason** (`Plugin … is incompatible with dsh …`), leaving other plugins untouched;
+1. **`engines.dsh` takes precedence and decides alone**: when a plugin declares it, only that range is consulted and `peerDependencies` plays no part at all (DSH source `packages/boot/app-boot/src/plugin-compatibility.ts` returns as soon as it finds `engines.dsh`).
+2. Only when a plugin declares **no** `engines.dsh` are the `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` peer ranges checked, one by one.
+
+The verdict:
+
+- satisfied → the plugin loads;
+- not satisfied → **that plugin row is disabled with a printed reason** (`Plugin … is incompatible with dsh …`), leaving other plugins untouched;
 - to take the risk anyway, grant an **exact-version exemption**: `dsh plugin --profile <profile> allow-version <pkg>@<version> --dsh-version <exact> --accept-risk` (applies only to that package and that exact runtime version); `dsh plugin --profile <profile> version-exemptions` lists what a profile holds.
 
-The `engines.dsh` field is informational for readers and package managers; **DSH's compatibility gate reads only `peerDependencies`**. `@deepseek-ai/cordis` is declared separately as `4.0.4 || 4.0.5-alpha.1 || 4.0.5-alpha.2 || 4.0.5` — the runtimes used by DSH `0.2.0-rc.1`/`rc.2`, `0.2.1-alpha.1`/`alpha.2`, `0.2.1-alpha.3`–`alpha.5`, and `0.2.1-rc.2` respectively (`4.0.2`/`4.0.3` were dropped along with pre-`0.2.0` support).
+**This plugin declares `engines.dsh`, so that is the range the gate enforces**; the peer ranges are a declaration for readers and package managers, and only take over the verdict if `engines.dsh` is removed. The upper bound is written `<0.3.0-0` rather than `<0.3.0` precisely because the check includes prereleases: `<0.3.0` would judge `0.3.0-rc.1` and its siblings **compatible** and let them load, while `<0.3.0-0` closes the whole `0.3.0` line. `@deepseek-ai/cordis` is declared separately as `4.0.4 || 4.0.5-alpha.1 || 4.0.5-alpha.2 || 4.0.5` — the runtimes used by DSH `0.2.0-rc.1`/`rc.2`, `0.2.1-alpha.1`/`alpha.2`, `0.2.1-alpha.3`–`alpha.5`, and `0.2.1-rc.2` respectively (`4.0.2`/`4.0.3` were dropped along with pre-`0.2.0` support).
 
-**Outside the declared range**: everything before `0.2.0-rc.1`, and `0.3.0+`, are refused. If the seam is compatible, widen the peer range in your own build (never in DSH core), or wait for a plugin release.
+**Outside the declared range**: everything before `0.2.0-rc.1`, and the whole `0.3.0` line (prereleases included), are refused. If the seam is compatible, widen or drop this plugin's **`engines.dsh`** in your own build — widening the peer range does nothing, since it takes no part in the verdict — or wait for a plugin release.
 
 ### Version-binding notes
 
 | Binding layer | Declared | Enforced by |
 | --- | --- | --- |
-| `peerDependencies` (17 `@deepseek-ai/dsh-*` packages) | all `>=0.2.0-rc.1 <0.3.0` | **DSH's gate, at plugin load time** |
-| `@deepseek-ai/cordis` | `4.0.4 \|\| 4.0.5-alpha.1 \|\| 4.0.5-alpha.2 \|\| 4.0.5` | the same gate |
-| `engines.dsh` | `>=0.2.0-rc.1 <0.3.0` | informational only; DSH never reads it |
+| `engines.dsh` | `>=0.2.0-rc.1 <0.3.0-0` | **DSH's gate at plugin load time; declaring it skips the peer verdict entirely** |
+| `peerDependencies` (17 `@deepseek-ai/dsh-*` packages) | all `>=0.2.0-rc.1 <0.3.0-0` | takes over only when `engines.dsh` is absent; this plugin declares it, so the peers take no part today |
+| `@deepseek-ai/cordis` | `4.0.4 \|\| 4.0.5-alpha.1 \|\| 4.0.5-alpha.2 \|\| 4.0.5` | the same peer channel |
 | `engines.node` | `^22.19.0 \|\| >=24.0.0` | the package manager |
 | bundled `@earendil-works/pi-ai` | `~1.3.0` (within 1.3.x), **compiled into `lib/`** (devDependency) | an independent coupling: a change in pi-ai's request construction changes this plugin's wire behaviour, and its opencode-go builtin catalog is this plugin's fallback data. Bundling leaves the plugin with **no runtime dependencies** for an installer to resolve |
 | bundled `@deepseek-ai/schemastery` | `~3.18.5-alpha.2`, **compiled into `lib/`** (devDependency) | a build-time dependency |
 
 Things to keep in mind when maintaining this:
 
-- **Required versus optional peers**: six of the eighteen are marked `optional` (`dsh-api-remotes`, `dsh-client-locale`, `dsh-client-store`, `dsh-client-ui-model-selection`, `dsh-client-ui-settings`, `dsh-client-ui-slots`). The twelve that actually block loading are `cordis`, `dsh-attachment`, `dsh-brand`, `dsh-client-ui-conversation`, `dsh-client-ui-renderer`, `dsh-credentials`, `dsh-fs`, `dsh-launch-environment`, `dsh-llm`, `dsh-timeout`, `dsh-typert-protocol`, and `dsh-typert-registry`. `dsh-llm` is the heaviest coupling — more than twenty imports across the source.
-- **Declared range ≠ verified range**: the declaration is `>=0.2.0-rc.1 <0.3.0`. What was actually verified here, in order, is `0.2.0-rc.1` (the dev-dependency baseline: gate verdict + typecheck + full suite), `0.2.0-rc.2` (the same plus a `prepareCall` generation freeze), `0.2.1-alpha.3` (the first target release), `0.2.1-alpha.4` (T-24), `0.2.1-alpha.5` (T-26), and `0.2.1-rc.2` (T-31, where the runtime moved to cordis `4.0.5`; the upstream contract layer had zero source changes). Other versions inside the range were not verified one by one.
-- **The upper bound is a tracking line**: `<0.3.0` means that the moment DSH ships `0.3.0`, this plugin must ship a new release in the same window or every user loses the plugin. After changing a range, `npm test` is the verification (local mock gateway, no network, no tokens) — ranges follow what the interfaces declare, and are never "measured" with live probes.
+- **Required versus optional peers**: six of the eighteen are marked `optional` (`dsh-api-remotes`, `dsh-client-locale`, `dsh-client-store`, `dsh-client-ui-model-selection`, `dsh-client-ui-settings`, `dsh-client-ui-slots`). The other twelve are required at runtime: `cordis`, `dsh-attachment`, `dsh-brand`, `dsh-client-ui-conversation`, `dsh-client-ui-renderer`, `dsh-credentials`, `dsh-fs`, `dsh-launch-environment`, `dsh-llm`, `dsh-timeout`, `dsh-typert-protocol`, and `dsh-typert-registry`. None of the eighteen takes part in the load verdict today (see above: `engines.dsh` decides alone); their value is declaring the dependency for the package manager and for readers. `dsh-llm` is the heaviest coupling — more than twenty imports across the source.
+- **Declared range ≠ verified range**: the declaration is `>=0.2.0-rc.1 <0.3.0-0`. What was actually verified here, in order, is `0.2.0-rc.1` (the dev-dependency baseline: gate verdict + typecheck + full suite), `0.2.0-rc.2` (the same plus a `prepareCall` generation freeze), `0.2.1-alpha.3` (the first target release), `0.2.1-alpha.4` (T-24), `0.2.1-alpha.5` (T-26), and `0.2.1-rc.2` (T-31, where the runtime moved to cordis `4.0.5`; the upstream contract layer had zero source changes). Other versions inside the range were not verified one by one.
+- **The upper bound is a tracking line**: `<0.3.0-0` means that the moment DSH ships `0.3.0-0` (the first prerelease on the `0.3.0` line), this plugin must ship a new release in the same window or every user loses the plugin. `tests/peer-coverage.spec.ts` asserts both ends — the lower bound accepts the installed version, the upper bound rejects `0.3.0-0` — so a drift here fails locally instead of failing on a user's machine. After changing a range, `npm test` is the verification (local mock gateway, no network, no tokens) — ranges follow what the interfaces declare, and are never "measured" with live probes.
 - **Peer coverage is now guarded both ways**: `dsh-typert-registry`, `dsh-client-ui-conversation`, and `dsh-client-ui-renderer` were imported by the source but absent from `peerDependencies`, invisible to the gate; they are declared now, and `tests/peer-coverage.spec.ts` asserts both directions — anything the source imports must be declared, and anything declared but unreached must be removed (`dsh-settings` went that way: the settings form is actually provided by `dsh-client-ui-settings`).
 - **Exemptions are per profile**: only a profile that ran `dsh plugin allow-version` has one, and no record means the plugin must stay inside the declared range. `dsh plugin version-exemptions` lists a profile's exemptions.
 
@@ -217,11 +235,13 @@ Things to keep in mind when maintaining this:
 npm ci
 npm run lint        # oxlint: static checks (the release workflow runs this too, and fails on it)
 npm run typecheck   # both halves: host and client
+npm run build       # build first: emits lib/index.js and lib/client.js
 npm test            # contract tests against a real local HTTP mock gateway
-npm run build       # emits lib/index.js and lib/client.js
 ```
 
-The suite covers configuration validation, the protocol ladder, gateway and online metadata, the catalog projection, the adapter on the wire (all three protocols), Remote contracts and services, session-header invariants, usage windows and the meter, the client controller and usage pill, both halves' mounting and registration, and several **structural invariants** (inject declarations match the source's reads, peer coverage holds both ways, the READMEs match the manifest). That is **33 test files** — a number `tests/readme-consistency.spec.ts` checks against the `tests/` directory, so it cannot drift.
+**Order matters**: `npm run build` must come before `npm test` — `tests/pack-contents.spec.ts` walks every `exports` target, and whether `lib/` exists decides whether that check runs or is silently skipped (it does not fail, it just stops protecting you). `package.json` no longer carries `prepare`, so `npm ci` will not build for you; all three CI workflows run `npm run build` explicitly.
+
+The suite covers configuration validation, the protocol ladder, gateway and online metadata, the catalog projection, the adapter on the wire (all three protocols), Remote contracts and services, session-header invariants, usage windows and the meter, the client controller and usage pill, both halves' mounting and registration, the error mapping for stream idle timeouts and aborts, the exit-code contract of the verification scripts, and several **structural invariants** (inject declarations match the source's reads, peer coverage holds both ways, the READMEs match the manifest). That is **43 test files** — a number `tests/readme-consistency.spec.ts` checks against the `tests/` directory, so it cannot drift.
 
 ## Releasing (maintainers)
 

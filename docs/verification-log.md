@@ -1,6 +1,6 @@
 # 验证记录（实机 / 真实网关）
 
-按时间倒序。每节是一次真实环境验证的范围、方法、结论与未覆盖项；操作步骤见 `verification-0.2.1-live.md`（0.2.1 适配）与 `runbook-m5-live-verification.md`（M5），版本对比见 `comparison-v0.1.13.md`。文中的模型数量是**当时快照**，目录随网关变化。
+按时间倒序。每节是一次真实环境验证的范围、方法、结论与未覆盖项；操作步骤见 `verification-0.2.1-live.md`（0.2.1 适配）与 `runbook-m5-live-verification.md`（M5），版本对比见 `comparison-v0.1.13.md`。文中的模型数量与测试数量是**当时快照**，目录与套件随版本变化；涉及的抓包产物都在 `scratch/` 下（未入库、不可复现），其中 **v0.1.44 之前**用 `tools/verify/recording-proxy.mjs` 产生的 `*.jsonl` 可能含明文凭据——不要分享、粘贴或提交（代理自 v0.1.44 起写盘前脱敏）。
 
 ## 2026-10-10 · DSH 0.2.1-alpha.2 适配实机（`v021h` headless + 选择性黑洞）
 

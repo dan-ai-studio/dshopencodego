@@ -140,9 +140,17 @@ export function readConfig(config: LiveConfig): OpencodeGoConfig {
 }
 
 /**
- * Accept only an http(s) base without a query or fragment. Runs at load for the
- * composition layer and on every profile edit, so a bad URL fails where it is
- * written, never at first request.
+ * Loopback names a local mock or proxy binds to. Plain http is tolerated there
+ * and nowhere else: the credential rides in an `authorization` header, so an
+ * http endpoint off this machine would put the API key on the wire in clear text.
+ */
+const PLAIN_HTTP_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1'])
+
+/**
+ * Accept only an http(s) base without a query or fragment, and only https
+ * unless the host is loopback. Runs at load for the composition layer and on
+ * every profile edit, so a bad URL fails where it is written, never at first
+ * request.
  * @param raw - the configured base URL.
  * @returns the normalized base URL without trailing slashes.
  */
@@ -155,6 +163,12 @@ export function assertBaseURL(raw: string): string {
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
     throw new Error(`dshopencodego: baseURL "${raw}" must be http or https`)
+  }
+  if (url.protocol === 'http:' && !PLAIN_HTTP_HOSTS.has(url.hostname)) {
+    throw new Error(
+      `dshopencodego: baseURL "${raw}" must use https outside localhost —`
+      + ' a plain-http endpoint would send the API key in clear text',
+    )
   }
   if (url.search.length > 0 || url.hash.length > 0) {
     throw new Error(`dshopencodego: baseURL "${raw}" must not carry a query or fragment`)

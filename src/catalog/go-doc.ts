@@ -161,40 +161,58 @@ export function parseGoDocument(markdown: string): GoDoc {
   return { quotas, protocols }
 }
 
+/** One source's attempt: the parsed document, or why that source failed. */
+type SourceRead =
+  | { readonly document: GoDoc }
+  | { readonly failure: string }
+
 /**
- * Fetch and parse the documentation, trying each source in turn.
+ * Read and parse one source, bounded by the shared fetch timeout.
  *
- * A source that answers without a usable allowance table counts as a failure,
- * not as an empty document: that is what a moved or restructured page looks
- * like, and the caller must keep its previous data rather than blank the page.
- * @param signal - caller cancellation, if any.
+ * A source that answers without a usable allowance table is a failure, not an
+ * empty document: that is what a moved or restructured page looks like, and
+ * the caller must keep its previous data rather than blank the page.
+ */
+async function readSource(url: string, signal?: AbortSignal): Promise<SourceRead> {
+  const timeout = AbortSignal.timeout(METADATA_FETCH_TIMEOUT_MS)
+  try {
+    const response = await fetch(url, {
+      redirect: 'error',
+      headers: { ...attributionHeaders(), accept: 'text/plain', 'cache-control': 'no-cache' },
+      signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout]),
+    })
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => {})
+      return { failure: `${url} answered HTTP ${response.status}` }
+    }
+    const document = parseGoDocument(await readBoundedText(response, GO_DOC_MAX_BYTES))
+    if (document.quotas.size === 0) return { failure: `${url} carried no allowance table` }
+    return { document }
+  } catch (error: unknown) {
+    return { failure: `${url}: ${error instanceof Error ? error.message : String(error)}` }
+  }
+}
+
+/**
+ * Fetch and parse the documentation, asking every source concurrently.
+ *
+ * The second URL is a CDN cache of the same file, so waiting for the first to
+ * fail before asking the second doubled the worst case on a cold process —
+ * 10 s per source — while the catalog build awaits this document only for the
+ * quota badge and the protocol fallback. `GO_DOC_URLS` order still decides:
+ * the repository file is examined before its cache mirror, and a source that
+ * fails is reported with its own reason.
+ * @param signal - caller cancellation; it reaches every source's fetch and
+ *   aborts all of them, so a cancelled discovery stops waiting on the network.
  * @returns the parsed document from the first source that carried one.
  * @throws {LlmError} `DOCUMENT_UNAVAILABLE` when every source failed.
  */
 export async function fetchGoDocument(signal?: AbortSignal): Promise<GoDoc> {
+  const attempts = await Promise.all(GO_DOC_URLS.map(url => readSource(url, signal)))
   const failures: string[] = []
-  for (const url of GO_DOC_URLS) {
-    try {
-      const timeout = AbortSignal.timeout(METADATA_FETCH_TIMEOUT_MS)
-      const response = await fetch(url, {
-        redirect: 'error',
-        headers: { ...attributionHeaders(), accept: 'text/plain', 'cache-control': 'no-cache' },
-        signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout]),
-      })
-      if (!response.ok) {
-        await response.body?.cancel().catch(() => {})
-        failures.push(`${url} answered HTTP ${response.status}`)
-        continue
-      }
-      const document = parseGoDocument(await readBoundedText(response, GO_DOC_MAX_BYTES))
-      if (document.quotas.size === 0) {
-        failures.push(`${url} carried no allowance table`)
-        continue
-      }
-      return document
-    } catch (error: unknown) {
-      failures.push(`${url}: ${error instanceof Error ? error.message : String(error)}`)
-    }
+  for (const attempt of attempts) {
+    if ('document' in attempt) return attempt.document
+    failures.push(attempt.failure)
   }
   throw new LlmError(
     `could not read the Go documentation (${failures.join('; ')})`,

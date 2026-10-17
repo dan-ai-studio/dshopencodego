@@ -39,7 +39,7 @@
 | 线协议执行者 | 插件自带 `@earendil-works/pi-ai@0.87.1` | ADR-0002 |
 | 路由 id | 沿用 `opencode-go` | ADR-0003 |
 | 协议判定 | 四级优先级阶梯 | ADR-0004 |
-| 会话头注入 | 插件自己注入（不依赖 pi-ai 的 wrapper） | `docs/verification-pi-ai-upgrade.md` |
+| 会话头注入 | 插件自己注入（不依赖 pi-ai 的 wrapper） | `docs/verification-log.md`（原文写作 `docs/verification-pi-ai-upgrade.md`，该文件从未创建） |
 | 会话头取值 | 原样发 DSH 会话 id；无 id 时一次性 UUID 兜底 | 本轮问答 |
 | 设置命名空间 | 新命名空间 `dshopencodego` | 本轮问答 |
 | 用量 | 端点三窗口 + 会话级持久统计 + 启动以来累计 | 本轮问答 |
@@ -48,6 +48,8 @@
 | 验证 | 三层：mock 契约 / 安装冒烟 / 一次真实最小请求 | 本轮问答 |
 
 ## 4. 架构
+
+> **这是建仓时的计划形态，不是现状。** 下面用的是当时的单文件设想（`config.ts`、`catalog.ts`、`usage.ts`、`usage-store.ts`、`remote.ts`），实现时已重组为目录结构：`src/catalog/`、`src/usage/`、`src/update/`、`src/conversion/`、`src/remotes.ts`、`src/models.ts`、`src/session-header.ts` 等——**目录里没有 `src/catalog/usage.ts` 或 `src/usage-store.ts`**。当前结构请以 `src/` 为准。
 
 ```
 Host（index.js）
@@ -86,7 +88,7 @@ Client（client.js）
 | M5 | 客户端：设置页、用量按钮、i18n | 组件测试 + 浏览器实测（本机 GUI） |
 | M6 | 交付：建仓、CI 发 Release tarball、隔离 profile 安装冒烟、一次真实网关验证 | 安装后路由注册、模型可选、真实请求 200 且抓包见到头 |
 
-状态（2026-09-25）：**M1–M6 的完成判据全部达成**。M5 的浏览器实测、图片输入与真实 Harness 进程内的会话头抓包见 `docs/verification-m5-live.md`（含实机发现并修复的两个客户端缺陷：catalog Remote 未挂载导致设置分区不注册、凭证结果未按 `RemoteResult` 信封解包导致 API Key 误报）。
+状态（2026-09-25）：**M1–M6 的完成判据全部达成**。M5 的浏览器实测、图片输入与真实 Harness 进程内的会话头抓包记录在 `docs/verification-log.md`（M5 分节；操作步骤见 `docs/runbook-m5-live-verification.md`）——原文所指的 `docs/verification-m5-live.md` 从未创建（含实机发现并修复的两个客户端缺陷：catalog Remote 未挂载导致设置分区不注册、凭证结果未按 `RemoteResult` 信封解包导致 API Key 误报）。
 
 ## 6. 验证计划（三层）
 
@@ -114,9 +116,9 @@ Client（client.js）
 3. **配置与标注清理 (M3)**：剔除不在 Go 端点的无效模型 `space-bunny-free`，并提供用户 Profile 优化建议书。
 4. **端点平滑迁移 (M4)**：默认网关端点从 `/zen/go/v1` 预防性迁移至官方推荐的 `/inference/go/v1`，实测保证数据结构 100% 等价。
 
-**本轮适配完整文档索引**：
-- [需求文档：0.2.1-alpha.3 适配需求规范](file:///d:/prj/dshopencodego/docs/requirements-0.2.1-alpha.3.md)
-- [方案文档：0.2.1-alpha.3 技术设计与调研](file:///d:/prj/dshopencodego/docs/plan-0.2.1-alpha.3.md)
-- [实施清单：0.2.1-alpha.3 任务清单与状态跟踪](file:///d:/prj/dshopencodego/docs/tasks-0.2.1-alpha.3.md)
-- [技术决策：ADR-0006 默认网关端点迁移到 inference](file:///d:/prj/dshopencodego/docs/adr/0006-endpoint-migration-to-inference.md)
+**本轮适配完整文档索引**（三份阶段文档已于 2026-10-18 归档到 `docs/archive/`；现行/历史文档的分界见 `docs/README.md`）：
+- [需求文档：0.2.1-alpha.3 适配需求规范](archive/requirements-0.2.1-alpha.3.md)
+- [方案文档：0.2.1-alpha.3 技术设计与调研](archive/plan-0.2.1-alpha.3.md)
+- [实施清单：0.2.1-alpha.3 任务清单与状态跟踪](archive/tasks-0.2.1-alpha.3.md)
+- [技术决策：ADR-0006 默认网关端点迁移到 inference](adr/0006-endpoint-migration-to-inference.md)
 

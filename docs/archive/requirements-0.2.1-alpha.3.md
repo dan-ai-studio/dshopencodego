@@ -1,12 +1,13 @@
 # 需求：DSH 0.2.1-alpha.3 适配与接口跟进
 
-- **状态**：已定稿，待执行
+- **状态**：**已完成并归档**（2026-10-18 移入 `docs/archive/`；收尾版本 v0.1.43）。本文是需求快照，**不代表现状**——现行版本见 `package.json`，现行文档索引见 `docs/README.md`。
 - **日期**：2026-10-15
-- **适用对象**：`@dan-ai-studio/dshopencodego` v0.1.21
-- **开发计划**：`docs/plan-0.2.1-alpha.3.md`（阶段划分与完成判据）
-- **任务清单**：`docs/tasks-0.2.1-alpha.3.md`（可执行任务 T-01 ~ T-23）
+- **适用对象**：`@dan-ai-studio/dshopencodego` v0.1.21（**历史基线**；当前为 v0.1.43，与之相差 22 个版本）
+- **开发计划**：`docs/archive/plan-0.2.1-alpha.3.md`（阶段划分与完成判据）
+- **任务清单**：`docs/archive/tasks-0.2.1-alpha.3.md`（可执行任务 T-01 ~ T-23）
 - **术语**：见 `CONTEXT.md`；既有架构决策见 `docs/adr/`
 - **上游版本**：DeepSeek Harness `0.2.1-alpha.3`（checkout `D:\git\deepseek-harness`，commit `571902028a`，tag `dsh-v0.2.1-alpha.3`）
+- **证据产物**：本文引用的 `scratch/…` 是**本机临时目录**——被 `.gitignore` 忽略，从未入库、不随仓库分发，**克隆者无法核对，也无法复现**（重跑需要真实网关、真实凭证与相同的时间点）。要重新取证时按对应 runbook 在本机重跑，产物仍落在 `scratch/` 下，同样不入库。
 
 ## 1. 背景
 
@@ -16,17 +17,17 @@
 
 | 结论 | 证据 |
 |---|---|
-| **DSH 兼容门禁不读 `engines.dsh`**，只比较 `peerDependencies` 中 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` 的范围，且用 `semver.satisfies(..., { includePrerelease: true })` | `D:\git\deepseek-harness\packages\boot\app-boot\src\plugin-compatibility.ts:75,77` |
+| **DSH 兼容门禁**（此结论**只适用于 DSH ≤ `0.2.1-alpha.3`**）**不读 `engines.dsh`**，只比较 `peerDependencies` 中 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` 的范围，且用 `semver.satisfies(..., { includePrerelease: true })` | `D:\git\deepseek-harness\packages\boot\app-boot\src\plugin-compatibility.ts:75,77`。**注意：`0.2.1-alpha.4` 起该文件新增了 `engines.dsh` 优先分支——命中它即单独决定、`peerDependencies` 被整体忽略**（当前 README 与 `dsh-v0.2.1-rc.2` 都按新语义描述）；本行结论已被 ADR 之后的上游改动取代 |
 | **门禁实测放行**：用 DSH 自身求值器对插件真实 manifest 求值 → `COMPATIBLE`，17 个 `dsh-*` peer 全部匹配 | 直接调用 `evaluatePluginCompatibility`，runtime = `0.2.1-alpha.3` |
-| **代码层 0 条破坏性变更**：`typecheck` 与 `build` 在 alpha.3 下稳定 `exit 0` | `scratch/build-verify/raw/alpha3-typecheck.log`、`alpha3-build.log` |
-| 插件 20 个 value/命名空间 API 符号在 alpha.3 **全部存在**；19 个相关包 `.d.ts` **零删除** | `scratch/api-audit/report.md` §3；`missing_in_a2=0` 证明无假阳性 |
+| **代码层 0 条破坏性变更**：`typecheck` 与 `build` 在 alpha.3 下稳定 `exit 0` | `scratch/build-verify/raw/alpha3-typecheck.log`、`alpha3-build.log`（**本机产物，未入库，不可复现**） |
+| 插件 20 个 value/命名空间 API 符号在 alpha.3 **全部存在**；19 个相关包 `.d.ts` **零删除** | `scratch/api-audit/report.md` §3（**本机产物，未入库，不可复现**）；`missing_in_a2=0` 证明无假阳性 |
 | **`LlmAdapter` 抽象成员集合两版一致**（唯一抽象方法仍是 `stream`）；新增的 `imageRequestTarget` 带默认实现 | `D:\git\deepseek-harness\packages\llm\llm\src\index.ts:248` |
 | 承载符号的文件中，8 个 UNCHANGED；`credentials/index.ts` 为纯 JSDoc；`llm/index.ts` 为纯新增 | `git diff dsh-v0.2.1-alpha.2..dsh-v0.2.1-alpha.3 -- <path>` |
 | 插件**未使用** `@Remote` / `RemoteScope` 装饰器，因此 typert 的装饰器重构不影响本插件 | `src/**` grep 无命中 |
 | 客户端侧对 DSH 包的 import **全为 type-only**，编译期擦除；运行时 `lib/client.js` 只 require `react` / `react/jsx-runtime` | `lib/client.js`；`lib/build-info.json` |
 | 三个 client externals 在 alpha.3 仍是 web shell 的 platform baseline 单例 | `D:\git\deepseek-harness\packages\client\web\src\seed.ts:38-40`、`platform.ts:11-13` |
 | **`cordis` 与 `schemastery` 的 alpha.1→alpha.2 源码零 diff**，唯一改动是 version 字符串 | `git diff ... -- vendor/cordis vendor/schemastery` |
-| `engines.dsh` 当前**不被强制** | `D:\git\deepseek-harness\packages\util\package-manifest\README.md:93` |
+| `engines.dsh` 当时**不被强制**（**只适用于 DSH ≤ `0.2.1-alpha.3`**；`0.2.1-alpha.4` 起它成为唯一门禁） | `D:\git\deepseek-harness\packages\util\package-manifest\README.md:93` |
 
 **结论：业务代码无需任何改动；阻塞项全部在依赖声明层。**
 
@@ -48,7 +49,7 @@
 
 沿用 `docs/plan.md` §2a 的约束：**所有开发产物只写在本仓库 `D:\prj\dshopencodego` 内**。仓库外的写入需先获得明确批准并约定清理方式。
 
-本轮调查已在仓库内产生只读产物，保留备查：
+本轮调查已在仓库内产生只读产物，路径保留备查（**均为本机 `scratch/` 下的产物，未随仓库分发，克隆者无法核对**）：
 
 - `scratch/api-audit/report.md`（38 KB）
 - `scratch/build-verify/report.md`（20 KB）+ `raw/`（51 份原始日志）+ `backup/`（package.json / package-lock.json 原始副本）
@@ -96,7 +97,7 @@
 
 > **诚实标注**：失败瞬间的底层错误原文未被捕获（插桩会改变时序）。alpha.3 是否「加剧」该 flake 也无法判定（alpha.2 8/8 vs alpha.3 16/18，样本不足以判显著）。实现 R-B1 时若选「加固 harness」而非「加 retry」，必须先复现失败再修。
 
-**R-B2 事实依据**：fetch 插桩实测到真实请求 `OK https://models.dev/api.json status=200 in 3ms`（`scratch/build-verify/raw/diag-fetch-instrument.log:6`）。`docs/plan.md` §6 的铁律「单测不得发真实请求」在此已被违反。
+**R-B2 事实依据**：fetch 插桩实测到真实请求 `OK https://models.dev/api.json status=200 in 3ms`（`scratch/build-verify/raw/diag-fetch-instrument.log:6`——**本机产物，未入库，不可复现**）。`docs/plan.md` §6 的铁律「单测不得发真实请求」在此已被违反。
 
 **R-B3 事实依据**：用户 profile `C:\Users\z9n5\.dsh\profiles\web\cordis.patch.yml` 中 `modelVisibility.space-bunny-free: true`，但该模型**不在** Go 端点的 37 个模型内——实测 `POST /zen/go/v1/chat/completions` 返回 `400 Model is unavailable.`。插件 catalog 的成员资格**来自网关列表**（`src/catalog/index.ts:265` 遍历 `ids`），故该开关不产生任何效果。注意 `models.dev` 的 `opencode-go` provider **确实收录了** `space-bunny-free`（38 个模型，多出的正是它）——这是元数据源与实际端点的偏差，也是该配置得以「看起来有效」的原因。
 
@@ -172,8 +173,8 @@
 
 ## 9. 参考
 
-- 兼容性审计报告：`scratch/api-audit/report.md`
-- 实测报告：`scratch/build-verify/report.md`（含 51 份原始日志）
+- 兼容性审计报告：`scratch/api-audit/report.md`（**本机产物，未入库，不可复现**）
+- 实测报告：`scratch/build-verify/report.md`（含 51 份原始日志，**同上**）
 - 上游兼容门禁实现：`D:\git\deepseek-harness\packages\boot\app-boot\src\plugin-compatibility.ts`
 - 上游 manifest 语义：`D:\git\deepseek-harness\packages\util\package-manifest\README.md`
 - 网关服务端逻辑：`D:\git\opencode\packages\console\app\src\routes\zen\util\handler.ts`

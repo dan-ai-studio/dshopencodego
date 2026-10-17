@@ -1,8 +1,14 @@
 # Verification: what costs money and what does not
 
-Everything in `npm test` runs hermetic — 172 cases against the local mock
-gateway plus injected documents, zero network, zero tokens. That is the
-default way to prove a change. In particular no unit or integration test may
+Everything in `npm test` runs hermetic — 317 cases in 43 spec files against the
+local mock gateway plus injected documents, zero tokens, and no credential.
+That is the default way to prove a change. Two of those cases spawn
+`live-check.mjs --check-only`, which performs the script's own **read-only**
+catalog GETs (models.dev and the provider's docs page): they need outbound
+network, still send no inference request and still cost nothing. Both numbers follow `tests/` rather than this
+paragraph: `tests/readme-consistency.spec.ts` checks the file count against the
+directory, and the case count is what `npx vitest list` reports. In particular no
+unit or integration test may
 send a real gateway request: `OpencodeGoAdapter` accepts an optional
 `readDocument` precisely so adapter-level suites inject `offlineDocument()`
 instead of fetching the provider documentation, and `stubModelsDev` only
@@ -67,9 +73,31 @@ transport cannot spell. See `src/catalog/metadata.ts`.
 
 ## Scripts
 
+Every live script's exit code is part of its contract — `0` pass, `1` a refusal
+or a failed check, `2` a usage error — and `tests/verify-scripts.spec.ts` asserts
+that contract. A check that prints `FAILED` and still exits 0 is how a failed
+verification gets recorded as a pass.
+
 | script | spends money | use |
 | --- | --- | --- |
 | `model-probe.mjs` | yes, one request, needs `--allow-live` + price check | confirm a gateway rejection or a wire spelling |
-| `live-check.mjs` | yes, one request, needs `--allow-live` + price check | end-to-end check of catalog + session header |
+| `live-check.mjs` | only with `--allow-live`, which also needs a price check | end-to-end check of catalog + session header. `--check-only` runs every local pre-flight and stops before the first network call (zero tokens); `--list-models` prints the priced candidates |
 | `cost-guard.mjs` | no | shared price ceiling imported by the two scripts above |
-| `recording-proxy.mjs` | no by itself | logs request bodies; forwards whatever asks it to |
+| `recording-proxy.mjs` | no by itself | records the received request headers and forwards every request unchanged; credential headers (`authorization`, `x-api-key`, `cookie`, …) are **redacted before they reach the log**, so the log is an evidence record rather than a secret store |
+| `stream-blackhole.mjs` | no | answers `/models` and `/usage` from the real gateway, but accepts an inference request and never answers it — the only way to exercise a route's stream-idle deadline against a transport that stops producing without closing |
+
+### About the recording proxy
+
+`recording-proxy.mjs` is a **local capture** aid: point a profile's `baseURL` at it
+for one run and read back the headers your own adapter put on the wire. Since
+v0.1.44 it redacts credential-bearing headers (`authorization`,
+`proxy-authorization`, `x-api-key`, `api-key`, `cookie`, `set-cookie`) before
+writing them, keeping only the scheme and the length — a log line reads
+`"authorization": "Bearer <redacted len=41>"` — while non-credential headers such
+as `x-opencode-session` are recorded verbatim. The upstream request still carries
+the real values; only the copy on disk is masked.
+
+> **Historic logs may still hold cleartext keys.** Any `*.jsonl` this proxy wrote
+> **before v0.1.44**, and anything already sitting in `scratch/`, can contain
+> `authorization: Bearer oc_sk_…` in the clear. Do not share, paste, or commit
+> those files, and do not copy them out of `scratch/`.

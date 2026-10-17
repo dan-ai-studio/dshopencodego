@@ -9,6 +9,8 @@
 **方案**：新建隔离 profile `v021`（从 shipped `web` 模板初始化），用**本地打包**的当前分支
 tarball 安装。全程不动日常 `web` profile，删掉 `v021` 即完全回滚。
 
+> **状态：本手册尚未执行**——文件内没有回写的实际结果（§S12 要求把结果写回本文件，至今为空）。另：本手册让执行者把抓包与快照写到 `scratch/`，该目录被 `.gitignore` 忽略、**从未入库**，任何克隆里都不存在这些产物；执行结论应写回 `docs/verification-log.md`。
+
 ## 0. 前置事实
 
 | 事实 | 值 | 影响 |
@@ -18,7 +20,7 @@ tarball 安装。全程不动日常 `web` profile，删掉 `v021` 即完全回�
 | 运行入口 | 在 DSH 检出下 `pnpm dsh ...`（`dsh` 不在 PATH） | 所有命令按此形式 |
 | peer 目标代 | cordis `4.0.5-alpha.1` + cordis-plugin-loader `1.0.6-alpha.1` / group `1.0.5-alpha.1` / include `1.0.10-alpha.1` / schemastery `3.18.5-alpha.1` | profile 安装时若出现 ERESOLVE 或 peer 警告，**先停下排查**，这是本 runbook 的核心判据之一 |
 | 会话/日志 | 运行会新写 `~/.dsh/{sessions,logs,attachments}` | 属目录外写入，见 §4 |
-| 抓包工具 | 仓库内 `tools/verify/recording-proxy.mjs` | S8 复用 |
+| 抓包工具 | 仓库内 `tools/verify/recording-proxy.mjs` | S8 复用。**本地抓包**手段：自 v0.1.44 起写盘前脱敏凭据头（`authorization` → `Bearer <redacted len=41>`）；更早产生的 `*.jsonl` 可能含明文密钥，不要分享或提交 |
 
 ## 1. 完成判据（全过才算过）
 
@@ -133,6 +135,8 @@ pnpm dsh --profile v021
    若只有其中一个协议可用，把观察结果记进 S12（这决定内置目录兜底是否需要 `modelProtocols` 覆盖）。
 
 ### S8 会话头抓包（判据 5）
+
+> **本地抓包验证**：代理自 v0.1.44 起在写盘前脱敏凭据头（`authorization` → `Bearer <redacted len=41>`），`x-opencode-session` 原样保留。**v0.1.44 之前**产生的 `*.jsonl`（含 `scratch/` 下的历史文件）可能含明文密钥，不要分享或提交。
 
 ```powershell
 # 终端 A（仓库根）

@@ -27,11 +27,14 @@
 dsh plugin --profile web add @dan-ai-studio/dshopencodego@<版本>
 ```
 
-安装后确认组合里出现该插件：
+**安装后确认真实加载**——`--dump-config` 证明不了这一点：
 
-```sh
-dsh --profile web --dump-config | grep dshopencodego
-```
+1. 启动输出里应出现插件自己的注册日志 `dshopencodego: route "opencode-go" registered as OpenCode Go`（`enabled: false` 时是 `dshopencodego: disabled by configuration; …`）。没有它就没加载——被版本门禁拒绝时，同一条输出流里会打印 `Plugin … is incompatible with dsh …`。
+2. 没有 HMR 的 profile 安装后会回报 `restart-required`（`restartReason: no-hmr`）：**重启 DSH** 后插件才生效。
+3. 日志位置：启动失败会把完整诊断写到 `$DSH_HOME/logs/startup-<时间戳>-<uuid>.log` 并打印该路径；`dsh plugin` 失败会打印 `dsh: plugin command failed; diagnostics: <路径>`（profile 下的 `.plugin-manager/logs/operation-*/pnpm.log`）。
+4. 会话头是否真的发出去了：`node tools/verify/live-check.mjs --check-only` 是**零成本**本地预检，会打印本次将会携带的 `x-opencode-session` 与 `x-session-affinity`；去掉 `--check-only`、加 `--allow-live` 才会真发**一次**最小请求（花钱，规则见 `tools/verify/README.md`），脚本随后断言并打印 `OK x-opencode-session: <会话 id>`。
+
+> `dsh --profile web --dump-config | grep dshopencodego` **不构成加载证据**：被门禁拒绝的插件行同样会出现在 dump 里（`packages/boot/app-boot/README.md`）。它只能证明"这一行被写进了组合"。
 
 ### 方式二：GitHub Release
 
@@ -83,26 +86,34 @@ DSH 桌面端是 Electron 壳 + 完整的 dsh Web 应用，本插件对它同样
   config:
     enabled: true                            # false 仅撤下路由，插件保持挂载
     apiKeyEnv: OPENCODE_GO_API_KEY            # 默认值
-    baseURL: https://opencode.ai/inference/go/v1    # 默认值（OpenCode Go 端点，37 个订阅模型）
-                                              # 也可指定为 https://opencode.ai/inference/v1（Console 主端点，包含 86 个按量/免费模型）
-    refreshMinutes: 60                        # 目录缓存时长
+    baseURL: https://opencode.ai/inference/go/v1    # 默认值（OpenCode Go 端点）
+                                              # 只能是不带 query / fragment 的 http(s) 地址；写 ?x=1 会在保存配置时被拒
+                                              # 也可指定为 https://opencode.ai/inference/v1（Console 主端点，含按量/免费模型）
+    refreshMinutes: 60                        # 目录缓存时长，1 ~ 10080（7 天）
     streamIdleTimeoutMs: 300000               # 流空闲超时：两次流事件之间的最长静默（毫秒）
     maxRequestImageBytes: 6291456             # 整个请求的图片载荷上限（base64 之后，字节）
     requestImagePixelBudget: 1440000          # 单张图的总像素预算
     requestImageMaxBytes: 400000              # 单张图编码前的字节目标（base64 之前）
-    modelVisibility:                          # 逐模型开关（弃用模型默认关闭）
+    modelVisibility:                          # 逐模型开关；未写到的模型走默认规则（见「设置页里的模型列表」）
       glm-5: true
     modelLimits:                              # 逐模型容量覆盖
       kimi-k3:
         contextWindow: 262144
+        maxTokens: 32768                      # 可选：该模型的输出上限
+      some-legacy-model: null                 # 整条 null：该模型两个字段都显式回退到目录值
     modelProtocols:                           # 最后兜底：逐模型协议覆盖
-      some-new-model: openai-responses
+      some-new-model: openai-responses        # 合法值只有 anthropic-messages / openai-completions / openai-responses
     retryPolicy:                              # 可选：本路由的重试策略（由 dsh-llm-retry 执行）
-      mode: normal
-      maxRetries: 2
+      mode: normal                            # 也可用 always（对所有失败重试，maxRetries 被忽略）
+      maxRetries: 2                           # 默认 5
+      retryableCodes: [RATE_LIMIT, TIMEOUT]   # 可选：只对这些错误码重试（默认 RATE_LIMIT / SERVER / TIMEOUT / TRANSPORT / EMPTY_RESPONSE）
       backoff:
-        initialDelayMs: 500
+        initialDelayMs: 500                   # 默认 500
+        maxDelayMs: 10000                     # 默认 10000，上限 2147483647
+        jitterRatio: 0.1                      # 默认 0.1，取值 0 ~ 1
 ```
+
+**保存即校验**：上面这些约束在**写入 profile 时**就检查，不会拖到第一次请求——`baseURL` 必须是 http(s) 且不带 query/fragment；`refreshMinutes` 取值 1 ~ 10080；`modelLimits` 的每个字段都可以写 `null`，语义是"显式选回目录值"（`modelLimits.<模型>: null` 表示两个字段一起回退）；`modelProtocols` 只接受那三个合法值，写错会让该模型以"配置缺失"出现（开关关闭、不可选），而不是回退到猜测；`retryPolicy` 是联合类型（`normal` 读 `maxRetries`/`retryableCodes`/`backoff`，`always` 只读 `backoff`），未知字段会被拒绝。
 
 API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），也可以直接 `export OPENCODE_GO_API_KEY=...`。
 
@@ -154,45 +165,52 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 - **输入模态**：单独一行列出 models.dev 声明的输入方式（文本 / 图像 / 音频 / 视频 / PDF）。这是**模型自身的元数据**，不等于 DSH 能直传：DSH 的模型输入只原生支持文本与图像，音视频/PDF 走附件与工具读取路径；文档未声明时该行不显示。
 - 筛选（按名称/ID、仅已启用、显示已弃用——**默认隐藏已弃用**）、排序（新发布优先 / 每月预估次数 / 输入单价 / 上下文 / 名称 / 已启用优先）；列表是唯一视图，逐模型纵向排列。
 
-**默认开关规则**：没人显式配置过 `modelVisibility` 时，默认启用**每月预估次数最高的 5 个**（跳过已弃用、无法配置、以及"贡献者版"这类以数据换折扣的模型）；**一旦有任一显式条目，全部按显式值走**。同一规则同时作用于模型选择器与设置页，两处不会出现不同答案。
+**默认开关规则**：`modelVisibility` 是**逐模型**的——写了 `id: true`/`id: false` 的模型按显式值走，**没写到的模型仍走默认规则**：默认启用**每月预估次数最高的 5 个**（跳过已弃用、无法配置、以及"贡献者版"这类以数据换折扣的模型），其余关闭。这份 top5 名单每轮目录刷新都会无条件重算，与是否写过显式条目无关。同一规则同时作用于模型选择器与设置页，两处不会出现不同答案。**后果**：一旦写过显式配置，网关新增的模型若不在 top5 内，下次刷新**不会自动可见**，要显式加一条 `id: true`。
 
 ## 用量
 
 - **额度窗口**：`GET /usage` 返回 5 小时 / 本周 / 本月三个百分比，含重置时间与限流状态；失败时保留上次读数并标注陈旧，账号或端点变化时不保留。
 - **实际消耗**：会话内按钮显示本进程自启动以来的调用次数与 token（输入/输出/缓存读），数据来自 provider 每次调用回传的 usage。网关不公布分模型 token，因此这里如实标注口径，不伪造分模型配额。
+- **估算花费**：按 models.dev 的每百万 token 单价乘 provider 回传的 token 估算，**不是账单**——订阅端点（Go）下仅供参考，只有按量端点（Console）才有对账意义。单价随每次调用一起记录，目录刷新不会用新价重算已经花掉的 token；目录未单独给出缓存单价时，缓存部分**按输入价估算**（上界）。**没有单价的模型显示「未定价」并列出模型名，绝不以 0 冒充免费**；极小金额显示为 `<$0.0001`。
+- **推理 token**：provider 报告的思考 token 是 `outputTokens` 的**子集**，因此单独显示但**不计入总量**（否则同一批 token 会被算两次）。未上报该项的模型不显示该行——那是「没有数据」，不是 0。
 
 ## 兼容性
 
-**支持**：DSH `0.2.0` 系列（`0.2.0-rc.1` 及之后的正式版）与 `0.2.1` 系列。插件在每个 `@deepseek-ai/dsh-*` 的 `peerDependencies` 上声明 `>=0.2.0-rc.1 <0.3.0`。
+**支持**：DSH `0.2.0` 系列（`0.2.0-rc.1` 及之后的正式版）与 `0.2.1` 系列。插件在 `engines.dsh` 与每个 `@deepseek-ai/dsh-*` 的 `peerDependencies` 上声明 `>=0.2.0-rc.1 <0.3.0-0`。
 
 **不再支持 `0.2.0` 之前**：`0.1.7` 系列及更早的版本自 v0.1.36 起被移除支持——那段范围内的运行时接口与本插件当前依赖的接口已经不同，继续声明只会让门禁放行一个未经验证的组合。`0.1.8`、`0.1.9` 从未发布。
 
-**机制（不是写死）**：DSH 在挂载插件前会读取插件 `package.json` 的 `peerDependencies`，对**运行时的 DSH 版本**逐个做 semver 判定（含预发布）：
+**机制（不是写死）**：DSH 在挂载插件前会读取插件 `package.json` 的声明，对**运行时的 DSH 版本**做 semver 判定（含预发布，即 `includePrerelease`）。判定分两级，先命中先赢：
 
-- 全部满足 → 正常加载；
-- 任一不满足 → **该插件行被禁用并打印原因**（`Plugin … is incompatible with dsh …`），其他插件不受影响；
+1. **`engines.dsh` 优先且独占**：插件只要声明了它，就**只**由它决定，`peerDependencies` 完全不参与判定（DSH 源码 `packages/boot/app-boot/src/plugin-compatibility.ts`：命中 `engines.dsh` 即返回）。
+2. 插件**没有**声明 `engines.dsh` 时，才逐个检查 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` 的 peer 范围。
+
+判定结果：
+
+- 满足 → 正常加载；
+- 不满足 → **该插件行被禁用并打印原因**（`Plugin … is incompatible with dsh …`），其他插件不受影响；
 - 需要冒险时可用**精确版本豁免**：`dsh plugin --profile <profile> allow-version <包>@<版本> --dsh-version <精确版本> --accept-risk`（只对该包与该精确版本生效）；`dsh plugin --profile <profile> version-exemptions` 可列出当前 profile 的豁免。
 
-`package.json` 里的 `engines.dsh` 是本插件为读者/包管理器写的信息字段；**DSH 的兼容门禁只读 `peerDependencies`**，请以它为准。`@deepseek-ai/cordis` 单独声明为 `4.0.4 || 4.0.5-alpha.1 || 4.0.5-alpha.2 || 4.0.5`——依次是 DSH `0.2.0-rc.1`/`rc.2`、`0.2.1-alpha.1`/`alpha.2`、`0.2.1-alpha.3`–`alpha.5`、以及 `0.2.1-rc.2` 所用的运行时（`4.0.2`/`4.0.3` 随 `0.2.0` 之前的支持一并移除）。
+**本插件声明了 `engines.dsh`，所以生效的门禁就是它**；peer 范围是给读者与包管理器的声明，只在 `engines.dsh` 被删除之后才会接管判定。上界写成 `<0.3.0-0` 而不是 `<0.3.0`，正是因为判定含预发布：`<0.3.0` 会把 `0.3.0-rc.1` 这类**预发布版判为兼容**并放行，`<0.3.0-0` 才真正封住整条 `0.3.0` 线。`@deepseek-ai/cordis` 单独声明为 `4.0.4 || 4.0.5-alpha.1 || 4.0.5-alpha.2 || 4.0.5`——依次是 DSH `0.2.0-rc.1`/`rc.2`、`0.2.1-alpha.1`/`alpha.2`、`0.2.1-alpha.3`–`alpha.5`、以及 `0.2.1-rc.2` 所用的运行时（`4.0.2`/`4.0.3` 随 `0.2.0` 之前的支持一并移除）。
 
-**声明范围之外**：`0.2.0-rc.1` 之前的所有版本、以及 `0.3.0+` 会被拒绝加载。如果 DSH 侧接口兼容，可自行放宽该插件的 peer 范围并重新构建（不改 DSH 核心）；否则请等插件跟进发版。
+**声明范围之外**：`0.2.0-rc.1` 之前的所有版本、以及整条 `0.3.0` 线（含预发布）都会被拒绝加载。如果 DSH 侧接口兼容，可自行放宽或删除该插件的 **`engines.dsh`** 后重新构建（改 peer 范围是无效的——它不参与判定）；否则请等插件跟进发版。
 
 ### 版本绑定的注意事项
 
 | 绑定层 | 声明 | 谁在把关 |
 | --- | --- | --- |
-| `peerDependencies`（17 个 `@deepseek-ai/dsh-*`） | 均为 `>=0.2.0-rc.1 <0.3.0` | **DSH 加载时的真门禁** |
-| `@deepseek-ai/cordis` | `4.0.4 \|\| 4.0.5-alpha.1 \|\| 4.0.5-alpha.2 \|\| 4.0.5` | 同一门禁 |
-| `engines.dsh` | `>=0.2.0-rc.1 <0.3.0` | 仅信息字段，DSH 不读 |
+| `engines.dsh` | `>=0.2.0-rc.1 <0.3.0-0` | **DSH 加载时的真门禁；声明了它，peer 判定被整体跳过** |
+| `peerDependencies`（17 个 `@deepseek-ai/dsh-*`） | 均为 `>=0.2.0-rc.1 <0.3.0-0` | 仅当 `engines.dsh` 缺席时才接管；本插件声明了它，故当前不参与判定 |
+| `@deepseek-ai/cordis` | `4.0.4 \|\| 4.0.5-alpha.1 \|\| 4.0.5-alpha.2 \|\| 4.0.5` | 同上（peer 通道） |
 | `engines.node` | `^22.19.0 \|\| >=24.0.0` | 包管理器 |
 | 已打包依赖 `@earendil-works/pi-ai` | `~1.3.0`（1.3.x 内），**打进产物**（devDependency） | 独立耦合：pi-ai 改请求构造即影响本插件的线上行为；其 opencode-go 内置目录同时是本插件的打底数据。打包后本插件**没有任何运行时依赖**，安装者不必再解析它 |
 | 已打包依赖 `@deepseek-ai/schemastery` | `~3.18.5-alpha.2`，**打进产物**（devDependency） | 构建期依赖 |
 
 维护时需要注意：
 
-- **必选与可选之分**：18 个 peer（17 个 `dsh-*` 加框架 `cordis`）中 6 个标了 `optional`（`dsh-api-remotes`、`dsh-client-locale`、`dsh-client-store`、`dsh-client-ui-model-selection`、`dsh-client-ui-settings`、`dsh-client-ui-slots`）；真正卡住加载的是 12 个——`cordis`、`dsh-attachment`、`dsh-brand`、`dsh-client-ui-conversation`、`dsh-client-ui-renderer`、`dsh-credentials`、`dsh-fs`、`dsh-launch-environment`、`dsh-llm`、`dsh-timeout`、`dsh-typert-protocol`、`dsh-typert-registry`。其中 `dsh-llm` 是最重的一处耦合（源码 import 二十余处）。
-- **名义范围 ≠ 实测范围**：声明范围是 `>=0.2.0-rc.1 <0.3.0`，本项目实际验证过的基线依次是 `0.2.0-rc.1`（开发依赖基线：门禁判定 + typecheck + 全量用例）、`0.2.0-rc.2`（同上 + `prepareCall` 代次冻结）、`0.2.1-alpha.3`（首个目标版本）、`0.2.1-alpha.4`（T-24）、`0.2.1-alpha.5`（T-26）与 `0.2.1-rc.2`（T-31，运行时升到 cordis `4.0.5`；上游契约层源码零变更）。范围内的其他版本没有逐个验证过。
-- **上界就是跟版线**：`<0.3.0` 意味着 DSH 一旦发布 `0.3.0`，本插件必须同批发新版，否则所有用户加载失败。调整范围后用 `npm test` 验证即可（本地 mock 网关，零网络零 token）——范围以接口声明为准，不要用线上探测来"测"出一个范围。
+- **必选与可选之分**：18 个 peer（17 个 `dsh-*` 加框架 `cordis`）中 6 个标了 `optional`（`dsh-api-remotes`、`dsh-client-locale`、`dsh-client-store`、`dsh-client-ui-model-selection`、`dsh-client-ui-settings`、`dsh-client-ui-slots`）；其余 12 个是运行时必需的——`cordis`、`dsh-attachment`、`dsh-brand`、`dsh-client-ui-conversation`、`dsh-client-ui-renderer`、`dsh-credentials`、`dsh-fs`、`dsh-launch-environment`、`dsh-llm`、`dsh-timeout`、`dsh-typert-protocol`、`dsh-typert-registry`。这 18 个当前都**不参与加载判定**（见上：`engines.dsh` 单独决定），它们的价值在于声明依赖并供包管理器与读者使用。其中 `dsh-llm` 是最重的一处耦合（源码 import 二十余处）。
+- **名义范围 ≠ 实测范围**：声明范围是 `>=0.2.0-rc.1 <0.3.0-0`，本项目实际验证过的基线依次是 `0.2.0-rc.1`（开发依赖基线：门禁判定 + typecheck + 全量用例）、`0.2.0-rc.2`（同上 + `prepareCall` 代次冻结）、`0.2.1-alpha.3`（首个目标版本）、`0.2.1-alpha.4`（T-24）、`0.2.1-alpha.5`（T-26）与 `0.2.1-rc.2`（T-31，运行时升到 cordis `4.0.5`；上游契约层源码零变更）。范围内的其他版本没有逐个验证过。
+- **上界就是跟版线**：`<0.3.0-0` 意味着 DSH 一旦发布 `0.3.0-0`（`0.3.0` 线的第一个预发布版），本插件必须同批发新版，否则所有用户加载失败。`tests/peer-coverage.spec.ts` 会同时断言下界接受已安装版本、上界拒绝 `0.3.0-0`，所以这条线漂移会在本地测试里先失败，而不是等用户加载失败。调整范围后用 `npm test` 验证即可（本地 mock 网关，零网络零 token）——范围以接口声明为准，不要用线上探测来"测"出一个范围。
 - **peer 覆盖已双向守住**：`dsh-typert-registry`、`dsh-client-ui-conversation`、`dsh-client-ui-renderer` 曾被源码 import 却未声明、门禁管不到，现已补进 `peerDependencies`；`tests/peer-coverage.spec.ts` 双向断言——源码用到的必须声明，声明了却没人用的必须删（`dsh-settings` 就这样被移除：设置表单实际由 `dsh-client-ui-settings` 提供）。
 - **豁免是按 profile 记的**：只有显式执行过 `dsh plugin allow-version` 的 profile 才享有豁免；没有记录就代表必须落在声明范围内。用 `dsh plugin version-exemptions` 可查看当前 profile 的豁免。
 
@@ -217,11 +235,13 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 npm ci
 npm run lint        # oxlint：静态检查（发布流程也会跑，失败即阻断）
 npm run typecheck   # host 与 client 两半
+npm run build       # 先构建：产出 lib/index.js 与 lib/client.js
 npm test            # 契约测试：真实 HTTP mock 网关，断言请求头/体、目录阶梯、用量
-npm run build       # 产出 lib/index.js 与 lib/client.js
 ```
 
-测试覆盖配置校验、协议阶梯、网关与在线元数据、目录投影、适配器（三种协议的线上请求）、Remote 契约与服务、会话头不变量、用量窗口与计量、客户端控制器与用量组件、两半的挂载与登记、以及几条**结构性不变量**（inject 声明与源码读取一致、peer 覆盖双向、README 与 manifest 一致）。共 **33 个测试文件**——这个数字由 `tests/readme-consistency.spec.ts` 对着 `tests/` 目录校验，不会漂移。
+**顺序有讲究**：`npm run build` 要排在 `npm test` 之前——`tests/pack-contents.spec.ts` 会遍历 `exports` 的每个目标，`lib/` 存在与否决定这条检查是执行还是被跳过（不报错，但会少一层保护）。`package.json` 已移除 `prepare`，因此 `npm ci` 不会再替你隐式构建；三个 CI workflow 都显式跑了 `npm run build`。
+
+测试覆盖配置校验、协议阶梯、网关与在线元数据、目录投影、适配器（三种协议的线上请求）、Remote 契约与服务、会话头不变量、用量窗口与计量、客户端控制器与用量组件、两半的挂载与登记、流空闲超时与中止的错误映射、验证脚本的退出码契约、以及几条**结构性不变量**（inject 声明与源码读取一致、peer 覆盖双向、README 与 manifest 一致）。共 **43 个测试文件**——这个数字由 `tests/readme-consistency.spec.ts` 对着 `tests/` 目录校验，不会漂移。
 
 ## 发布（维护者）
 

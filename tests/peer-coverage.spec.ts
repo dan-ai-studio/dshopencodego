@@ -1,8 +1,10 @@
 /**
  * Every DSH package the source reaches must be a declared peer.
  *
- * DSH's compatibility gate reads only `peerDependencies`, so a package the
- * source imports but the manifest omits is one the gate cannot see: a rename
+ * DSH's compatibility gate decides on `engines.dsh` when the plugin declares
+ * it, and only falls back to `peerDependencies` when it does not, so a package
+ * the source imports but the manifest omits is one the declaration cannot
+ * describe: a rename
  * or removal on the host side then surfaces as a runtime failure instead of a
  * load-time refusal. Type-only imports and `declare module` augmentations count
  * — they bind the host's Context and SlotMap shapes just as much.
@@ -72,6 +74,14 @@ describe('peer coverage', () => {
       expect(range, name).toContain('>=0.2.0-rc.1')
     }
     expect(packageJson.engines.dsh).not.toMatch(/0\.1\./)
+    // The upper bound has to close the whole 0.3.0 line, prereleases included:
+    // DSH judges with `includePrerelease`, so a plain `<0.3.0` would admit
+    // `0.3.0-rc.1` — a major version this plugin has never been verified
+    // against. Only `<0.3.0-0` refuses every prerelease of 0.3.0.
+    expect(packageJson.engines.dsh).toContain('<0.3.0-0')
+    for (const [name, range] of dshPeers) {
+      expect(range, name).toContain('<0.3.0-0')
+    }
     // The cordis branches that only pre-0.2 runtimes used.
     const cordis = packageJson.peerDependencies['@deepseek-ai/cordis']
     expect(cordis).not.toContain('4.0.2')

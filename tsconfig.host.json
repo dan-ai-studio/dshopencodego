@@ -4,7 +4,12 @@
     "outDir": "lib/types",
     "rootDir": "src",
     "lib": ["ES2024"],
-    "types": ["node"]
+    "types": ["node"],
+    // This tree exists for `exports["."].types` and for editors, not for
+    // running: the Host half is the esbuild bundle (lib/index.js). Without
+    // this, tsc also emitted 31 `.js` files (~200 kB) beside the declarations,
+    // and `files: ["lib"]` shipped every one of them in the tarball.
+    "emitDeclarationOnly": true
   },
   "include": ["src/**/*.ts"],
   "exclude": ["src/client/**/*"]

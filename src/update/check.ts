@@ -71,6 +71,24 @@ export function parseVersion(value: string): ParsedVersion | undefined {
 }
 
 /**
+ * Order one pair of dotted prerelease identifiers, per semver §11.
+ *
+ * Numeric identifiers compare numerically and alphanumeric ones compare in
+ * ASCII order, and a numeric identifier always ranks below an alphanumeric
+ * one. A plain string comparison got the numeric case backwards — `rc.10` was
+ * read as older than `rc.9` — and this project's own peer ranges carry
+ * `rc`/`alpha` prereleases, so that decision reaches real update notices.
+ */
+function comparePrereleaseIdentifier(left: string, right: string): number {
+  const leftNumber = /^\d+$/.test(left) ? Number(left) : undefined
+  const rightNumber = /^\d+$/.test(right) ? Number(right) : undefined
+  if (leftNumber !== undefined && rightNumber !== undefined) return leftNumber - rightNumber
+  if (leftNumber !== undefined) return -1
+  if (rightNumber !== undefined) return 1
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
+/**
  * Compare two version strings.
  * @returns negative when `left` is older, positive when newer, zero when equal.
  * @throws {Error} when either side is not a version.
@@ -92,7 +110,8 @@ export function compareVersions(left: string, right: string): number {
     const theirsPart = theirs.prerelease[index]
     if (oursPart === undefined) return -1
     if (theirsPart === undefined) return 1
-    if (oursPart !== theirsPart) return oursPart < theirsPart ? -1 : 1
+    const difference = comparePrereleaseIdentifier(oursPart, theirsPart)
+    if (difference !== 0) return difference
   }
   return 0
 }

@@ -1,9 +1,9 @@
 # 开发计划：DSH 0.2.1-alpha.3 适配与接口跟进
 
-- **状态**：待执行
+- **状态**：**已完成并归档**（2026-10-18 移入 `docs/archive/`；收尾版本 v0.1.43）。本文是历史记录，**不代表现状**——现行文档索引见 `docs/README.md`。
 - **日期**：2026-10-15
-- **需求依据**：`docs/requirements-0.2.1-alpha.3.md`（R 编号在该文档定义）
-- **任务清单**：`docs/tasks-0.2.1-alpha.3.md`
+- **需求依据**：`docs/archive/requirements-0.2.1-alpha.3.md`（R 编号在该文档定义）
+- **任务清单**：`docs/archive/tasks-0.2.1-alpha.3.md`
 - **前序计划**：`docs/plan.md`（v0.1.x 建仓至 M6，已完成）
 
 ## 1. 总体判断

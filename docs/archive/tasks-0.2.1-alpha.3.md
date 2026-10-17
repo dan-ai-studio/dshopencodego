@@ -1,10 +1,11 @@
 # 任务列表：DSH 0.2.1-alpha.3 适配与接口跟进
 
-- **状态**：M1–M4 已完成（T-01–T-22 `done`）；后续追加的 T-24、T-25 已完成并在真实页面验证；T-23 `pending`（未批准，需用户明确追加）
+- **状态**：**已完成并归档**（2026-10-18 移入 `docs/archive/`；收尾版本 v0.1.43）。M1–M4（T-01–T-22）全部 `done`；后续追加的 T-24、T-25、T-26、T-27、T-28、T-31 亦已 `done` 并在真实页面/真实网关验证；**唯一未执行项是 T-23 `pending`**（前提已变，待重新批准）。本文是历史记录，**不代表现状**——现行文档索引见 `docs/README.md`。
 - **日期**：2026-10-15
-- **需求依据**：`docs/requirements-0.2.1-alpha.3.md`
-- **计划依据**：`docs/plan-0.2.1-alpha.3.md`
+- **需求依据**：`docs/archive/requirements-0.2.1-alpha.3.md`
+- **计划依据**：`docs/archive/plan-0.2.1-alpha.3.md`
 - **执行原则**：串行 M1 → M2 → M3 → M4；每个任务独立可回滚；**每个任务完成即更新本表状态**。
+- **证据产物**：表中"写范围"与"证据"里的 `scratch/…` 是**本机临时目录**——被 `.gitignore` 忽略，从未入库、不随仓库分发，**克隆者无法核对**。它们是任务当时在本机留下的产物，不是仓库内容。
 
 ## 状态图例
 
@@ -82,11 +83,11 @@
 | **T-22** | 补齐会话亲和头 `x-session-affinity`（取值同 `x-opencode-session`） | R-C3 | 在 `src/session-header.ts` 中统一派发，单测见 `tests/session-header.spec.ts` | done |
 | **T-23** | 在设置页/限额表标注 Go 端点免费模型的「额度耗尽后仍可用」语义 | R-C4 | **前提已变（2026-10-17 核对官方文档）**：原定 3 个模型中，`step-5-preview-free` 已改名为 `step-5-preview` **且不再免费**（$60 月度额度，4x 限时）；`longcat-2.5-preview-free` 仍免费；`cat-jam-free` 未列入文档的当前模型表但挂在 pi-ai 内置目录中；文档新增免费模型 `beam-free`（Unlimited，限部分地区）。与 pi-ai 1.3.0 的目录出入说明上游数据源也有滞后。**需重新确认标注范围后再执行** | pending（前提已变，待重新批准） |
 | **T-28** | 清理审计（v0.1.39） | 本次审计 | 修正 `build.mjs` 头部已失效的描述（仍称"所有包 external"）；把 21 个仅本模块使用的符号从 `export` 收回（它们不在 `src/index.ts` 的公开导出里，导出只会让实现细节看起来像契约）。扫描同时确认：无死代码（`noUnusedLocals`/`noUnusedParameters` 已开启）、无未使用依赖、删除代码无残留引用、`scratch/` 已被 gitignore | done（v0.1.39） |
-| **T-24** | 依赖跟进到 DSH `0.2.1-alpha.4` | 计划 §7 | 21 个 `dsh-*` devDeps 升至 alpha.4（cordis 维持 `4.0.5-alpha.2`）；按 T-01 约定备份并记录 SHA256；全新安装 258 包 / 0 漏洞 / 无 ERESOLVE；三关全绿。peer 范围与 `engines.dsh` 本已覆盖，无需改动。证据：`scratch/t24-backup/` | done（v0.1.31） |
+| **T-24** | 依赖跟进到 DSH `0.2.1-alpha.4` | 计划 §7 | 21 个 `dsh-*` devDeps 升至 alpha.4（cordis 维持 `4.0.5-alpha.2`）；按 T-01 约定备份并记录 SHA256；全新安装 258 包 / 0 漏洞 / 无 ERESOLVE；三关全绿。peer 范围与 `engines.dsh` 本已覆盖，无需改动。证据：`scratch/t24-backup/`（**本机产物，未入库，不可复现**） | done（v0.1.31） |
 | **T-25** | 设置页一键更新（检查新版本 → 卸载旧版 → 安装新版） | 用户追加 | Remote `opencodeGoUpdate`（`readUpdate`/`refreshUpdate`）+ 设置页横幅与二次确认；实际安装交由宿主 `pluginManager`，插件不改写自身文件 | done（v0.1.23–v0.1.33） |
-| **T-26** | 依赖跟进到 DSH `0.2.1-alpha.5` | 计划 §7 | 21 个 `dsh-*` devDeps 升至 alpha.5；先核对上游：`llm`/`typert`/`settings`/`client` 契约层源码零变更，**无需适配**；全新安装 258 包 / 0 漏洞；三关全绿。证据：`scratch/t26-backup/` | done（v0.1.34） |
+| **T-26** | 依赖跟进到 DSH `0.2.1-alpha.5` | 计划 §7 | 21 个 `dsh-*` devDeps 升至 alpha.5；先核对上游：`llm`/`typert`/`settings`/`client` 契约层源码零变更，**无需适配**；全新安装 258 包 / 0 漏洞；三关全绿。证据：`scratch/t26-backup/`（**本机产物，未入库，不可复现**） | done（v0.1.34） |
 | **T-27** | README 兼容性表与实际声明保持一致 | 本次审计 | 修正四处漂移（pi-ai 差三个大版本、cordis peer 缺 alpha 分支、engines.dsh 缺 0.2.1-alpha 段、schemastery 版本）；新增 `tests/readme-consistency.spec.ts` 逐条断言**对应表格行**（中英各一份），并以临时回退验证其确实能抓到漂移 | done（v0.1.34） |
-| **T-31** | 依赖跟进到 DSH `0.2.1-rc.2` | 用户追加 | **关键点：`cordis` 从 `4.0.5-alpha.2` 变为正式版 `4.0.5`**，peer 必须补上否则 rc 环境下门禁拒绝加载；21 个 `dsh-*` devDeps 升至 `0.2.1-rc.2`。先核对上游：`llm`/`gateway`/`typert`/`settings`/`client` 与 vendored `cordis` 源码**零变更**（仅 package.json 版本号），**无需适配**。增量安装报 `ERESOLVE`（旧 lock 残留 alpha.5），按 T-01 约定全新安装：244 包 / 0 漏洞 / 无 ERESOLVE；三关全绿。证据：`scratch/t31-backup/` | done（v0.1.43） |
+| **T-31** | 依赖跟进到 DSH `0.2.1-rc.2` | 用户追加 | **关键点：`cordis` 从 `4.0.5-alpha.2` 变为正式版 `4.0.5`**，peer 必须补上否则 rc 环境下门禁拒绝加载；21 个 `dsh-*` devDeps 升至 `0.2.1-rc.2`。先核对上游：`llm`/`gateway`/`typert`/`settings`/`client` 与 vendored `cordis` 源码**零变更**（仅 package.json 版本号），**无需适配**。增量安装报 `ERESOLVE`（旧 lock 残留 alpha.5），按 T-01 约定全新安装：244 包 / 0 漏洞 / 无 ERESOLVE；三关全绿。证据：`scratch/t31-backup/`（**本机产物，未入库，不可复现**） | done（v0.1.43） |
 
 ### T-25 的验证记录
 
@@ -122,4 +123,4 @@
 2. **M1 的 T-06 会清空 `node_modules`**：若同时有其他工作依赖该目录，先协调。
 3. **不得把「未跑」记为「通过」**；失败必须记录原始报错与退出码。
 4. **T-14 涉及仓库外文件**，默认只交付建议。
-5. 全部完成后，`scratch/` 下的调查产物（`api-audit/`、`build-verify/`）可作为历史证据保留，是否清理由用户决定。
+5. 全部完成后，`scratch/` 下的调查产物（`api-audit/`、`build-verify/`）可作为本机历史证据保留，是否清理由用户决定；它们**从未入库**，本表归档也不附带它们。

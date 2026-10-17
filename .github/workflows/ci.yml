@@ -5,9 +5,19 @@ on:
     branches: [main]
   pull_request:
 
+# Least privilege: this workflow only reads the repository.
+permissions:
+  contents: read
+
+# A new push makes the previous run's verdict irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -20,8 +30,17 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
-      # `prepare` builds the bundle, so a broken build fails the install step.
       - run: npm ci
+      # Explicit rather than a side effect of `prepare` during `npm ci`: the
+      # build is the step most likely to break, so it belongs in the log as
+      # itself. `npm pack` below needs `lib/`, and so do the `exports` checks
+      # in tests/pack-contents.spec.ts (which skip themselves when `lib/` is
+      # absent — a silent hole if nothing here built it).
+      - run: npm run build
+      # Lint next: it is the cheapest gate, and leaving it out of CI moved
+      # every lint failure to the manual publish run — after the tag and the
+      # public GitHub Release already existed.
+      - run: npm run lint
       - run: npm run typecheck
       # Coverage carries thresholds (vitest.config.ts), so this doubles as the
       # floor check: a regression below the floor fails the job.

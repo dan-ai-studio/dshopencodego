@@ -21,6 +21,38 @@ export type PiAiReplayBlock =
   | { type: 'reasoning'; thinkingSignature?: string; redacted?: boolean }
   | { type: 'tool-call'; thoughtSignature?: string }
 
+/**
+ * Stop reasons a durable envelope may carry.
+ *
+ * The read side accepts exactly this set, so the write side must never store
+ * anything outside it. `pending` and `deferred` are transport states, not
+ * durable facts: a pi-ai `done` event can carry `deferred`
+ * (`pi-ai/dist/types.d.ts:616`), and `mapStopReason` already renders both as
+ * an error finish (`./stream.ts:118-125`). Storing them verbatim made the next
+ * request read back its own envelope as invalid — the message degraded to
+ * provider-neutral history, every signature was dropped, and the plugin logged
+ * "unusable replay state".
+ */
+export const REPLAYABLE_STOP_REASONS = ['stop', 'length', 'toolUse', 'error', 'aborted'] as const
+
+/** One stop reason a replay envelope may carry. */
+export type ReplayableStopReason = typeof REPLAYABLE_STOP_REASONS[number]
+
+/**
+ * The durable form of a pi-ai stop reason.
+ *
+ * A non-terminal state (`pending`, `deferred`) is stored as `error`, matching
+ * the finish reason the stream reported for it: envelope and finish agree, and
+ * the message stays replayable.
+ * @param stopReason - the native stop reason of a terminal pi-ai message.
+ * @returns a reason the read side accepts.
+ */
+export function replayableStopReason(stopReason: AssistantMessage['stopReason']): ReplayableStopReason {
+  return (REPLAYABLE_STOP_REASONS as readonly string[]).includes(stopReason)
+    ? stopReason as ReplayableStopReason
+    : 'error'
+}
+
 /** Versioned response-level half of the replay envelope. */
 export interface PiAiReplayResponse {
   kind: 'pi-ai'
@@ -34,7 +66,8 @@ export interface PiAiReplayResponse {
   responseId?: string
   /** Provider-native effort, replayed as-is; absence stays absent. */
   providerThinkingLevel?: string
-  stopReason: AssistantMessage['stopReason']
+  /** Durable terminal state; never a transport state like `pending`. */
+  stopReason: ReplayableStopReason
 }
 
 interface PiAiReplayState {
@@ -69,6 +102,9 @@ function emptyPiUsage(): PiUsage {
 
 /**
  * Project a successful pi-ai response into the minimal durable replay state.
+ *
+ * The stop reason is stored in its durable form ({@link replayableStopReason}),
+ * so an envelope this process wrote is an envelope it can read back.
  * @param message - the completed native response.
  * @param requestedModel - request identity stored on the assistant source.
  * @returns the versioned lossless-JSON envelope; `blocks` is index-aligned with
@@ -87,7 +123,7 @@ export function toPiReplayState(message: AssistantMessage, requestedModel = mess
     ...responseModel === undefined ? {} : { responseModel },
     ...message.responseId === undefined ? {} : { responseId: message.responseId },
     ...message.providerThinkingLevel === undefined ? {} : { providerThinkingLevel: message.providerThinkingLevel },
-    stopReason: message.stopReason,
+    stopReason: replayableStopReason(message.stopReason),
   }
   return {
     response,
@@ -129,7 +165,7 @@ function readReplayState(value: unknown): PiAiReplayState {
   for (const key of ['api', 'provider', 'model'] as const) {
     if (typeof response[key] !== 'string' || response[key].length === 0) return invalidReplay(`${key} must be a non-empty string`)
   }
-  if (!['stop', 'length', 'toolUse', 'error', 'aborted'].includes(String(response['stopReason']))) {
+  if (!(REPLAYABLE_STOP_REASONS as readonly string[]).includes(String(response['stopReason']))) {
     return invalidReplay('unknown stopReason')
   }
   for (const key of ['responseModel', 'responseId', 'providerThinkingLevel'] as const) {

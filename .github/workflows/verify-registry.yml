@@ -1,0 +1,59 @@
+# The registry half of the release contract.
+#
+# `release.yml` creates a public GitHub Release for every `v*` tag, while the
+# npm publish is a separate, manual `publish-npm.yml` run — so nothing used to
+# notice when the second half never happened. It did happen: tags 0.1.0–0.1.4
+# carry Releases but were never published to npm.
+#
+# This workflow is read-only and publishes nothing. It asks the registry
+# whether the newest release tag is really there, on a schedule and on demand,
+# and leaves release.yml's triggers and responsibilities untouched.
+name: verify-registry
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to look up on npm (defaults to the newest tag)"
+        required: false
+        type: string
+  schedule:
+    # Mondays 06:17 UTC — off the hour, where scheduled runs queue longest.
+    - cron: '17 6 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-registry
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Tags only exist locally when the whole history is fetched.
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: The newest release tag must be on npm
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${REQUESTED_TAG:-$(git describe --tags --abbrev=0)}"
+          case "$tag" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::'$tag' is not a v<version> tag"; exit 1 ;;
+          esac
+          version="${tag#v}"
+          published="$(npm view "@dan-ai-studio/dshopencodego@$version" version 2>/dev/null || true)"
+          if [ "$published" != "$version" ]; then
+            echo "::error::$tag has a GitHub Release but the registry serves '${published:-<nothing>}' for $version — run the publish-npm workflow for $tag"
+            exit 1
+          fi
+          echo "$tag is on npm as $published"
