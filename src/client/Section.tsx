@@ -15,7 +15,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { CatalogReading } from '../catalog/contract.ts'
 import type { UpdateStatus } from '../update/contract.ts'
-import { PACKAGE_NAME } from '../update/check.ts'
+import { PACKAGE_NAME, REPOSITORY } from '../update/check.ts'
 import { SEED_TRANSCRIBED } from '../go-limits.ts'
 import { isModelEnabled } from '../models.ts'
 import { compactCount, INITIAL_FILTER, inputModalityLabels, visibleModels } from './model-view.ts'
@@ -609,7 +609,13 @@ function UpdateBanner({ controller, t, busy, act, update }: {
 }): React.JSX.Element | null {
   if (update.phase === 'idle') return null
   const status = update.status
-  const notes = `https://www.npmjs.com/package/${encodeURIComponent(PACKAGE_NAME)}`
+  // Point at the release itself, not the package page: npm renders the README,
+  // which carries no changelog, so the old link could not answer the only
+  // question this link exists for — what changed in that version. Fall back to
+  // the releases index when the check has not told us a version yet.
+  const notes = status?.latest === undefined
+    ? `https://github.com/${REPOSITORY}/releases`
+    : `https://github.com/${REPOSITORY}/releases/tag/v${status.latest}`
   return <div className={css.block}>
     <div className={css.row}>
       <strong>{t('updateTitle')}</strong>

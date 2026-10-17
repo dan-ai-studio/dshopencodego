@@ -2,6 +2,23 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.42] - 2026-10-17
+
+### ✨ 改进 (Improvements)
+
+- **「更新说明」按钮现在真的能看到说明**：它原先指向 **npm 包页面**——而 npm 渲染的是 README，**不含更新日志**，所以这个按钮回答不了它唯一该回答的问题："这一版改了什么"。现在指向**该版本的 GitHub Release**（`/releases/tag/v<版本>`，检查尚无版本时退回 releases 索引）。
+- **发布流程自动带上更新说明**：`release.yml` 原先用 `gh release --generate-notes`，结果每个 Release 的说明只有一行 compare 链接。现在由新增的 `scripts/release-notes.mjs` **从 `CHANGELOG.md` 提取对应版本段落**作为说明；提取不到就**以非零退出码中止发布**，而不是发布一个空说明。手工创建过的 Release 也会被补上同样的说明。
+
+### 🐞 修正 (Fixes)
+
+- **`update/check.ts` 的模块注释已过时**：它仍写着"registry 不可达就静默隐藏横幅"——那是 v0.1.28 修复前的行为。实际上现在 `UpdateStatus.checked` 会保持 `false`，页面明确报"无法访问 registry"，而不是把它呈现成"已是最新"。
+
+### 🧪 测试
+
+- 新增两条结构性不变量：`REPOSITORY` 常量与 `package.json` 的 `repository` 一致（漂移会让链接 404）；「更新说明」链接必须指向 Release 而非 npm 包页面。
+
+---
+
 ## [0.1.41] - 2026-10-17
 
 ### ⚡ 工具链 (Tooling)

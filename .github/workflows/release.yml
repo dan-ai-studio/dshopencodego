@@ -22,9 +22,21 @@ jobs:
       - name: Publish the tarball as the release asset
         env:
           GH_TOKEN: ${{ github.token }}
+        # The description comes from CHANGELOG.md rather than
+        # `--generate-notes`, which produced nothing but a compare link: a
+        # release page told a reader nothing about what changed even though the
+        # changelog beside it did. `release-notes.mjs` exits non-zero when the
+        # section is missing, so a release cannot ship an empty description.
+        #
         # Idempotent: a release created by hand for the same tag is completed
-        # with the freshly built tarball instead of failing the run.
+        # with the freshly built tarball instead of failing the run — and gets
+        # the same description.
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            && gh release upload "$GITHUB_REF_NAME" ./*.tgz --clobber \
-            || gh release create "$GITHUB_REF_NAME" ./*.tgz --generate-notes
+          node scripts/release-notes.mjs > release-notes.md
+          cat release-notes.md
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" ./*.tgz --clobber
+            gh release edit "$GITHUB_REF_NAME" --notes-file release-notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" ./*.tgz --notes-file release-notes.md
+          fi

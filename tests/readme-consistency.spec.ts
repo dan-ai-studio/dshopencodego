@@ -13,6 +13,7 @@
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { REPOSITORY } from '../src/update/check.ts'
 
 const manifest = JSON.parse(readFileSync('package.json', 'utf8')) as {
   engines: Record<string, string>
@@ -65,5 +66,22 @@ describe('README consistency', () => {
     expect(files.length).toBeGreaterThan(0)
     expect(readmeText('README.md')).toContain(`${String(files.length)} 个测试文件`)
     expect(readmeText('README.en.md')).toContain(`${String(files.length)} test files`)
+  })
+
+  it('keeps the repository constant in step with the manifest', () => {
+    // The constant builds the release-notes link, so a drift here sends users
+    // to a 404 rather than to the notes.
+    const url = (manifest as { repository?: { url?: string } }).repository?.url ?? ''
+    const slug = url.replace(/^git\+/, '').replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')
+    expect(slug).not.toBe('')
+    expect(REPOSITORY).toBe(slug)
+  })
+
+  it('points the update-notes link at the release, not the package page', () => {
+    // npm renders the README, which carries no changelog, so the old npmjs
+    // link could not answer what changed in the version being offered.
+    const section = readFileSync('src/client/Section.tsx', 'utf8')
+    expect(section).toContain('/releases/tag/v')
+    expect(section).not.toContain('npmjs.com/package')
   })
 })

@@ -10,14 +10,18 @@
  * HMR lifecycle, so it is deliberately not implemented here.
  *
  * The check runs only when the settings page asks (page open or manual
- * refresh), never on the model-request path, and fails silent: an unreachable
- * registry simply hides the banner instead of erroring the page.
+ * refresh), never on the model-request path. An unreachable registry is
+ * reported as exactly that: `UpdateStatus.checked` stays false so the page
+ * says the lookup failed instead of presenting it as "already up to date".
  *
  * @module @dan-ai-studio/dshopencodego/update/check
  */
 
 /** This package as addressed on the registry. */
 export const PACKAGE_NAME = '@dan-ai-studio/dshopencodego'
+
+/** The GitHub repository, used to link a release's own notes. */
+export const REPOSITORY = 'dan-ai-studio/dshopencodego'
 
 /** Document address answering `{ "version": "x.y.z", ... }`. */
 export const REGISTRY_LATEST_URL = `https://registry.npmjs.org/${encodeURIComponent(PACKAGE_NAME)}/latest`
