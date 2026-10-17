@@ -1,11 +1,13 @@
 /**
  * Build the Host ESM entry and the DSH browser module the Web UI loads.
  *
- * The Host half is one ESM bundle with every package left external (the Harness
- * supplies its own DSH packages at runtime; pi-ai and schemastery come from this
- * package's dependencies). The Client half is a CommonJS factory registered
- * through `window.__ModuleLoader__`, with React and the DSH Client packages left
- * to the page, and CSS Modules compiled to a scoped `<style>` tag at load.
+ * The Host half is one ESM bundle. Only the Harness's own packages stay
+ * external (it supplies them at runtime); `pi-ai` and `schemastery` are
+ * **compiled in**, which keeps the plugin free of runtime dependencies and
+ * keeps Node's CommonJS interop out of the pi-ai load path. The Client half is
+ * a CommonJS factory registered through `window.__ModuleLoader__`, with React
+ * and the DSH Client packages left to the page, and CSS Modules compiled to a
+ * scoped `<style>` tag at load.
  */
 import { build } from 'esbuild'
 import { transform } from 'lightningcss'

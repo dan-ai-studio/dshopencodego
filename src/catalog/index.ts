@@ -77,7 +77,7 @@ export interface CatalogSnapshot {
 }
 
 /** Observers the plugin logs through. */
-export interface CatalogObservers {
+interface CatalogObservers {
   /** One source fell back to retained data. */
   readonly onFallback?: (detail: { url: string; error: unknown; kept: number }) => void
   /** Ids that could not be configured, reported once per build. */

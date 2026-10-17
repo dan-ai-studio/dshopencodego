@@ -126,7 +126,7 @@ export function validReleaseDate(value: unknown): value is string {
 }
 
 /** Whether a model shipped within the last week. */
-export function isNewModel(model: ModelSummary, now = Date.now()): boolean {
+function isNewModel(model: ModelSummary, now = Date.now()): boolean {
   if (model.deprecated === true || !validReleaseDate(model.releaseDate)) return false
   const days = Math.floor(now / 86_400_000) - Date.parse(model.releaseDate) / 86_400_000
   return days >= 0 && days < 7

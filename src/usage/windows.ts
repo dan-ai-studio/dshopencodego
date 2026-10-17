@@ -60,7 +60,7 @@ export function parseGoUsage(value: unknown): Omit<GoUsageWindows, 'source'> {
 }
 
 /** Inputs one usage read needs. */
-export interface UsageReadOptions {
+interface UsageReadOptions {
   /** Normalized gateway base URL. */
   readonly baseURL: string
   /** Resolved credential; absence is reported as an unconfigured route. */

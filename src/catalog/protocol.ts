@@ -91,7 +91,7 @@ export function asWireProtocol(value: string | undefined): WireProtocol | undefi
 }
 
 /** One model's evidence, as gathered from the three automatic sources. */
-export interface ProtocolEvidence {
+interface ProtocolEvidence {
   /** Protocol the installed pi-ai catalog declares for this exact id. */
   readonly builtin?: WireProtocol
   /** Protocol models.dev names for this model, or its provider-level default. */

@@ -2,6 +2,22 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.39] - 2026-10-17
+
+### 🧹 清理 (Cleanup)
+
+无功能变更。一次代码审计的结果：
+
+- **修正已失效的构建说明**：`scripts/build.mjs` 头部仍写着"所有包都保持 external（pi-ai 与 schemastery 来自本包的 dependencies）"——自 v0.1.38 起二者已编译进产物，`dependencies` 也为空。说明与代码不符会误导后来者，尤其在一个"打包与否"正是关键决策的位置。
+- **收回 21 个内部符号的导出**：它们在各自模块内被使用（不是死代码），但不在 `src/index.ts` 的公开导出列表中，`export` 只会让实现细节看起来像对外契约。涉及 `catalog/`、`client/Section.tsx`、`config.ts`、`models.ts`、`update/check.ts`、`usage/windows.ts`。
+- **审计同时确认**（未发现问题）：无死代码——`tsconfig` 已开启 `noUnusedLocals`/`noUnusedParameters` 且 `target` 为 `ES2024`、`strict` 与 `exactOptionalPropertyTypes`、`noUncheckedIndexedAccess` 全部到位；所有 devDependency 均被引用；`dependencies` 为空；已删除代码（0.1.37 的警告过滤）无任何残留引用；`scratch/` 调查产物已被 gitignore，不进仓库也不进包。
+
+### 📌 已知的依赖滞后（本次未动，需要时再评估）
+
+`react`/`react-dom` 18 与 `@types/react` 18 落后于 19：**这三项必须跟随宿主**——Client 产物把 React 留给 DSH Web 的模块表提供，擅自升级只会让类型与实际运行时脱节。`@types/node` 22 对应 `engines.node` 的下限（`^22.19.0`），保持一致。可独立评估的是 `typescript` 6→7、`vitest` 4→5（含 `@vitest/coverage-v8`）、`jsdom` 29→30，三者都是大版本，属于独立任务而非本次清理。
+
+---
+
 ## [0.1.38] - 2026-10-17
 
 ### 🔧 根本修复 (Root cause)

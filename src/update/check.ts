@@ -111,7 +111,7 @@ export function parseLatestVersion(body: unknown): string | undefined {
 }
 
 /** Dependencies the check needs, injectable for tests. */
-export interface UpdateCheckDeps {
+interface UpdateCheckDeps {
   /** Running build's version (build-time constant in production). */
   readonly currentVersion: string
   /** Fetch implementation; defaults to the global one. */

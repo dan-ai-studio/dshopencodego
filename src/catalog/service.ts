@@ -16,7 +16,7 @@ import { catalogReading } from './reading.ts'
 import type { CatalogReading } from './reading.ts'
 
 /** Host inputs for the catalog service. */
-export interface CatalogServiceOptions {
+interface CatalogServiceOptions {
   /** The route's current catalog resolver. */
   readonly catalog: () => OpencodeGoCatalog
   /** Current per-model visibility switches. */

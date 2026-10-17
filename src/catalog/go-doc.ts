@@ -32,7 +32,7 @@ export const GO_DOC_URLS: readonly string[] = [
 ]
 
 /** The document is about 30 KB; the cap leaves room without inviting a flood. */
-export const GO_DOC_MAX_BYTES = 1024 * 1024
+const GO_DOC_MAX_BYTES = 1024 * 1024
 
 /** What one parse of the document yields. */
 export interface GoDoc {

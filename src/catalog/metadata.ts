@@ -227,7 +227,7 @@ export function modelBaseURL(api: WireProtocol, baseURL: string): string {
 }
 
 /** Inputs the ladder needs beyond the document itself. */
-export interface MetadataSources {
+interface MetadataSources {
   /** Installed catalog entries by id, the first level of the ladder. */
   readonly builtin: ReadonlyMap<string, Model<Api>>
   /** Route defaults for a model no source sizes. */

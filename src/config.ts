@@ -25,23 +25,23 @@ export const DEFAULT_API_KEY_ENV = 'OPENCODE_GO_API_KEY'
 export const DEFAULT_REFRESH_MINUTES = 60
 
 /** Default maximum idle interval while one stream read is outstanding. */
-export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
 
 /** Request-level bound on the base64-encoded image payload. */
-export const DEFAULT_MAX_REQUEST_IMAGE_BYTES = 6 * 1024 * 1024
+const DEFAULT_MAX_REQUEST_IMAGE_BYTES = 6 * 1024 * 1024
 
 /** Total-pixel budget for one request image. */
-export const DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET = 1_440_000
+const DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET = 1_440_000
 
 /** Raw encoded-byte target for one request image before base64 expansion. */
-export const DEFAULT_REQUEST_IMAGE_MAX_BYTES = 400_000
+const DEFAULT_REQUEST_IMAGE_MAX_BYTES = 400_000
 
 /**
  * One model's configured capacities. Every field is optional so a deployment
  * overrides only the value it needs; `null` explicitly selects the catalog
  * value even when a lower layer supplies an override.
  */
-export interface OpencodeGoModelLimit {
+interface OpencodeGoModelLimit {
   /** Context window in tokens, overriding what the catalog advertised. */
   contextWindow?: number | null
   /** Output cap per request, overriding what the catalog advertised. */

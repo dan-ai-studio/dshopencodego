@@ -26,7 +26,7 @@ import css from './section.module.css'
 export const API_KEY_REF = 'OPENCODE_GO_API_KEY'
 
 /** The settings fields this page owns. */
-export interface SectionSettings {
+interface SectionSettings {
   readonly modelVisibility: Record<string, boolean>
   readonly refreshMinutes: number
 }
@@ -44,7 +44,7 @@ export interface SettingsScopeLike {
 }
 
 /** One host package-manager namespace, as this page uses it. */
-export interface PluginManagerLike {
+interface PluginManagerLike {
   /** Two business arguments: the spec and its options (both declared in the descriptor). */
   inspect(spec: string, options?: { registry?: unknown }): Promise<unknown>
   removeBundle(name: string): Promise<RemoteResult<PluginManagerChange>>
@@ -103,7 +103,7 @@ export interface SectionServices {
 }
 
 /** The host package-manager outcome fields this page reads; anything else rides along untouched. */
-export interface PluginManagerChange {
+interface PluginManagerChange {
   readonly application?: string
   readonly version?: string
   readonly pendingBuilds?: unknown
@@ -111,10 +111,10 @@ export interface PluginManagerChange {
 }
 
 /** Where the one-click update stands. `idle` hides the panel entirely. */
-export type UpdatePhase = 'idle' | 'checking' | 'current' | 'ready' | 'confirming' | 'updating' | 'done' | 'failed'
+type UpdatePhase = 'idle' | 'checking' | 'current' | 'ready' | 'confirming' | 'updating' | 'done' | 'failed'
 
 /** Update panel state; absence-shaped so a partial update can clear it. */
-export interface UpdatePanel {
+interface UpdatePanel {
   readonly phase: UpdatePhase
   readonly status: UpdateStatus | undefined
   /** Raw host detail; the page prefixes a translated label at render. */
@@ -122,13 +122,13 @@ export interface UpdatePanel {
 }
 
 /** Why a settings write did not land, in a form the page can translate. */
-export type WriteFailure =
+type WriteFailure =
   | { readonly kind: 'rejected' }
   | { readonly kind: 'failed'; readonly message: string }
 
 /** What the page renders. Fields are explicit about absence so a partial
  * update can clear one under `exactOptionalPropertyTypes`. */
-export interface SectionState {
+interface SectionState {
   readonly loading: boolean
   readonly reading: CatalogReading | undefined
   readonly keyConfigured: boolean | undefined
@@ -553,7 +553,7 @@ export class SectionController {
 }
 
 /** Everything the slot injects into the page. */
-export interface SectionInjected {
+interface SectionInjected {
   readonly controller: SectionController
   readonly t: (key: string) => string
   readonly getLocale?: () => string
