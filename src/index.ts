@@ -39,6 +39,7 @@ import { OpencodeGoAdapter } from './adapter.ts'
 import { DISPLAY_NAME, PROVIDER_ID, discoverCatalogModels } from './catalog/index.ts'
 import { assertBaseURL, PlainConfig, readConfig } from './config.ts'
 import type { LiveConfig, OpencodeGoConfig } from './config.ts'
+import { filterCircularWarnings } from './circular-warning.ts'
 import { registerRemotes } from './remotes.ts'
 import { OpencodeGoCatalogService } from './catalog/service.ts'
 import { OpencodeGoUpdateService } from './update/index.ts'
@@ -78,6 +79,10 @@ function isLiveConfig(raw: unknown): raw is LiveConfig {
  * @param raw - the loader's live config, or a plain object in tests.
  */
 export function apply(ctx: Context, raw?: unknown): void {
+  // First statement on purpose: this is as early as a filter can be installed,
+  // since ES imports are hoisted and `pi-ai` is evaluated before any of this
+  // runs. See the module for why the warning is safe to drop.
+  filterCircularWarnings()
   const live = isLiveConfig(raw) ? raw : undefined
   const constant = live === undefined ? PlainConfig((raw ?? {}) as OpencodeGoConfig) : undefined
   const current = (): OpencodeGoConfig => (live === undefined ? constant as OpencodeGoConfig : readConfig(live))

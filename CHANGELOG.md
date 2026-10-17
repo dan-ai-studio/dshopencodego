@@ -2,6 +2,18 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.37] - 2026-10-17
+
+### 🔇 噪声治理 (Noise)
+
+- **成片的 `Accessing non-existent property 'Allow' …` 警告不再出现**：`pi-ai` 对 `partial-json` 用的是**具名导入**，而解析 CJS 的具名导出会让 Node 枚举该模块的 exports；`partial-json` 内部 `index.js` 与 `options.js` 互相 require，于是在对方尚未初始化时读到 `Allow`，**每读一次打印一次**。插件重载会重新走一遍模块图，因此升级安装后往往成片出现，而重启后消失。
+  - **无功能影响**：该警告只提示属性读取时机，`parse` 的行为已实测验证（部分 JSON 解析正确）。
+  - 实现方式：按**消息前缀**精确过滤这一条。Node 发这条警告时**不带 type**（默认 `Warning`），因此 `--disable-warning=<code|type>` 无法选中它；前缀匹配是可用的最窄过滤，且只丢弃这一条消息，其余警告原样透传。
+  - 安装时机为 `apply` 的第一条语句（ES 的 import 会被提升，`pi-ai` 在本 bundle 任何语句执行前就已求值，故首次枚举无法拦截——能被拦截的正是重载产生的那些）。标记存放在 `process` 上的 `Symbol.for` 键，插件被重新求值也不会重复包装。
+  - 新增用例：消息识别（字符串与 `Error` 两种形态）、只丢弃该条、安装幂等、以及 `apply` 确实安装它。
+
+---
+
 ## [0.1.36] - 2026-10-17
 
 ### 💥 破坏性变更 (Breaking)
