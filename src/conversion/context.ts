@@ -49,7 +49,7 @@ interface ToolMessage {
   isError?: boolean
 }
 
-/** DSH 0.1.7 carries tool results under their own role. */
+/** DSH carries tool results under their own role. */
 function toolMessage(message: RequestMessage): ToolMessage | undefined {
   return (message as { role: string }).role === 'tool' ? message as unknown as ToolMessage : undefined
 }

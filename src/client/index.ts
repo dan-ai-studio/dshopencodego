@@ -79,7 +79,7 @@ export function apply(ctx: ClientContext): void {
   // page's first update check throw into a panel that hid the failure —
   // a blank row for three releases.
   ctx.inject(['configForms', 'remote.opencodeGoCatalog', 'remote.opencodeGoUpdate', 'remote.credentials'], (scope) => {
-    // 0.1.7 keeps profile-entry forms on `configForms`; the entry id is this
+    // Profile-entry forms live on `configForms`; the entry id is this
     // plugin's, and a composition without the form renders the page read-only.
     const forms = scope.get('configForms') as
       { get(id: string): SettingsScopeLike | undefined } | undefined

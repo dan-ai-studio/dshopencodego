@@ -1,7 +1,7 @@
 /**
  * Configuration for one `dshopencodego` mount.
  *
- * DSH 0.1.7 hands the plugin *live references* for every declared field, so a
+ * DSH hands the plugin *live references* for every declared field, so a
  * profile edit reaches the next operation without a restart. This plugin
  * targets that generation only: there is no settings-document path, no
  * `installSection` fallback, and no plain-value codec.
@@ -117,7 +117,7 @@ const fields = {
  */
 export const PlainConfig: z<Partial<OpencodeGoConfig>, OpencodeGoConfig> = z.object(fields)
 
-/** 0.1.7's Loader retains these references when profile fields change. */
+/** The loader retains these references when profile fields change. */
 export type LiveConfig = { [K in keyof OpencodeGoConfig]-?: { get(): OpencodeGoConfig[K] } }
 
 /** Runtime schema for {@link OpencodeGoConfig}; every field stays live. */

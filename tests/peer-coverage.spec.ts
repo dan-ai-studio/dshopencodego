@@ -58,4 +58,23 @@ describe('peer coverage', () => {
       .sort()
     expect(unused).toEqual([])
   })
+
+  it('supports DSH 0.2 and later only', () => {
+    // Dropping the pre-0.2 support was deliberate. The gate admits whatever the
+    // range says, so a range that quietly reaches back into `0.1.x` would let a
+    // runtime this plugin is not built against load it — the failure such a
+    // combination produces is not one this project has verified.
+    const dshPeers = Object.entries(packageJson.peerDependencies)
+      .filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
+    expect(dshPeers.length).toBeGreaterThan(0)
+    for (const [name, range] of dshPeers) {
+      expect(range, name).not.toMatch(/0\.1\./)
+      expect(range, name).toContain('>=0.2.0-rc.1')
+    }
+    expect(packageJson.engines.dsh).not.toMatch(/0\.1\./)
+    // The cordis branches that only pre-0.2 runtimes used.
+    const cordis = packageJson.peerDependencies['@deepseek-ai/cordis']
+    expect(cordis).not.toContain('4.0.2')
+    expect(cordis).not.toContain('4.0.3')
+  })
 })

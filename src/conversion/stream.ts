@@ -39,9 +39,9 @@ export function mapUsage(usage: PiUsage): TokenUsage {
 
 /**
  * The account-quota failure class, written out rather than imported:
- * `dsh-llm` exports it as `ACCOUNT_QUOTA_EXCEEDED_CODE` from `0.1.7-rc.2`, and
- * the spelling is the stable protocol value the host routes on, so spelling it
- * here keeps the route correct on every host this plugin supports.
+ * `dsh-llm` exports it as `ACCOUNT_QUOTA_EXCEEDED_CODE`, and the spelling is
+ * the stable protocol value the host routes on, so spelling it here keeps the
+ * route correct on every host this plugin supports.
  */
 const ACCOUNT_QUOTA_CODE = 'ACCOUNT_QUOTA'
 
