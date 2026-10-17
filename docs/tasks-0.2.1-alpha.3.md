@@ -82,7 +82,9 @@
 | **T-22** | 补齐会话亲和头 `x-session-affinity`（取值同 `x-opencode-session`） | R-C3 | 在 `src/session-header.ts` 中统一派发，单测见 `tests/session-header.spec.ts` | done |
 | **T-23** | 在设置页/限额表标注 Go 端点 3 个免费模型的「额度耗尽后仍可用」语义 | R-C4 | `cat-jam-free`、`step-5-preview-free`、`longcat-2.5-preview-free` | pending（未批准） |
 | **T-24** | 依赖跟进到 DSH `0.2.1-alpha.4` | 计划 §7 | 21 个 `dsh-*` devDeps 升至 alpha.4（cordis 维持 `4.0.5-alpha.2`）；按 T-01 约定备份并记录 SHA256；全新安装 258 包 / 0 漏洞 / 无 ERESOLVE；三关全绿。peer 范围与 `engines.dsh` 本已覆盖，无需改动。证据：`scratch/t24-backup/` | done（v0.1.31） |
-| **T-25** | 设置页一键更新（检查新版本 → 卸载旧版 → 安装新版） | 用户追加 | Remote `opencodeGoUpdate`（`readUpdate`/`refreshUpdate`）+ 设置页横幅与二次确认；实际安装交由宿主 `pluginManager`，插件不改写自身文件 | done（v0.1.23–v0.1.31） |
+| **T-25** | 设置页一键更新（检查新版本 → 卸载旧版 → 安装新版） | 用户追加 | Remote `opencodeGoUpdate`（`readUpdate`/`refreshUpdate`）+ 设置页横幅与二次确认；实际安装交由宿主 `pluginManager`，插件不改写自身文件 | done（v0.1.23–v0.1.33） |
+| **T-26** | 依赖跟进到 DSH `0.2.1-alpha.5` | 计划 §7 | 21 个 `dsh-*` devDeps 升至 alpha.5；先核对上游：`llm`/`typert`/`settings`/`client` 契约层源码零变更，**无需适配**；全新安装 258 包 / 0 漏洞；三关全绿。证据：`scratch/t26-backup/` | done（v0.1.34） |
+| **T-27** | README 兼容性表与实际声明保持一致 | 本次审计 | 修正四处漂移（pi-ai 差三个大版本、cordis peer 缺 alpha 分支、engines.dsh 缺 0.2.1-alpha 段、schemastery 版本）；新增 `tests/readme-consistency.spec.ts` 逐条断言**对应表格行**（中英各一份），并以临时回退验证其确实能抓到漂移 | done（v0.1.34） |
 
 ### T-25 的验证记录
 
