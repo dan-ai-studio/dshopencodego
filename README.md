@@ -128,12 +128,22 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 
 一个模型"怎么调"由四级证据决定，先命中先赢：
 
-1. **内置 pi-ai 目录的精确条目**——给出协议与线怪癖（如 DeepSeek 的 `thinkingFormat`）。
+1. **pi-ai 内置目录的精确条目**——给出协议与线怪癖（如 DeepSeek 的 `thinkingFormat`）。该目录**编译进插件产物**，版本随插件发版更新，不会在运行时自行变化。
 2. **models.dev 的每模型 `provider.npm`**——`@ai-sdk/openai` → Responses，`@ai-sdk/anthropic` → Messages，缺省 → Chat Completions。
 3. **家族规则**——`grok*`/`gpt*`/`muse-*` → Responses，其余 → Chat Completions。
 4. **`modelProtocols` 覆盖**——永远最高优先。
 
 网关的 `/v1/models` 只回答"有哪些模型"，不回答"怎么调"。被推断出来的模型会在设置页标注，判错时用 `modelProtocols` 覆盖即可。
+
+## 一个常见疑问：官方增删模型后，需要等插件发版吗？
+
+**不需要——模型列表是实时的。** 网关 `/v1/models` 是成员资格的唯一来源，每次刷新目录（默认 60 分钟缓存，或点「重新检查」）都会以它为准：
+
+- 官方**新增**模型 → 下次刷新即出现，协议/容量若不在内置目录中则标为"推断"并可被 `modelProtocols` 覆盖；
+- 官方**下线**模型 → 下次刷新即消失；
+- 内置目录**冻结**在插件版本里，仅影响"怎么调"的推断质量，不影响"有哪些"。
+
+只有当 pi-ai 内置目录**缺了某个模型的线怪癖**（如 DeepSeek 的 `thinkingFormat`）时，才需要等插件同步 pi-ai 的新版本——而模型本身早已可用。
 
 ## 设置页里的模型列表
 

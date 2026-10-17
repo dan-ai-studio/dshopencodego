@@ -259,6 +259,34 @@ describe('live catalog', () => {
     }
   })
 
+  it('follows the gateway when the provider adds or retires models', async () => {
+    // Membership comes from the gateway listing, never from the bundled
+    // fallback data — so a model the provider adds shows up without a plugin
+    // release, and one it retires disappears, even though `pi-ai`'s catalog is
+    // compiled into the bundle and therefore frozen at build time.
+    const server = await gateway({ listing: ['glm-5.3'] })
+    const stub = stubModelsDev(modelsDevDocument({}))
+    try {
+      const catalog = catalogFor(server.baseURL)
+      expect([...(await catalog.snapshot()).facts.keys()]).toEqual(['glm-5.3'])
+
+      // The provider publishes two models this build has never seen.
+      server.setListing(['glm-5.3', 'brand-new', 'another-new'])
+      const added = await catalog.snapshot(true)
+      expect([...added.facts.keys()].sort()).toEqual(['another-new', 'brand-new', 'glm-5.3'])
+      // No metadata source describes them, so they are marked as inferred
+      // rather than silently presented as known.
+      expect(added.facts.get('brand-new')?.protocolSource).toBe('inferred')
+
+      // The provider retires two of them.
+      server.setListing(['another-new'])
+      const retired = await catalog.snapshot(true)
+      expect([...retired.facts.keys()]).toEqual(['another-new'])
+    } finally {
+      stub.restore()
+    }
+  })
+
   it('serves a cached snapshot inside the refresh interval', async () => {
     const server = await gateway({ listing: ['glm-5.3'] })
     const stub = stubModelsDev(modelsDevDocument({}))

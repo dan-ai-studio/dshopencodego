@@ -128,12 +128,22 @@ A model that does not accept image input is rejected before the request is sent 
 
 Four evidence levels decide how a model is called, first hit wins:
 
-1. **The installed pi-ai catalog entry** — protocol plus wire quirks (DeepSeek's `thinkingFormat`, for example).
+1. **The pi-ai catalog entry** — protocol plus wire quirks (DeepSeek's `thinkingFormat`, for example). This catalog is **compiled into the bundle**, so it only moves when the plugin is released.
 2. **models.dev's per-model `provider.npm`** — `@ai-sdk/openai` → Responses, `@ai-sdk/anthropic` → Messages, absent → Chat Completions.
 3. **Family rule** — `grok*`/`gpt*`/`muse-*` → Responses, everything else → Chat Completions.
 4. **`modelProtocols` override** — always wins.
 
 The gateway's `/v1/models` answers only *which* models exist, never *how* to call them. Inferred decisions are labelled in the settings page; override them with `modelProtocols`.
+
+## A common question: does the provider adding or retiring a model need a plugin release?
+
+**No — the model list is live.** The gateway's `/v1/models` is the only source of membership, and every catalog refresh (a 60-minute cache by default, or the Recheck button) takes it as the truth:
+
+- a model the provider **adds** appears on the next refresh; if no metadata source describes it, it is labelled as inferred and can be pinned with `modelProtocols`;
+- a model the provider **retires** disappears on the next refresh;
+- the bundled catalog is **frozen at the plugin's version** and affects only the quality of the "how to call it" decision, never *which* models exist.
+
+The only thing that waits on a plugin release is a missing wire quirk in the pi-ai catalog (DeepSeek's `thinkingFormat`, say) — the model itself is already usable.
 
 ## The model list in the settings page
 
