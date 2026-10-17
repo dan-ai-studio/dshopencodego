@@ -54,21 +54,6 @@ function context(options: {
 const tick = (): Promise<void> => new Promise(resolve => { setTimeout(resolve, 0) })
 
 describe('apply route gate', () => {
-  it('installs the circular-warning filter before anything else it does', () => {
-    // A plugin reload re-enumerates pi-ai's named import of partial-json and
-    // prints Node's circular-dependency warning once per read. The filter must
-    // be in place from the first mount so every later reload is quiet.
-    const marker = Symbol.for('dshopencodego/circular-warning-filter')
-    delete (process as unknown as Record<symbol, unknown>)[marker]
-    try {
-      const { ctx } = context({ enabled: true, configured: true })
-      apply(ctx as never, { enabled: true })
-      expect((process as unknown as Record<symbol, unknown>)[marker]).toBe(true)
-    } finally {
-      delete (process as unknown as Record<symbol, unknown>)[marker]
-    }
-  })
-
   it('registers the route when enabled with a configured credential', async () => {
     const { ctx, state } = context({ enabled: true, configured: true })
     apply(ctx as never, { enabled: true })

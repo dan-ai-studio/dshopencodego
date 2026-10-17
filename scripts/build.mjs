@@ -25,7 +25,17 @@ await build({
   entryPoints: ['src/index.ts'],
   outfile: 'lib/index.js',
   bundle: true,
-  packages: 'external',
+  // Only the Harness's own packages stay external; everything else is bundled.
+  //
+  // pi-ai used to be external too, resolved from this package's node_modules at
+  // runtime. That made Node, not esbuild, resolve its named import of the
+  // CommonJS `partial-json` — and CommonJS named-import resolution enumerates
+  // the target's exports, which walks straight into that package's internal
+  // circular require and prints
+  // `Accessing non-existent property 'Allow' …` once per read. Bundling pi-ai
+  // removes the interop step entirely: esbuild compiles the CommonJS graph
+  // itself, so there is no runtime enumeration and no warning to filter.
+  external: ['@deepseek-ai/cordis', '@deepseek-ai/dsh-*'],
   format: 'esm',
   platform: 'node',
   target: 'node22',

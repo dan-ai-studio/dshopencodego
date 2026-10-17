@@ -14,7 +14,10 @@
  */
 
 import type { Api, Model, ModelThinkingLevel } from '@earendil-works/pi-ai'
-import { getSupportedThinkingLevels, normalizeContext } from '@earendil-works/pi-ai'
+// Subpath imports: the package root also re-exports every provider's wire
+// implementation, which this plugin does not mount. See catalog/index.ts.
+import { getSupportedThinkingLevels } from '@earendil-works/pi-ai/models'
+import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 import {
   attributionHeaders,
   contentHasImage,

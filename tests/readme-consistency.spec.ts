@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest'
 
 const manifest = JSON.parse(readFileSync('package.json', 'utf8')) as {
   engines: Record<string, string>
-  dependencies: Record<string, string>
+  devDependencies: Record<string, string>
   peerDependencies: Record<string, string>
 }
 
@@ -39,8 +39,10 @@ describe('README consistency', () => {
       ['@deepseek-ai/cordis', manifest.peerDependencies['@deepseek-ai/cordis']!],
       ['engines.dsh', manifest.engines['dsh']!],
       ['engines.node', manifest.engines['node']!],
-      ['@earendil-works/pi-ai', manifest.dependencies['@earendil-works/pi-ai']!],
-      ['@deepseek-ai/schemastery', manifest.dependencies['@deepseek-ai/schemastery']!],
+      // Bundled, so they live in devDependencies: the published package ships
+      // them inside `lib/`, and an installer pulls no runtime dependencies.
+      ['@earendil-works/pi-ai', manifest.devDependencies['@earendil-works/pi-ai']!],
+      ['@deepseek-ai/schemastery', manifest.devDependencies['@deepseek-ai/schemastery']!],
     ]
     for (const [needle, declared] of rows) {
       expect(tableRow(text, file, needle), `${file}: the ${needle} row`).toContain(declared)

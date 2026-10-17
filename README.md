@@ -175,8 +175,8 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 | `@deepseek-ai/cordis` | `4.0.4 \|\| 4.0.5-alpha.1 \|\| 4.0.5-alpha.2` | 同一门禁 |
 | `engines.dsh` | `>=0.2.0-rc.1 <0.3.0` | 仅信息字段，DSH 不读 |
 | `engines.node` | `^22.19.0 \|\| >=24.0.0` | 包管理器 |
-| 自带依赖 `@earendil-works/pi-ai` | 补丁级范围 `~1.3.0`（1.3.x 内） | 独立耦合：pi-ai 改请求构造即影响本插件的线上行为；其内置目录同时是本插件的打底数据 |
-| 自带依赖 `@deepseek-ai/schemastery` | `~3.18.5-alpha.2` | 与 `dsh-settings` 的 peer 保持一致 |
+| 已打包依赖 `@earendil-works/pi-ai` | `~1.3.0`（1.3.x 内），**打进产物**（devDependency） | 独立耦合：pi-ai 改请求构造即影响本插件的线上行为；其 opencode-go 内置目录同时是本插件的打底数据。打包后本插件**没有任何运行时依赖**，安装者不必再解析它 |
+| 已打包依赖 `@deepseek-ai/schemastery` | `~3.18.5-alpha.2`，**打进产物**（devDependency） | 构建期依赖 |
 
 维护时需要注意：
 
@@ -198,7 +198,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 | 设置页出现「设置写入被拒绝」 | 通常是与另一个窗口/进程并发写同一 profile；插件会自动重试一次，仍失败时界面已重载最新状态，再点一次即可。 |
 | 用量按钮显示「不可用」 | 端点或凭证变化导致旧读数作废；配置正确后点「重试」。数值不会以 0 冒充。 |
 | npm 发布报 `ENEEDAUTH` | OIDC 没匹配上：核对包设置里 Trusted Publisher 的 **workflow 文件名**（必须恰为 `publish-npm.yml`、大小写敏感）与组织/仓库字段；确认跑在 GitHub 托管 runner 上且工作流带 `id-token: write`。`package.json` 的 `repository.url` 与仓库不符也会被拒。 |
-| 日志成片出现 `Accessing non-existent property 'Allow' of module exports inside circular dependency` | 成因是 `pi-ai` 对 `partial-json` 的**具名导入**：解析 CJS 的具名导出会枚举其 exports，而该包内部 `index.js`/`options.js` 互相 require，读到尚未初始化的 `Allow` 就打印一次——**插件重载会让它成片出现**（重启后往往消失）。**无功能影响**：`parse` 行为已实测验证。自 v0.1.37 起本插件**按消息前缀精确过滤这一条**（Node 未给它 type，`--disable-warning` 选不中），其余警告一律原样透传。 |
+| 日志成片出现 `Accessing non-existent property 'Allow' of module exports inside circular dependency` | 成因是 `pi-ai` 对 `partial-json` 的**具名导入**：Node 解析 CJS 的具名导出时会枚举其 exports，而该包内部 `index.js`/`options.js` 互相 require，读到尚未初始化的 `Allow` 就打印一次——**插件重载会让它成片出现**（重启后往往消失）。**自 v0.1.38 起从机制上消除**：`pi-ai` 与 `partial-json` 已**打包进产物**，Node 的 ESM→CJS 互操作不再参与，因此不存在"枚举读到未初始化属性"这一步（不是过滤，是让该路径不存在）。 |
 | 超长工具调用（多 MB 参数）期间整个 DSH 进程卡顿 | 曾在 pi-ai `0.87.1` 上观测到逐 delta 重解析的固有开销（issue #9265 / PR #9461）。本插件不移植 DSH 的消费者侧补丁（ADR-0005）；当前自带依赖已是 `~1.3.0`，若仍复现则属上游行为，随其发版解决。 |
 
 ## 开发

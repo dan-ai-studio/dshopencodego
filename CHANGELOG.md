@@ -2,6 +2,23 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.38] - 2026-10-17
+
+### 🔧 根本修复 (Root cause)
+
+- **成片的 `Accessing non-existent property 'Allow' …` 从机制上消除**，取代 v0.1.37 的过滤做法。
+  - **根因**：`pi-ai` 对 `partial-json` 用的是 ESM **具名导入**。Node 解析 CommonJS 的具名导出时会枚举该模块的 exports（`cjs-module-lexer` 的回退路径），而 `partial-json` 的 `index.js` 与 `options.js` 互相 require——在对方尚未初始化时读到 `Allow`，**每读一次打印一次**；插件重载会重新走一遍模块图，于是升级安装后成片出现，重启后消失。
+  - **修法**：把 `pi-ai`（连同其依赖 `partial-json`）**打包进产物**。Node 的 ESM→CJS 互操作不再参与，**枚举这一步根本不存在**——不是把提示藏起来，而是让产生它的路径消失。
+  - **体积代价被抵消**：`providers/all` 会载入**全部** provider 的模型数据（仅 `providers/data` 就有 991 KB）与所有厂商的 API 实现。改为按公开子路径导入（`providers/opencode-go.models`、`models`、`utils/overflow`、`utils/transcript`）后，产物为 **1.86 MB**（npm 包压缩后 **0.42 MB**）。原先外置时这些代码同样会被加载，**总量并未增加**。
+  - **附带收益**：本插件**不再有运行时依赖**（`dependencies` 现为空），安装者不必再解析 `pi-ai`/`schemastery`，也不会因 profile 里 pi-ai 版本不同而产生行为差异。
+  - **正确性依据**：换用 `OPENCODE_GO_MODELS` 前逐条比对过它与 `getBuiltinModels('opencode-go')` 的结果——29 个模型 id 完全一致，抽样记录逐字段相同。
+
+### ↩️ 回退 (Reverted)
+
+- **撤销 v0.1.37 的警告过滤**。按消息前缀丢弃一条警告是在**掩盖**问题，与本插件一贯坚持的"失败必须可见"相悖——v0.1.26（失败静默）与 v0.1.28（查询撒谎）两次修复正是为消除这类做法。产生警告的路径既然能移除，就不该把它藏起来。
+
+---
+
 ## [0.1.37] - 2026-10-17
 
 ### 🔇 噪声治理 (Noise)

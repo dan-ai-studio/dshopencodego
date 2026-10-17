@@ -19,9 +19,14 @@
  * @module @dan-ai-studio/dshopencodego/catalog
  */
 
-import { createProvider } from '@earendil-works/pi-ai'
+// Subpath imports on purpose. The package root re-exports `./api/lazy.js` (every
+// provider's wire implementation) and `providers/all.js` loads every provider's
+// model data — 991 KB under `providers/data` alone. This plugin mounts three
+// APIs for one provider, so each symbol is taken from the narrowest public entry
+// that exports it. Types still come from the root: they vanish at build time.
+import { createProvider } from '@earendil-works/pi-ai/models'
 import type { Api, Model, Provider } from '@earendil-works/pi-ai'
-import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
+import { OPENCODE_GO_MODELS } from '@earendil-works/pi-ai/providers/opencode-go.models'
 import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy'
@@ -86,7 +91,10 @@ export interface CatalogObservers {
  * `compat` is what keeps DeepSeek-family reasoning replay correct.
  */
 function builtinModels(baseURL: string): Map<string, Model<Api>> {
-  return new Map((getBuiltinModels(PROVIDER_ID) as Model<Api>[]).map(model => [model.id, {
+  // `OPENCODE_GO_MODELS` is the same table `getBuiltinModels('opencode-go')`
+  // reads — verified entry for entry — reached without loading the aggregate
+  // `models.generated.js` that carries every provider.
+  return new Map((Object.values(OPENCODE_GO_MODELS) as Model<Api>[]).map(model => [model.id, {
     ...model,
     provider: PROVIDER_ID,
     baseUrl: modelBaseURLFor(model.api as string, baseURL),
