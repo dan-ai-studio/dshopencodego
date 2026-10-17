@@ -215,12 +215,13 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 
 ```sh
 npm ci
+npm run lint        # oxlint：静态检查（发布流程也会跑，失败即阻断）
 npm run typecheck   # host 与 client 两半
 npm test            # 契约测试：真实 HTTP mock 网关，断言请求头/体、目录阶梯、用量
 npm run build       # 产出 lib/index.js 与 lib/client.js
 ```
 
-测试 148 个用例 / 24 个文件，覆盖配置校验、协议阶梯、网关与在线元数据、目录投影、适配器（三种协议的线上请求）、Remote 契约与服务、会话头不变量、用量窗口与计量、客户端控制器与用量组件、以及两半的挂载与登记。
+测试覆盖配置校验、协议阶梯、网关与在线元数据、目录投影、适配器（三种协议的线上请求）、Remote 契约与服务、会话头不变量、用量窗口与计量、客户端控制器与用量组件、两半的挂载与登记、以及几条**结构性不变量**（inject 声明与源码读取一致、peer 覆盖双向、README 与 manifest 一致）。共 **33 个测试文件**——这个数字由 `tests/readme-consistency.spec.ts` 对着 `tests/` 目录校验，不会漂移。
 
 ## 发布（维护者）
 

@@ -215,12 +215,13 @@ Things to keep in mind when maintaining this:
 
 ```sh
 npm ci
+npm run lint        # oxlint: static checks (the release workflow runs this too, and fails on it)
 npm run typecheck   # both halves: host and client
 npm test            # contract tests against a real local HTTP mock gateway
 npm run build       # emits lib/index.js and lib/client.js
 ```
 
-148 tests across 24 files cover configuration validation, the protocol ladder, gateway and online metadata, the catalog projection, the adapter on the wire (all three protocols), Remote contracts and services, session-header invariants, usage windows and the meter, the client controller and usage pill, and both halves' mounting and registration.
+The suite covers configuration validation, the protocol ladder, gateway and online metadata, the catalog projection, the adapter on the wire (all three protocols), Remote contracts and services, session-header invariants, usage windows and the meter, the client controller and usage pill, both halves' mounting and registration, and several **structural invariants** (inject declarations match the source's reads, peer coverage holds both ways, the READMEs match the manifest). That is **33 test files** — a number `tests/readme-consistency.spec.ts` checks against the `tests/` directory, so it cannot drift.
 
 ## Releasing (maintainers)
 

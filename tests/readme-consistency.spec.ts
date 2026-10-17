@@ -11,7 +11,7 @@
  * whole-document `toContain` passed even with a stale cell, because the same
  * version string also appeared in the troubleshooting section.
  */
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const manifest = JSON.parse(readFileSync('package.json', 'utf8')) as {
@@ -55,5 +55,15 @@ describe('README consistency', () => {
     expect(dshPeers.length).toBeGreaterThan(0)
     // The Chinese README spells the count in the table's first cell.
     expect(text).toContain(`${String(dshPeers.length)} 个 \`@deepseek-ai/dsh-*\``)
+  })
+
+  it('states the test file count the tests directory holds', () => {
+    // This number was `24 files / 148 cases` long after the suite had grown to
+    // 33 files and 229 cases: prose counts drift because nothing reads them.
+    // Hold it to the directory instead of trusting the paragraph.
+    const files = readdirSync('tests').filter(name => /\.spec\.tsx?$/.test(name))
+    expect(files.length).toBeGreaterThan(0)
+    expect(readmeText('README.md')).toContain(`${String(files.length)} 个测试文件`)
+    expect(readmeText('README.en.md')).toContain(`${String(files.length)} test files`)
   })
 })
