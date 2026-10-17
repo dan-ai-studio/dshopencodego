@@ -2,6 +2,18 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.43] - 2026-10-17
+
+### 🔧 依赖跟进 (Dependency tracking)
+
+- **跟进到 DSH `0.2.1-rc.2`**：21 个 `dsh-*` 开发依赖升到 `0.2.1-rc.2`，`@deepseek-ai/cordis` 升到 **`4.0.5` 正式版**。
+- **`cordis` 的 peer 范围补上 `4.0.5`**：此前只有 `4.0.4 || 4.0.5-alpha.1 || 4.0.5-alpha.2`——那时 `4.0.5` 还只有 alpha。DSH `0.2.1-rc.2` 起用的是**正式版** `4.0.5`，不补这一项，插件在 rc 环境下会被 peer 门禁直接拒绝加载。
+- **上游契约层零改动**：`llm`、`gateway`、`typert`、`settings`、`client/modules`，以及 vendored 的 `cordis` 源码，在 `0.2.1-alpha.5 → 0.2.1-rc.2` 之间**只改了版本号**（逐个目录 `git diff --stat` 确认）。因此本次**不需要任何代码适配**。
+- **全新安装才干净**：增量安装会因旧 `package-lock.json` 与 rc.2 的 peer 组合报 `ERESOLVE`（`dsh-attachment@rc.2` 要求 `dsh-brand@rc.2`，而 lock 里仍是 alpha.5）。删除 `node_modules` 与 lock 后重装：**244 包 / 0 漏洞 / 无 ERESOLVE**——与 T-24、T-26 的既定流程一致。
+- **同时兼容两代运行时**：`0.2.0-rc.2`（cordis `4.0.4`）与 `0.2.1-rc.2`（cordis `4.0.5`）都在声明范围内，range 未变（`>=0.2.0-rc.1 <0.3.0`）。桌面端内置的 DSH 是 `0.2.0-rc.2`，本次改动不会把它排除在外。
+
+---
+
 ## [0.1.42] - 2026-10-17
 
 ### ✨ 改进 (Improvements)

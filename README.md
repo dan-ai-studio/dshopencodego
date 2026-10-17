@@ -173,7 +173,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 - 任一不满足 → **该插件行被禁用并打印原因**（`Plugin … is incompatible with dsh …`），其他插件不受影响；
 - 需要冒险时可用**精确版本豁免**：`dsh plugin --profile <profile> allow-version <包>@<版本> --dsh-version <精确版本> --accept-risk`（只对该包与该精确版本生效）；`dsh plugin --profile <profile> version-exemptions` 可列出当前 profile 的豁免。
 
-`package.json` 里的 `engines.dsh` 是本插件为读者/包管理器写的信息字段；**DSH 的兼容门禁只读 `peerDependencies`**，请以它为准。`@deepseek-ai/cordis` 单独声明为 `4.0.4 || 4.0.5-alpha.1 || 4.0.5-alpha.2`——三者分别是 DSH `0.2.0-rc.1`/`rc.2`、`0.2.1-alpha.1`/`alpha.2`、`0.2.1-alpha.3` 及之后所用的运行时（`4.0.2`/`4.0.3` 随 `0.2.0` 之前的支持一并移除）。
+`package.json` 里的 `engines.dsh` 是本插件为读者/包管理器写的信息字段；**DSH 的兼容门禁只读 `peerDependencies`**，请以它为准。`@deepseek-ai/cordis` 单独声明为 `4.0.4 || 4.0.5-alpha.1 || 4.0.5-alpha.2 || 4.0.5`——依次是 DSH `0.2.0-rc.1`/`rc.2`、`0.2.1-alpha.1`/`alpha.2`、`0.2.1-alpha.3`–`alpha.5`、以及 `0.2.1-rc.2` 所用的运行时（`4.0.2`/`4.0.3` 随 `0.2.0` 之前的支持一并移除）。
 
 **声明范围之外**：`0.2.0-rc.1` 之前的所有版本、以及 `0.3.0+` 会被拒绝加载。如果 DSH 侧接口兼容，可自行放宽该插件的 peer 范围并重新构建（不改 DSH 核心）；否则请等插件跟进发版。
 
@@ -182,7 +182,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 | 绑定层 | 声明 | 谁在把关 |
 | --- | --- | --- |
 | `peerDependencies`（17 个 `@deepseek-ai/dsh-*`） | 均为 `>=0.2.0-rc.1 <0.3.0` | **DSH 加载时的真门禁** |
-| `@deepseek-ai/cordis` | `4.0.4 \|\| 4.0.5-alpha.1 \|\| 4.0.5-alpha.2` | 同一门禁 |
+| `@deepseek-ai/cordis` | `4.0.4 \|\| 4.0.5-alpha.1 \|\| 4.0.5-alpha.2 \|\| 4.0.5` | 同一门禁 |
 | `engines.dsh` | `>=0.2.0-rc.1 <0.3.0` | 仅信息字段，DSH 不读 |
 | `engines.node` | `^22.19.0 \|\| >=24.0.0` | 包管理器 |
 | 已打包依赖 `@earendil-works/pi-ai` | `~1.3.0`（1.3.x 内），**打进产物**（devDependency） | 独立耦合：pi-ai 改请求构造即影响本插件的线上行为；其 opencode-go 内置目录同时是本插件的打底数据。打包后本插件**没有任何运行时依赖**，安装者不必再解析它 |
@@ -191,7 +191,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 维护时需要注意：
 
 - **必选与可选之分**：18 个 peer（17 个 `dsh-*` 加框架 `cordis`）中 6 个标了 `optional`（`dsh-api-remotes`、`dsh-client-locale`、`dsh-client-store`、`dsh-client-ui-model-selection`、`dsh-client-ui-settings`、`dsh-client-ui-slots`）；真正卡住加载的是 12 个——`cordis`、`dsh-attachment`、`dsh-brand`、`dsh-client-ui-conversation`、`dsh-client-ui-renderer`、`dsh-credentials`、`dsh-fs`、`dsh-launch-environment`、`dsh-llm`、`dsh-timeout`、`dsh-typert-protocol`、`dsh-typert-registry`。其中 `dsh-llm` 是最重的一处耦合（源码 import 二十余处）。
-- **名义范围 ≠ 实测范围**：声明范围是 `>=0.2.0-rc.1 <0.3.0`，本项目实际验证过的基线依次是 `0.2.0-rc.1`（开发依赖基线：门禁判定 + typecheck + 全量用例）、`0.2.0-rc.2`（同上 + `prepareCall` 代次冻结）、`0.2.1-alpha.3`（首个目标版本）、`0.2.1-alpha.4`（T-24）与 `0.2.1-alpha.5`（T-26）。范围内的其他版本没有逐个验证过。
+- **名义范围 ≠ 实测范围**：声明范围是 `>=0.2.0-rc.1 <0.3.0`，本项目实际验证过的基线依次是 `0.2.0-rc.1`（开发依赖基线：门禁判定 + typecheck + 全量用例）、`0.2.0-rc.2`（同上 + `prepareCall` 代次冻结）、`0.2.1-alpha.3`（首个目标版本）、`0.2.1-alpha.4`（T-24）、`0.2.1-alpha.5`（T-26）与 `0.2.1-rc.2`（T-31，运行时升到 cordis `4.0.5`；上游契约层源码零变更）。范围内的其他版本没有逐个验证过。
 - **上界就是跟版线**：`<0.3.0` 意味着 DSH 一旦发布 `0.3.0`，本插件必须同批发新版，否则所有用户加载失败。调整范围后用 `npm test` 验证即可（本地 mock 网关，零网络零 token）——范围以接口声明为准，不要用线上探测来"测"出一个范围。
 - **peer 覆盖已双向守住**：`dsh-typert-registry`、`dsh-client-ui-conversation`、`dsh-client-ui-renderer` 曾被源码 import 却未声明、门禁管不到，现已补进 `peerDependencies`；`tests/peer-coverage.spec.ts` 双向断言——源码用到的必须声明，声明了却没人用的必须删（`dsh-settings` 就这样被移除：设置表单实际由 `dsh-client-ui-settings` 提供）。
 - **豁免是按 profile 记的**：只有显式执行过 `dsh plugin allow-version` 的 profile 才享有豁免；没有记录就代表必须落在声明范围内。用 `dsh plugin version-exemptions` 可查看当前 profile 的豁免。

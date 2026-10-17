@@ -86,6 +86,7 @@
 | **T-25** | 设置页一键更新（检查新版本 → 卸载旧版 → 安装新版） | 用户追加 | Remote `opencodeGoUpdate`（`readUpdate`/`refreshUpdate`）+ 设置页横幅与二次确认；实际安装交由宿主 `pluginManager`，插件不改写自身文件 | done（v0.1.23–v0.1.33） |
 | **T-26** | 依赖跟进到 DSH `0.2.1-alpha.5` | 计划 §7 | 21 个 `dsh-*` devDeps 升至 alpha.5；先核对上游：`llm`/`typert`/`settings`/`client` 契约层源码零变更，**无需适配**；全新安装 258 包 / 0 漏洞；三关全绿。证据：`scratch/t26-backup/` | done（v0.1.34） |
 | **T-27** | README 兼容性表与实际声明保持一致 | 本次审计 | 修正四处漂移（pi-ai 差三个大版本、cordis peer 缺 alpha 分支、engines.dsh 缺 0.2.1-alpha 段、schemastery 版本）；新增 `tests/readme-consistency.spec.ts` 逐条断言**对应表格行**（中英各一份），并以临时回退验证其确实能抓到漂移 | done（v0.1.34） |
+| **T-31** | 依赖跟进到 DSH `0.2.1-rc.2` | 用户追加 | **关键点：`cordis` 从 `4.0.5-alpha.2` 变为正式版 `4.0.5`**，peer 必须补上否则 rc 环境下门禁拒绝加载；21 个 `dsh-*` devDeps 升至 `0.2.1-rc.2`。先核对上游：`llm`/`gateway`/`typert`/`settings`/`client` 与 vendored `cordis` 源码**零变更**（仅 package.json 版本号），**无需适配**。增量安装报 `ERESOLVE`（旧 lock 残留 alpha.5），按 T-01 约定全新安装：244 包 / 0 漏洞 / 无 ERESOLVE；三关全绿。证据：`scratch/t31-backup/` | done（v0.1.43） |
 
 ### T-25 的验证记录
 
