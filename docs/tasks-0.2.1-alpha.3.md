@@ -87,7 +87,7 @@
 ### T-25 的验证记录
 
 一键更新在真实页面上**已跑通**（2026-10-16，用户确认「立即更新功能正常」，0.1.30 → 0.1.31 由该按钮完成）。
-该功能共修复六类缺陷，每一类都由新增测试锁定：
+该功能共修复七类缺陷，每一类都由新增测试锁定：
 
 1. **调用参数个数（v0.1.25）**：`readUpdate(force)` 传了位置参数，而描述符声明零参数，网关按 arity 拒收 → 改为与目录一致的 `readUpdate`/`refreshUpdate` 双零参方法。
 2. **失败静默（v0.1.26）**：检查失败时 phase 回落 `idle`，而 `idle` 不渲染任何内容，导致任何失败都不可见也无法重试 → 改为可见的 `failed` 态并给重试。
@@ -95,6 +95,7 @@
 4. **查询失败冒充成功（v0.1.28）**：registry 不可达与"确认无更新"读数相同，页面会显示"已是最新"这句谎话 → `UpdateStatus.checked` 区分两者。
 5. **先卸载再失败（v0.1.29）**：预检把联合类型的 `refused` 结果当作通过，会径直卸载运行中的版本，安装失败即让用户失去插件 → `refused`/`bundle: false` 都在动手前中止。
 6. **目录冷启动不重验证（v0.1.30）**：`forModel` 用"快照是否仍等于 await 前的缓存"判断是否重验证，冷目录下恒为假，首次构建缺失的模型直接以 `UNKNOWN_MODEL` 失败 → 改为按 id 是否可服务判断（该缺陷同时是 `adapter.spec.ts` 长期间歇失败的根因）。
+7. **插件管理器取值为 undefined（v0.1.33）**：v0.1.29 为避免"组合无插件管理器时整个设置页消失"，改用一次性 `ctx.get('remote.pluginManager')`。但 Cordis 的 `get` 默认 strict——提供该服务的 fiber 尚未 `ACTIVE` 时返回 `undefined`，而插件 `apply` 期间正是这种状态；取到的 `undefined` 被固化，页面便永久报「当前组合没有插件管理器」。这解释了同一实现有时能更新、有时不能（0.1.31 成功、0.1.32 失败）的时序现象。现改为响应式 `inject` + 持有对象（`PluginManagerHolder`）：服务晚到也能自愈，真缺失时仍如实降级。
 
 无功能影响的已知噪声：启动 DSH 时可能看到 `Accessing non-existent property 'Allow' of module exports inside circular dependency`，来源为 `pi-ai → partial-json` 的循环依赖，非本项目代码（详见 v0.1.31 起 CHANGELOG 与本次排查结论）。
 
