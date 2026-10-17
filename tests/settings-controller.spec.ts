@@ -68,9 +68,11 @@ function harness(options: { withScope?: boolean; rejectWrites?: boolean; rejectF
       },
     },
     pluginManager: {
-      inspect: async () => ({}),
-      removeBundle: async () => ({ ok: true, value: {} }),
-      installBundle: async () => ({ ok: true, value: { application: 'applied' } }),
+      current: {
+        inspect: async () => ({}),
+        removeBundle: async () => ({ ok: true, value: {} }),
+        installBundle: async () => ({ ok: true, value: { application: 'applied' } }),
+      },
     },
     scope: options.withScope === false ? undefined : scope,
   }

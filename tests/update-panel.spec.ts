@@ -48,29 +48,33 @@ function services(script: ManagerScript = {}, available = true): SectionServices
         unset: async () => ({ ok: true, value: undefined }) as never,
       },
     },
+    // A holder, because the client entry fills it once the namespace's fiber
+    // is actually usable — see PluginManagerHolder in Section.tsx.
     pluginManager: {
-      // Strict arity, mirroring the gateway client: each descriptor declares
-      // its business arguments, and a call whose positional arity differs is
-      // rejected before it reaches the Host. `inspect` declares two (spec and
-      // options) even though options is optional in TypeScript — calling it
-      // with one argument failed in a live run.
-      inspect: async (...args: unknown[]) => {
-        if (args.length !== 2) {
-          throw new Error(`client api: pluginManager/inspect expected 2 business argument(s) plus an optional AbortSignal, got ${String(args.length)}`)
-        }
-        return script.inspect ?? { status: 'accepted', kind: 'registry', bundle: true }
-      },
-      removeBundle: async (...args: unknown[]) => {
-        if (args.length !== 1) {
-          throw new Error(`client api: pluginManager/removeBundle expected 1 argument(s), got ${String(args.length)}`)
-        }
-        return (script.remove ?? { ok: true, value: {} }) as never
-      },
-      installBundle: async (...args: unknown[]) => {
-        if (args.length !== 2) {
-          throw new Error(`client api: pluginManager/installBundle expected 2 business argument(s) plus an optional AbortSignal, got ${String(args.length)}`)
-        }
-        return (script.install ?? { ok: true, value: { application: 'applied' } }) as never
+      current: {
+        // Strict arity, mirroring the gateway client: each descriptor declares
+        // its business arguments, and a call whose positional arity differs is
+        // rejected before it reaches the Host. `inspect` declares two (spec and
+        // options) even though options is optional in TypeScript — calling it
+        // with one argument failed in a live run.
+        inspect: async (...args: unknown[]) => {
+          if (args.length !== 2) {
+            throw new Error(`client api: pluginManager/inspect expected 2 business argument(s) plus an optional AbortSignal, got ${String(args.length)}`)
+          }
+          return script.inspect ?? { status: 'accepted', kind: 'registry', bundle: true }
+        },
+        removeBundle: async (...args: unknown[]) => {
+          if (args.length !== 1) {
+            throw new Error(`client api: pluginManager/removeBundle expected 1 argument(s), got ${String(args.length)}`)
+          }
+          return (script.remove ?? { ok: true, value: {} }) as never
+        },
+        installBundle: async (...args: unknown[]) => {
+          if (args.length !== 2) {
+            throw new Error(`client api: pluginManager/installBundle expected 2 business argument(s) plus an optional AbortSignal, got ${String(args.length)}`)
+          }
+          return (script.install ?? { ok: true, value: { application: 'applied' } }) as never
+        },
       },
     },
     scope: undefined,
@@ -164,10 +168,33 @@ describe('update panel', () => {
     expect(controller.snapshot().update.phase).toBe('ready')
   })
 
+  it('applies the update when the package manager arrives after the page is built', async () => {
+    // The client entry fills the holder through `ctx.inject`, which fires once
+    // the namespace's fiber is usable. Reading it once through `ctx.get` at
+    // apply time found an inactive fiber, cached `undefined`, and left the
+    // page reporting "no plugin manager" on a composition that plainly has
+    // one — the defect a live run reported.
+    const tracking = services()
+    const manager = tracking.pluginManager!.current!
+    Object.defineProperty(tracking, 'pluginManager', { configurable: true, value: {} })
+    const controller = new SectionController(tracking)
+    await settle()
+    controller.armUpdate()
+    await controller.applyUpdate()
+    expect(controller.snapshot().update).toMatchObject({ phase: 'failed', message: 'no-plugin-manager' })
+
+    // The namespace arrives; the same controller must now be able to update.
+    tracking.pluginManager!.current = manager
+    await controller.checkUpdate(false)
+    controller.armUpdate()
+    await controller.applyUpdate()
+    expect(controller.snapshot().update.phase).toBe('done')
+  })
+
   it('runs inspect, remove, then install on confirm', async () => {
     const calls: string[] = []
     const tracking = services()
-    const manager = tracking.pluginManager!
+    const manager = tracking.pluginManager!.current!
     const inspect = manager.inspect
     const remove = manager.removeBundle
     const install = manager.installBundle
@@ -234,11 +261,11 @@ describe('update panel', () => {
   it('stops before removing when inspection fails', async () => {
     let removed = false
     const tracking = services()
-    tracking.pluginManager!.inspect = async (...args: unknown[]) => {
+    tracking.pluginManager!.current!.inspect = async (...args: unknown[]) => {
       expect(args).toHaveLength(2)
       throw new Error('registry unreachable')
     }
-    tracking.pluginManager!.removeBundle = async () => { removed = true; return { ok: true, value: {} } as never }
+    tracking.pluginManager!.current!.removeBundle = async () => { removed = true; return { ok: true, value: {} } as never }
     const controller = new SectionController(tracking)
     await settle()
     controller.armUpdate()
@@ -257,7 +284,7 @@ describe('update panel', () => {
     ]) {
       let removed = false
       const tracking = services({ inspect: inspected })
-      tracking.pluginManager!.removeBundle = async () => { removed = true; return { ok: true, value: {} } as never }
+      tracking.pluginManager!.current!.removeBundle = async () => { removed = true; return { ok: true, value: {} } as never }
       const controller = new SectionController(tracking)
       await settle()
       controller.armUpdate()

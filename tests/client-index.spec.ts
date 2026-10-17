@@ -12,18 +12,26 @@ import { apply } from '../src/client/index.ts'
 function scope() {
   const slotsInject = vi.fn((_name: string, run: () => unknown) => run())
   const slotsRegister = vi.fn((_options: unknown, component: unknown) => component)
-  return {
+  const base = {
     get: (name: string) => (name === 'configForms' ? { get: () => undefined } : undefined),
     remote: {
       $mount: vi.fn(async () => async () => {}),
       opencodeGoCatalog: {},
+      opencodeGoUpdate: {},
       opencodeGoUsage: {},
+      pluginManager: {},
       credentials: {},
     },
     locale: { bind: () => (key: string) => key, getLocale: () => ({ active: 'en' }) },
     slots: { inject: slotsInject, register: slotsRegister },
     effect: vi.fn(),
     modelDirectories: { directoryFor: () => ({ store: {} }) },
+  }
+  return {
+    ...base,
+    // Cordis fires a nested `inject` as soon as its dependency is usable; the
+    // fake hands the same scope back so the callback's namespace read resolves.
+    inject: vi.fn((_services: string[], run: (scope: unknown) => unknown) => run(base)),
   }
 }
 

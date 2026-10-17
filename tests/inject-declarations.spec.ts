@@ -61,7 +61,11 @@ describe('client inject declarations', () => {
       for (const name of call[1]!.matchAll(/'(remote\.[A-Za-z0-9_]+)'/g)) declared.add(name[1]!)
     }
     const read = new Set<string>()
-    for (const use of source.matchAll(/scope\.remote\.([A-Za-z0-9_]+)/g)) read.add(`remote.${use[1]!}`)
+    // Any receiver name, not just `scope`: nested inject callbacks receive
+    // their own parameter (e.g. `managerScope.remote.pluginManager`).
+    for (const use of source.matchAll(/\b[A-Za-z]*[Ss]cope\.remote\.([A-Za-z0-9_]+)/g)) {
+      read.add(`remote.${use[1]!}`)
+    }
     expect(read.size).toBeGreaterThan(0)
     expect([...read].toSorted().filter(name => !declared.has(name))).toEqual([])
   })

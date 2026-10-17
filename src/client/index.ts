@@ -28,7 +28,7 @@ import type { TypertDisposer } from '@deepseek-ai/dsh-typert-protocol'
 import { en, zh } from './locales.ts'
 import type { OpencodeGoKey } from './locales.ts'
 import { Section, SectionController } from './Section.tsx'
-import type { SettingsScopeLike } from './Section.tsx'
+import type { PluginManagerHolder, SettingsScopeLike } from './Section.tsx'
 import { UsagePill } from './UsagePill.tsx'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -83,13 +83,23 @@ export function apply(ctx: ClientContext): void {
     // plugin's, and a composition without the form renders the page read-only.
     const forms = scope.get('configForms') as
       { get(id: string): SettingsScopeLike | undefined } | undefined
+    const pluginManager: PluginManagerHolder = {}
     const controller = new SectionController({
       remote: scope.remote,
-      // Lenient lookup on purpose: the plugin manager is a separate host
-      // plugin a composition may omit, and declaring it as a required
-      // dependency would withdraw this whole settings section when absent.
-      pluginManager: scope.get('remote.pluginManager') as never,
+      pluginManager,
       scope: forms?.get('dshopencodego'),
+    })
+    // The package manager is filled separately and reactively.
+    //
+    // It is not part of the required list above: a composition may have no
+    // plugin manager, and requiring it would withdraw this whole section. It
+    // is also not a one-shot `scope.get()`, because `get` is strict and
+    // answers undefined while the providing fiber is not yet active — which
+    // is the state during this apply, so the page reported "no plugin
+    // manager" on compositions that have one. `inject` waits for the real
+    // thing instead.
+    scope.inject(['remote.pluginManager'], (managerScope) => {
+      pluginManager.current = managerScope.remote.pluginManager as never
     })
     const translate = scope.locale.bind(NS)
     scope.effect(() => () => { controller.dispose() })

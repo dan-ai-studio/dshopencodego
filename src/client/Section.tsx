@@ -43,6 +43,28 @@ export interface SettingsScopeLike {
   set(field: string, value: unknown): Promise<void | boolean>
 }
 
+/** One host package-manager namespace, as this page uses it. */
+export interface PluginManagerLike {
+  /** Two business arguments: the spec and its options (both declared in the descriptor). */
+  inspect(spec: string, options?: { registry?: unknown }): Promise<unknown>
+  removeBundle(name: string): Promise<RemoteResult<PluginManagerChange>>
+  installBundle(spec: string, options?: { saveExact?: boolean; enabled?: boolean }): Promise<RemoteResult<PluginManagerChange>>
+}
+
+/**
+ * Live holder for that namespace.
+ *
+ * It is a holder rather than a value because the namespace mounts after this
+ * page is built: the client entry fills it through `ctx.inject`, which fires
+ * once the providing fiber is actually usable. A one-shot `ctx.get()` is
+ * strict and answers `undefined` while that fiber is still inactive — taking
+ * it once during apply made this page report "no plugin manager" forever on a
+ * composition that plainly has one.
+ */
+export interface PluginManagerHolder {
+  current?: PluginManagerLike
+}
+
 /** The subset of the client context this page uses. */
 export interface SectionServices {
   readonly remote: {
@@ -69,19 +91,12 @@ export interface SectionServices {
   /**
    * The host's own package manager, used only to apply an update.
    *
-   * Resolved through the lenient `ctx.get()` rather than declared as a
-   * required dependency: the plugin manager is a separate host plugin that a
-   * composition may omit, and making the settings page depend on it would
-   * withdraw this whole section when it is absent. Without it the page still
-   * reports update availability; only the one-click apply says why it cannot
-   * run.
+   * Optional on purpose: the plugin manager is a separate host plugin a
+   * composition may omit, and requiring it would withdraw this whole settings
+   * section when it is absent. Without it the page still reports update
+   * availability; only the one-click apply says why it cannot run.
    */
-  readonly pluginManager?: {
-    /** Two business arguments: the spec and its options (both declared in the descriptor). */
-    inspect(spec: string, options?: { registry?: unknown }): Promise<unknown>
-    removeBundle(name: string): Promise<RemoteResult<PluginManagerChange>>
-    installBundle(spec: string, options?: { saveExact?: boolean; enabled?: boolean }): Promise<RemoteResult<PluginManagerChange>>
-  }
+  readonly pluginManager?: PluginManagerHolder
   /** Absent in a composition without a settings surface: the page turns read-only. */
   readonly scope: SettingsScopeLike | undefined
 }
@@ -340,7 +355,7 @@ export class SectionController {
     const status = this.state.update.status
     const latest = status?.latest
     if (this.state.update.phase !== 'confirming' || latest === undefined) return
-    const manager = this.services.pluginManager
+    const manager = this.services.pluginManager?.current
     if (manager === undefined) {
       this.set({ update: { phase: 'failed', status, message: 'no-plugin-manager' } })
       return

@@ -45,9 +45,11 @@ const services: SectionServices = {
     },
   },
   pluginManager: {
-    inspect: async () => ({}),
-    removeBundle: async () => ok({}),
-    installBundle: async () => ok({ application: 'applied' }),
+    current: {
+      inspect: async () => ({}),
+      removeBundle: async () => ok({}),
+      installBundle: async () => ok({ application: 'applied' }),
+    },
   },
   scope: undefined,
 }
