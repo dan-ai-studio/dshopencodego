@@ -69,12 +69,19 @@ const cssModules = {
         cssModules: { pattern: '[hash]_[local]' },
         minify: true,
       })
-      const classes = Object.fromEntries(Object.entries(result.exports).map(([key, value]) => [key,
-        [value.name, ...value.composes.map((item) => {
-          if (item.type === 'dependency') throw new Error(`External CSS composition is unsupported: ${item.name}`)
-          return item.name
-        })].join(' '),
-      ]))
+      // Sorted, because lightningcss hands back its export map in an order
+      // that varies between runs. The scoped names themselves are stable (they
+      // hash the filename and the local name), so only the emission order moved
+      // — and that was enough to make this bundle differ byte for byte on every
+      // build, which defeats any attempt to verify a release artifact by hash.
+      const classes = Object.fromEntries(Object.entries(result.exports)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, value]) => [key,
+          [value.name, ...value.composes.map((item) => {
+            if (item.type === 'dependency') throw new Error(`External CSS composition is unsupported: ${item.name}`)
+            return item.name
+          })].join(' '),
+        ]))
       const id = `${pkg.name}/${basename(args.path)}`
       return {
         loader: 'js',
