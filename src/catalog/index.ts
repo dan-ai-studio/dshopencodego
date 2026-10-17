@@ -40,6 +40,7 @@ import type { GoDoc } from './go-doc.ts'
 import { readBoundedJson } from './json-response.ts'
 import { readOnlineMetadata, toPiModel } from './metadata.ts'
 import type { ModelDefaults, ModelFacts } from './metadata.ts'
+import { asWireProtocol } from './protocol.ts'
 import type { GoQuota } from '../go-limits.ts'
 
 export { PROVIDER_ID, DISPLAY_NAME, DEFAULT_BASE_URL, CONSOLE_BASE_URL } from './constants.ts'
@@ -105,6 +106,19 @@ function harnessApiKeyAuth(): Provider['auth'] {
       resolve: () => Promise.resolve({ auth: {}, source: 'OpenCode Go API key' }),
     },
   }
+}
+
+/**
+ * The installed catalog's protocol, when this plugin cannot serve it.
+ *
+ * `Model<Api>['api']` is pi-ai's wider union; this plugin mounts exactly the
+ * three in `WIRE_PROTOCOLS`. The check exists because the catalog is wider
+ * than the plugin and grows on its own release cadence.
+ * @param api - the raw `api` string the installed catalog states.
+ * @returns the unusable protocol, or undefined when there is nothing to refuse.
+ */
+function unsupportedBuiltinApi(api: string | undefined): string | undefined {
+  return api === undefined || asWireProtocol(api) !== undefined ? undefined : api
 }
 
 function buildProvider(baseURL: string, models: readonly Model<Api>[]): Provider {
@@ -287,6 +301,18 @@ export class OpencodeGoCatalog {
         unavailable.set(id, reason)
         continue
       }
+      // The installed catalog may name a protocol this plugin cannot mount.
+      // pi-ai 1.3.0 labels `gemini-4-argon-contributor` as
+      // `google-generative-ai`, which `buildProvider` has no entry for, and
+      // the string used to reach the model list through an unchecked cast.
+      // Listing it as usable would defer the failure to the first stream —
+      // the one outcome this plugin refuses to ship — so it is refused here,
+      // exactly like a malformed record.
+      const unsupported = unsupportedBuiltinApi(builtin.get(id)?.api)
+      if (unsupported !== undefined) {
+        unavailable.set(id, `its wire protocol "${unsupported}" is not implemented by this plugin`)
+        continue
+      }
       // No source describes this id. The gateway's own provider default
       // (`@ai-sdk/openai-compatible`) makes Chat Completions the best available
       // guess, and the route defaults size it; the settings surface marks it as
@@ -331,14 +357,17 @@ export class OpencodeGoCatalog {
   /** Facts for an id no source describes, from the ladder and the route defaults. */
   private inferredFacts(id: string, builtin: ReadonlyMap<string, Model<Api>>): ModelFacts {
     const exact = builtin.get(id)
-    const api = exact?.api as ModelFacts['api'] | undefined ?? inferFamily(id)
+    // Guarded for the same reason `assemble` refuses these ids up front: the
+    // installed catalog states protocols this plugin cannot mount.
+    const builtinApi = asWireProtocol(exact?.api)
+    const api = builtinApi ?? inferFamily(id)
     const contextWindow = exact !== undefined ? exact.contextWindow : this.options.defaults.contextWindow
     const maxTokens = exact !== undefined ? exact.maxTokens : this.options.defaults.maxTokens
     return {
       id,
       name: exact?.name ?? id,
       api,
-      protocolSource: exact === undefined ? 'inferred' : 'builtin',
+      protocolSource: builtinApi === undefined ? 'inferred' : 'builtin',
       contextWindow,
       maxInputTokens: undefined,
       maxTokens,

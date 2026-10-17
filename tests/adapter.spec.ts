@@ -368,12 +368,16 @@ describe('adapter on the wire', () => {
   })
 
   it('exposes reasoning levels with a default only where omitting one would disable thinking', async () => {
-    const server = await gateway({ listing: ['deepseek-v4-flash'] })
-    // No document entry: the installed catalog supplies this model's protocol,
-    // capacities, and its DeepSeek thinking format.
+    // The id must be one the installed catalog actually knows: this case is
+    // about the builtin rung supplying protocol, capacities and the DeepSeek
+    // thinking format when no document entry exists. It used to name
+    // `deepseek-v4-flash`, which the provider has since retired and pi-ai
+    // 1.3.0 dropped from its builtin list — so the model fell through to
+    // inference and the case measured nothing.
+    const server = await gateway({ listing: ['deepseek-v4.1-flash'] })
     const stub = stubModelsDev(modelsDevDocument({}))
     try {
-      const info = await adapterFor(server).resolveModel('opencode-go', 'deepseek-v4-flash')
+      const info = await adapterFor(server).resolveModel('opencode-go', 'deepseek-v4.1-flash')
       expect(info.reasoning?.efforts.length).toBeGreaterThan(0)
       expect(info.reasoning?.defaultEffort).toBe('high')
     } finally {

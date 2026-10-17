@@ -263,7 +263,13 @@ export function readOnlineMetadata(body: unknown, sources: MetadataSources): Onl
         throw new Error(`configured protocol "${sources.overrides[id]}" is not one of anthropic-messages, openai-completions, openai-responses`)
       }
       const decision = decideProtocol(id, {
-        ...exact?.api === undefined ? {} : { builtin: exact.api as WireProtocol },
+        // Guarded, not asserted: pi-ai's builtin catalog is wider than this
+        // plugin's three protocols — 1.3.0 labels `gemini-4-argon-contributor`
+        // as `google-generative-ai`. Casting it straight to `WireProtocol`
+        // let an unimplementable protocol enter as `builtin`, the most
+        // trustworthy source, and the model then failed only once a stream
+        // was attempted.
+        ...asWireProtocol(exact?.api) === undefined ? {} : { builtin: asWireProtocol(exact?.api)! },
         ...protocolOfNpm(metadata['provider'] === undefined ? providerNpm : record(metadata['provider'])['npm'] ?? providerNpm) === undefined
           ? {}
           : { online: protocolOfNpm(record(metadata['provider'])['npm'] ?? providerNpm) as WireProtocol },

@@ -2,6 +2,22 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.35] - 2026-10-17
+
+### 🔄 打底数据同步 (Fallback data)
+
+- **pi-ai `1.0.2` → `~1.3.0`**：其内置目录正是本插件的打底数据（协议阶梯的第一级与离线兜底）。旧目录已过时——官方文档当前列出的模型与 1.3.0 内置目录高度吻合，而 1.0.4 停留在一个更早的集合上。同步后：
+  - **新增** `cat-jam-free`（`openai-completions`）、`claude-haiku-5-5`（`anthropic-messages`）、`gemini-4-argon-contributor`、`space-bunny` 的内置协议；
+  - **移除** `deepseek-v4-flash`、`deepseek-v4-flash-vision-exp`、`grok-4.6`、`minimax-m2.7`、`space-bunny-free` —— 官方文档确认这些已不在 Go 端点。
+  - 已验证类型检查与全部测试通过；`adapter.spec.ts` 中一个用例原先拿 `deepseek-v4-flash` 当样本，该模型已下线，改用仍在目录中的 `deepseek-v4.1-flash`。
+
+### 🐞 修复 (Fixes)
+
+- **不受支持的线协议会被当成可用模型列出**：`metadata.ts` 把内置目录的 `api` 用 `as WireProtocol` **裸断言**，绕过了本已存在的 `asWireProtocol` 守卫。pi-ai 1.3.0 把 `gemini-4-argon-contributor` 标为 `google-generative-ai`（第四种协议，`buildProvider` 并未挂载该实现），于是该模型会以最高可信度来源 `builtin` 进入模型列表、`unavailable` 为空，直到用户发起流式请求才失败——正是本插件一贯拒绝的「静默的谎话」。
+  现在内置协议先经守卫（不再是裸断言），且 `assemble` 对「目录声明了本插件无法实现的协议」的 id 直接归入 `unavailable` 并给出原因（`its wire protocol "…" is not implemented by this plugin`），其余模型不受影响。新增用例覆盖该拒绝行为。
+
+---
+
 ## [0.1.34] - 2026-10-17
 
 ### 🛠️ 内部优化与加固 (Internal Improvements)

@@ -173,7 +173,7 @@ The `engines.dsh` field is informational for readers and package managers; **DSH
 | `@deepseek-ai/cordis` | `4.0.2 \|\| 4.0.3 \|\| 4.0.4 \|\| 4.0.5-alpha.1 \|\| 4.0.5-alpha.2` | the same gate |
 | `engines.dsh` | `>=0.1.7-alpha.1 <0.2.0 \|\| >=0.2.0-rc.1 <0.2.1 \|\| >=0.2.1-alpha.1 <0.3.0` | informational only; DSH never reads it |
 | `engines.node` | `^22.19.0 \|\| >=24.0.0` | the package manager |
-| bundled `@earendil-works/pi-ai` | patch-level range `~1.0.2` (within 1.0.x) | an independent coupling: a change in pi-ai's request construction changes this plugin's wire behaviour |
+| bundled `@earendil-works/pi-ai` | patch-level range `~1.3.0` (within 1.3.x) | an independent coupling: a change in pi-ai's request construction changes this plugin's wire behaviour, and its builtin catalog is this plugin's fallback data |
 | bundled `@deepseek-ai/schemastery` | `~3.18.5-alpha.2` | kept in step with `dsh-settings`'s peer |
 
 Things to keep in mind when maintaining this:
@@ -196,7 +196,7 @@ Things to keep in mind when maintaining this:
 | "The settings write was rejected" | Usually a concurrent writer (another window or process) holding the same profile. The plugin retries once automatically; if it still fails the view has reloaded — click again. |
 | The usage button shows "unavailable" | An endpoint or credential change invalidated the previous reading. Fix the configuration and press Retry. It never shows `0` in place of a missing reading. |
 | npm publish fails with `ENEEDAUTH` | OIDC did not match: check the Trusted Publisher's **workflow filename** (must be exactly `publish-npm.yml`, case-sensitive) and the organization/repository fields; run on GitHub-hosted runners with `id-token: write`. A `repository.url` that does not match the GitHub repository is rejected as well. |
-| The whole DSH process stalls during ultra-long tool calls (multi-MB arguments) | Observed on pi-ai `0.87.1`: per-delta re-parsing of the accumulated arguments (issue #9265 / PR #9461). This plugin does not port DSH's consumer-side patch (ADR-0005); the bundled dependency is now `~1.0.2`, so a recurrence would be upstream behaviour and would be fixed by an upstream release. |
+| The whole DSH process stalls during ultra-long tool calls (multi-MB arguments) | Observed on pi-ai `0.87.1`: per-delta re-parsing of the accumulated arguments (issue #9265 / PR #9461). This plugin does not port DSH's consumer-side patch (ADR-0005); the bundled dependency is now `~1.3.0`, so a recurrence would be upstream behaviour and would be fixed by an upstream release. |
 
 ## Development
 
