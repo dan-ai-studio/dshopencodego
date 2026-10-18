@@ -24,6 +24,30 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "deps"
+    ignore:
+      # The client half is a browser bundle whose `react` / `react-dom` are
+      # externals: the DSH Web shell injects them at runtime, and every client
+      # package in harness 0.2.1-rc.2 declares `^18.2.0` (89 declarations under
+      # packages/client/**, the shell included). These devDependencies must
+      # track the platform's React rather than npm's latest, or the code
+      # typechecks against a React the page never provides.
+      #
+      # Dependabot also splits react and react-dom into two PRs while React
+      # requires both on the same major, so each one fails `npm ci` on its own
+      # (peer conflict) — there is no way to land them one at a time.
+      - dependency-name: react
+        update-types: ['version-update:semver-major']
+      - dependency-name: react-dom
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/react'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/react-dom'
+        update-types: ['version-update:semver-major']
+      # `engines.node` is `^22.19.0 || >=24.0.0` and CI runs both. The types
+      # must describe the *lowest* supported runtime: a 26.x @types/node would
+      # let the source use APIs a Node 22 user does not have.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     groups:
       deepseek-ai:
         patterns:
