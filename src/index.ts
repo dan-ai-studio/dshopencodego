@@ -37,15 +37,10 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import * as llm from '@deepseek-ai/dsh-llm'
 import { LlmError } from '@deepseek-ai/dsh-llm'
-import type {
-  AdapterRegistrationHandle,
-  DirectoryRegistrationHandle,
-  LlmConfigurableProvider,
-  LlmModelDiscoveryRequest,
-} from '@deepseek-ai/dsh-llm'
+import type { AdapterRegistrationHandle, LlmModelDiscoveryRequest } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-fs'
 import { OpencodeGoAdapter } from './adapter.ts'
-import { DEFAULT_BASE_URL, DISPLAY_NAME, PROVIDER_ID, discoverCatalogModels } from './catalog/index.ts'
+import { DISPLAY_NAME, PROVIDER_ID, discoverCatalogModels } from './catalog/index.ts'
 import { assertBaseURL, PlainConfig, readConfig } from './config.ts'
 import type { LiveConfig, OpencodeGoConfig } from './config.ts'
 import { registerRemotes } from './remotes.ts'
@@ -93,61 +88,31 @@ export function apply(ctx: Context, raw?: unknown): void {
   assertBaseURL(current().baseURL)
 
   // The id of the loader entry this mount belongs to: the settings namespace
-  // DSH keys configuration and model discovery by. `registerModelDiscovery`
-  // matches the directory entry's `settingsNs`, and the DSH Models page only
-  // starts a discovery for a provider a directory entry names. A bare mount
-  // (programmatic use, tests) has no loader entry, so the module name stands in
-  // — the same fallback the official single-route plugins use.
+  // DSH keys configuration and model discovery by. `registerModelDiscovery` is
+  // keyed by it, and a configuration surface starts a discovery for a provider
+  // whose entry names this namespace. A bare mount (programmatic use, tests)
+  // has no loader entry, so the module name stands in — the same fallback the
+  // official single-route plugins use.
   const settingsNs = ctx.fiber?.entry?.options.id ?? name
 
-  let directory: DirectoryRegistrationHandle | undefined
-  let directoryError: string | undefined
-  let directoryRetired = false
-
-  /** The directory entry, with its reparability notice when there is one. */
-  const directoryEntry = (error: string | undefined): LlmConfigurableProvider => ({
-    provider: PROVIDER_ID,
-    displayName: DISPLAY_NAME,
-    settingsNs,
-    // This plugin's profile is the entry's whole `config:` mapping — the
-    // bundled `cordis.patch.yml` inserts `id: dshopencodego` with the route's
-    // fields directly under `config`, and `src/config.ts` owns exactly those
-    // fields — so there is no path from the section root to a nested profile.
-    settingsPath: [],
-    defaultBaseURL: DEFAULT_BASE_URL,
-    ...error === undefined ? {} : { error },
-  })
-
-  /**
-   * Publish this route in the configurable-provider directory.
-   *
-   * Two facts ride on the entry: the `settingsNs` that lets a configuration
-   * surface start model discovery for this provider, and an `error` that says
-   * why the route is withheld. A missing credential is a configuration fact a
-   * user can repair, so it is published; a route withdrawn by `enabled: false`
-   * is deliberate and publishes nothing. Failures are contained: the directory
-   * is configuration-surface metadata, and losing it must not take the route,
-   * its discovery, or this mount down.
-   * @param error - the repair diagnostic, or undefined when the route is fine.
-   */
-  const publishDirectory = (error: string | undefined): void => {
-    if (directoryRetired || (directory !== undefined && error === directoryError)) return
-    directoryError = error
-    const entry = directoryEntry(error)
-    try {
-      if (directory === undefined) directory = ctx.llm.registerConfigurableProviders([entry])
-      else directory.replace([entry])
-    } catch (failure: unknown) {
-      directoryRetired = true
-      ctx.logger.error(
-        `dshopencodego: could not publish the "${PROVIDER_ID}" configurable-provider entry;`
-        + ` the Models page will not offer this route's model discovery (${String(failure)})`,
-      )
-    }
-  }
-  // The entry exists from the first moment: a configuration surface must be
-  // able to name this provider before any credential is stored for it.
-  publishDirectory(undefined)
+  // This mount deliberately publishes **no** configurable-provider directory
+  // entry, and the reason is worth keeping here so nobody adds one back.
+  //
+  // `opencode-go` is a provider the bundled `llm-pi-ai` already declares: it
+  // walks pi-ai's entire builtin catalog (`llm-pi-ai/src/index.ts:148`). That
+  // directory is keyed by provider, so only one declaration can exist
+  // (`llm/src/index.ts:515-518`, `DUPLICATE_DIRECTORY`) — whoever registers
+  // first wins. And `llm-pi-ai` registers without a try/catch
+  // (`llm-pi-ai/src/index.ts:246-261`): if this plugin ever loaded first, the
+  // throw would escape that plugin's `apply` and take every pi-ai provider
+  // down with it.
+  //
+  // Declaring an entry here would therefore buy nothing — the Models page
+  // already offers `opencode-go` through pi-ai — while adding a
+  // load-order-dependent way to break a neighbour. What this mount keeps is
+  // the part that is genuinely its own: the `settingsNs` above, so discovery
+  // is registered under the namespace a surface would look up, and the signal
+  // forwarding inside that registration.
 
   /** Resolve the route credential; a named reference that misses fails loud. */
   const resolveApiKey = async (): Promise<string | undefined> => {
@@ -245,20 +210,15 @@ export function apply(ctx: Context, raw?: unknown): void {
         ctx.logger.info('dshopencodego: disabled by configuration; the route and its models are withdrawn')
       }
     }
-    // The directory entry states the route's reparability rather than its
-    // existence: a withheld route stays listed so the surface can explain why.
-    publishDirectory(enabled && !credentialConfigured
-      ? `the route is withheld until ${current().apiKeyEnv} is stored through the credentials service`
-      : undefined)
   }
 
   /**
    * Re-evaluate the route gate against the credential that is in force now.
    *
    * Called from the `loader/volatile-update` listener and from credential
-   * events. `registration.replace()` and `directory.replace()` throw
-   * `REGISTRATION_DISPOSED` once their registration was released (harness
-   * `packages/llm/llm/src/index.ts:321-326` and `:333-347`), and Cordis emits
+   * events. `registration.replace()` throws `REGISTRATION_DISPOSED` once its
+   * registration was released (harness `packages/llm/llm/src/index.ts:321-326`),
+   * and Cordis emits
    * listeners with `Array.map` — one synchronous throw starves every listener
    * registered after this one. The official adapter plugin contains its own
    * listener failures the same way (`llm-pi-ai/src/index.ts:315-321`).
@@ -313,10 +273,6 @@ export function apply(ctx: Context, raw?: unknown): void {
   ctx.effect(() => () => {
     registration?.()
     undiscover()
-    // Withdrawn with the mount: a disposed directory handle throws
-    // REGISTRATION_DISPOSED on any later `replace`.
-    directory?.()
-    directoryRetired = true
   })
 
   // Validate a profile edit before it is persisted, then re-evaluate the gate.

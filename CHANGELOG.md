@@ -2,6 +2,24 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.45] - 2026-10-18
+
+### 🐞 修正 (Fixes)
+
+- **撤回 configurable-provider 目录条目的注册**（v0.1.44 引入的那部分）。`opencode-go` 这个 provider 键**已经由内置的 `llm-pi-ai` 声明**——它会遍历 pi-ai 的整个内置目录（`llm-pi-ai/src/index.ts:148`），而 DSH 的 provider 目录**按键唯一**，重复声明抛 `DUPLICATE_DIRECTORY`（`llm/src/index.ts:515-518`）。
+
+  **为什么必须撤回**：谁先注册谁赢，而 `llm-pi-ai` 的注册**没有 try/catch**（`llm-pi-ai/src/index.ts:246-261`）。一旦本插件先加载，这个异常会冒泡出它的 `apply`，**连带它服务的所有 provider（`deepseek`、`nvidia` 等）一起失效**。在 v0.1.44 里，因为 `@deepseek-ai/dsh-base` 排在 bundles 列表前面，本插件总是后手，所以只表现为一条没有用途的 error 日志——那是**加载顺序的侥幸，不是设计保证**。
+
+  **代价为零**：Models 页本来就通过 pi-ai 提供 `opencode-go` 的配置入口，本插件再声明一次既冗余，又只增加一条"取决于加载顺序地破坏邻插件"的路径。
+
+  **保留**的是同批做掉的、真正属于本插件的部分：discovery 以 profile 条目 id 作 `settingsNs` 注册（此前用模块名，导致 DSH 从不为它发起 discovery），以及取消信号向文档抓取的透传。
+
+### 🧪 测试
+
+- `tests/runtime-plugin-wiring.spec.ts` 改为**固化"不得注册目录条目"这一决定**（mock 记录任何调用，一旦有人加回来就红），并保留 `settingsNs` 与 signal 的断言。套件仍为 43 个文件 / 316 个用例。
+
+---
+
 ## [0.1.44] - 2026-10-18
 
 本版来自一轮四维度独立审计（代码 / 测试 / 交付 / 文档），共 41 项修复与增强。

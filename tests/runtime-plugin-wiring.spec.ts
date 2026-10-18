@@ -1,13 +1,11 @@
 /**
- * Plugin mount wiring: the configurable-provider directory entry that makes
- * model discovery reachable at all, the settings namespace shared by that
- * entry and the discovery registration, the reparability diagnostic the entry
- * carries, the discovery signal, and the loader listener that must never throw
- * into Cordis's emitter.
+ * Plugin mount wiring: the settings namespace discovery is registered under,
+ * the deliberate **absence** of a configurable-provider directory entry, the
+ * discovery signal, and the loader listener that must never throw into
+ * Cordis's emitter.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { LlmError } from '@deepseek-ai/dsh-llm'
-import type { LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import { apply } from '../src/index.ts'
 import { GO_DOC_URLS } from '../src/catalog/go-doc.ts'
 import { modelsDevDocument, startMockGateway } from './mock-gateway.ts'
@@ -16,12 +14,11 @@ type Discover = (request: unknown, signal?: AbortSignal) => Promise<unknown>
 
 interface Harness {
   ctx: Record<string, unknown>
-  directoryRegistrations: LlmConfigurableProvider[][]
-  directoryReplacements: LlmConfigurableProvider[][]
   discoveryNs: string[]
   discover: Discover | undefined
   volatileUpdate: (() => void) | undefined
   registerAdapter: ReturnType<typeof vi.fn>
+  registerConfigurableProviders: ReturnType<typeof vi.fn>
   errors: string[]
   infos: string[]
 }
@@ -50,27 +47,22 @@ function context(options: {
   entryId?: string
   bareMount?: boolean
   adapterReplaceThrows?: boolean
-  directoryThrows?: boolean
 } = {}): Harness {
-  const directoryRegistrations: LlmConfigurableProvider[][] = []
-  const directoryReplacements: LlmConfigurableProvider[][] = []
   const discoveryNs: string[] = []
   const errors: string[] = []
   const infos: string[] = []
   const state: Partial<Harness> = {}
 
-  const directoryHandle = Object.assign((): void => {}, {
-    replace: (entries: readonly LlmConfigurableProvider[]): void => {
-      if (options.directoryThrows === true) throw new LlmError('directory disposed', 'REGISTRATION_DISPOSED')
-      directoryReplacements.push([...entries])
-    },
-  })
   const adapterHandle = Object.assign((): void => {}, {
     replace: (): void => {
       if (options.adapterReplaceThrows === true) throw new LlmError('route disposed', 'REGISTRATION_DISPOSED')
     },
   })
   const registerAdapter = vi.fn(() => adapterHandle)
+  // Publishing a directory entry would collide with `llm-pi-ai`'s declaration
+  // of this same provider, so the mount must never call this. The mock records
+  // any call, which is how the test below holds that decision.
+  const registerConfigurableProviders = vi.fn()
 
   const ctx: Record<string, unknown> = {
     // A bare mount (a programmatic `apply`) has no loader fiber at all.
@@ -85,11 +77,7 @@ function context(options: {
         state.discover = discover
         return (): void => {}
       }),
-      registerConfigurableProviders: vi.fn((entries: readonly LlmConfigurableProvider[]) => {
-        directoryRegistrations.push([...entries])
-        if (options.directoryThrows === true) throw new LlmError('directory refused', 'DUPLICATE_DIRECTORY')
-        return directoryHandle
-      }),
+      registerConfigurableProviders,
     },
     plugin: vi.fn(),
     effect: vi.fn(),
@@ -106,10 +94,9 @@ function context(options: {
   return {
     ctx,
     registerAdapter,
+    registerConfigurableProviders,
     errors,
     infos,
-    directoryRegistrations,
-    directoryReplacements,
     discoveryNs,
     // Read through the mutable state: `apply` fills these once it registers.
     get discover() { return state.discover },
@@ -120,52 +107,39 @@ function context(options: {
 const tick = (): Promise<void> => new Promise(resolve => { setTimeout(resolve, 0) })
 
 describe('configurable-provider directory', () => {
-  it('declares the route under the loader entry id, and keys discovery by it', () => {
+  it('publishes no entry — pi-ai already declares this provider', () => {
+    const harness = context({ configured: true })
+    apply(harness.ctx as never, { enabled: true })
+    // `llm-pi-ai` declares `opencode-go` from pi-ai's builtin catalog and
+    // registers it without a try/catch. A second declaration would be refused
+    // when pi-ai wins the race, and would take pi-ai's whole plugin down when it
+    // loses — so this mount stays out of that directory entirely. The Models
+    // page still offers the provider, through pi-ai.
+    expect(harness.registerConfigurableProviders).not.toHaveBeenCalled()
+  })
+
+  it('keys discovery by the loader entry id', () => {
     const harness = context({ configured: true, entryId: 'my-opencode-go' })
     apply(harness.ctx as never, { enabled: true })
-    expect(harness.directoryRegistrations).toHaveLength(1)
-    const entry = harness.directoryRegistrations[0]![0]!
-    expect(entry).toMatchObject({
-      provider: 'opencode-go',
-      displayName: 'OpenCode Go',
-      // DSH starts model discovery for a directory entry by its `settingsNs`;
-      // the module name was never that key, so discovery was dead code.
-      settingsNs: 'my-opencode-go',
-      // The entry's whole `config:` mapping is this plugin's profile.
-      settingsPath: [],
-      defaultBaseURL: 'https://opencode.ai/inference/go/v1',
-    })
+    // The module name was never the namespace a surface looks up, which is why
+    // discovery used to be dead code.
     expect(harness.discoveryNs).toEqual(['my-opencode-go'])
   })
 
   it('falls back to the module name on a bare mount', () => {
     const harness = context({ configured: true, bareMount: true })
     apply(harness.ctx as never, { enabled: true })
-    expect(harness.directoryRegistrations[0]![0]!.settingsNs).toBe('dshopencodego')
     expect(harness.discoveryNs).toEqual(['dshopencodego'])
   })
 
-  it('publishes a repair diagnostic while the credential is missing', async () => {
+  it('keeps the route gated on the credential without a directory entry', async () => {
     const harness = context({ configured: false })
     apply(harness.ctx as never, { enabled: true })
     await tick()
+    // A missing credential withdraws the route; that gate is what carries the
+    // fact now, instead of a directory diagnostic.
     expect(harness.registerAdapter).not.toHaveBeenCalled()
-    const entry = harness.directoryReplacements.at(-1)![0]!
-    expect(entry.error).toContain('OPENCODE_GO_API_KEY')
-  })
-
-  it('publishes no diagnostic for a route disabled on purpose', async () => {
-    const harness = context({ configured: true })
-    apply(harness.ctx as never, { enabled: false })
-    await tick()
-    expect(harness.registerAdapter).not.toHaveBeenCalled()
-    expect(harness.directoryRegistrations[0]![0]).not.toHaveProperty('error')
-  })
-
-  it('keeps the route alive when the directory seam refuses the entry', () => {
-    const harness = context({ configured: true, directoryThrows: true })
-    expect(() => { apply(harness.ctx as never, { enabled: true }) }).not.toThrow()
-    expect(harness.errors.join('\n')).toMatch(/configurable-provider entry/)
+    expect(harness.registerConfigurableProviders).not.toHaveBeenCalled()
   })
 })
 
