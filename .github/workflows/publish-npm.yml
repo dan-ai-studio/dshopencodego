@@ -86,19 +86,28 @@ jobs:
       # `npm publish` exiting 0 is not proof the version is installable: the
       # release is only real once the registry serves it. `npm view` is a
       # read-only query and needs no token, so it works under trusted
-      # publishing. The registry can lag a publish by a few seconds, hence the
-      # retries; never appearing is a failed release.
+      # publishing.
+      #
+      # The window has to outlast registry propagation, and propagation is not
+      # fast: 0.1.44 became visible 76s after `npm publish` printed
+      # `+ @dan-ai-studio/dshopencodego@0.1.44`. The first version of this step
+      # waited 5×10s, gave up at 50s, and failed a release that had in fact
+      # succeeded — the worst kind of false negative, because it invites a
+      # duplicate publish attempt. 12×15s leaves room, and the failure text now
+      # states what is actually known instead of implying the publish was lost.
       - name: The registry must serve the version just published
         run: |
           version="$(node -p "require('./package.json').version")"
-          for attempt in 1 2 3 4 5; do
+          attempts=12
+          delay=15
+          for attempt in $(seq 1 $attempts); do
             published="$(npm view "@dan-ai-studio/dshopencodego@$version" version 2>/dev/null || true)"
             if [ "$published" = "$version" ]; then
-              echo "registry serves @dan-ai-studio/dshopencodego@$published"
+              echo "registry serves @dan-ai-studio/dshopencodego@$published (attempt $attempt/$attempts)"
               exit 0
             fi
-            echo "attempt $attempt/5: registry returned '${published:-<nothing>}' for $version; retrying in 10s"
-            sleep 10
+            echo "attempt $attempt/$attempts: registry returned '${published:-<nothing>}' for $version; retrying in ${delay}s"
+            sleep $delay
           done
-          echo "::error::@dan-ai-studio/dshopencodego@$version is not served by the registry after publish"
+          echo "::error::@dan-ai-studio/dshopencodego@$version is still not served after $((attempts * delay))s. npm publish reported success, so check the registry by hand before retrying: the guard above refuses an existing version, and this may be propagation rather than a lost publish."
           exit 1
