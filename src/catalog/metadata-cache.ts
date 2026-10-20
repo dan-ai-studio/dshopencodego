@@ -34,6 +34,17 @@ interface FactsFile {
   readonly facts: Record<string, ModelFacts>
   /** When the file was written. */
   readonly updatedAt: number
+  /**
+   * The document's ETag, as the registry served it.
+   *
+   * This is what turns a restart from a re-download into a question. The
+   * metadata document is megabytes; a conditional request that the registry
+   * answers with `304 Not Modified` costs a round trip and no body. Without
+   * the ETag the plugin has no way to ask, so every new process pays for
+   * the whole document again — which is what a new session on a desktop
+   * build waits for.
+   */
+  readonly etag?: string
 }
 
 /**
@@ -43,11 +54,16 @@ interface FactsFile {
  * fall back on and says so, rather than pretending the models have no
  * capabilities.
  * @param cacheDir - the plugin's cache directory.
- * @returns the remembered facts and when they were written, or undefined.
+ * @returns the remembered facts, the document's ETag, and when they were
+ *   written, or undefined.
  */
 export function readFactsCache(
   cacheDir: string | undefined,
-): { readonly facts: ReadonlyMap<string, ModelFacts>; readonly updatedAt: number } | undefined {
+): {
+  readonly facts: ReadonlyMap<string, ModelFacts>
+  readonly updatedAt: number
+  readonly etag: string | undefined
+} | undefined {
   if (cacheDir === undefined) return undefined
   try {
     const parsed = JSON.parse(readFileSync(join(cacheDir, CACHE_FILE), 'utf8')) as Partial<FactsFile>
@@ -59,7 +75,11 @@ export function readFactsCache(
       facts.set(id, fact as ModelFacts)
     }
     if (facts.size === 0) return undefined
-    return { facts, updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0 }
+    return {
+      facts,
+      updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
+      etag: typeof parsed.etag === 'string' ? parsed.etag : undefined,
+    }
   } catch {
     return undefined
   }
@@ -72,8 +92,14 @@ export function readFactsCache(
  * next restart, and nothing else: the run continues with what it has.
  * @param cacheDir - the plugin's cache directory.
  * @param facts - the parsed facts to remember.
+ * @param etag - the document's ETag, so the next process can ask whether the
+ *   document changed instead of downloading it again.
  */
-export function writeFactsCache(cacheDir: string | undefined, facts: ReadonlyMap<string, ModelFacts>): void {
+export function writeFactsCache(
+  cacheDir: string | undefined,
+  facts: ReadonlyMap<string, ModelFacts>,
+  etag?: string,
+): void {
   if (cacheDir === undefined || facts.size === 0) return
   try {
     mkdirSync(cacheDir, { recursive: true })
@@ -81,6 +107,7 @@ export function writeFactsCache(cacheDir: string | undefined, facts: ReadonlyMap
       version: CACHE_VERSION,
       facts: Object.fromEntries(facts),
       updatedAt: Date.now(),
+      ...etag === undefined ? {} : { etag },
     }
     writeFileSync(join(cacheDir, CACHE_FILE), `${JSON.stringify(file)}\n`, 'utf8')
   } catch {

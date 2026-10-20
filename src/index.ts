@@ -210,6 +210,32 @@ export function apply(ctx: Context, raw?: unknown): void {
   })
   ctx.plugin(OpencodeGoUpdateService, { currentVersion: PLUGIN_VERSION })
 
+  // Warm the catalog while the host is still starting up.
+  //
+  // The first thing a new session does is resolve its model, and resolving a
+  // model builds the catalog: the gateway listing, the provider's document,
+  // and the model metadata — 5.6 MB of it, which is a download measured in
+  // seconds on a desktop build. The wait lands on the first message of a
+  // session, which is where a user notices it, and it is paid again on
+  // every restart because a fresh process has nothing to show for the last
+  // one.
+  //
+  // So the catalog is asked for here, in the background, while the host
+  // starts. By the time a session resolves its model, the answer is usually
+  // already there. The read is the same one the session would make, so
+  // nothing is fetched twice: the catalog serves the second caller from
+  // what the first one built.
+  //
+  // The wait is not waited for — a mount that blocks on the network is a
+  // mount that fails to start when the network is slow — and a warm-up that
+  // fails is not an error: the session's own read will report it properly.
+  ctx.effect(() => {
+    void adapter.catalogOf(current()).snapshot().catch(() => undefined)
+    // Nothing to undo: the read either finishes or fails on its own, and
+    // either way the session's own read is the one that reports.
+    return () => {}
+  }, 'dshopencodego: catalog warm-up')
+
   let registration: AdapterRegistrationHandle | undefined
   let visibilityFacts = JSON.stringify(current().modelVisibility)
 

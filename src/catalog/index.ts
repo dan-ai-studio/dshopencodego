@@ -256,6 +256,12 @@ export class OpencodeGoCatalog {
     if (cached !== undefined) {
       this.cachedMetadata = { models: cached.facts, errors: new Map() }
       this.cachedAt = cached.updatedAt
+      // The ETag is what lets the next read be a question rather than a
+      // download: the document is megabytes, and a `304` costs a round trip
+      // and no body. A new process that asks is answered in milliseconds; a
+      // new process that cannot ask pays for the whole document again, which
+      // is the wait a new session begins with.
+      this.metadataETag = cached.etag
     }
   }
 
@@ -541,28 +547,48 @@ export class OpencodeGoCatalog {
    * same document that a shell reads in half a second can take long enough
    * to outrun a budget set for kilobyte-sized documents.
    * @param builtin - the installed catalog, for the parse.
+   * @param conditional - whether to ask whether the document changed. A
+   *   conditional request the registry answers with `304` costs a round
+   *   trip and no body, which is the difference between a new session that
+   *   starts immediately and one that waits for megabytes.
    * @returns the parsed metadata.
    */
-  private async readMetadataDocument(builtin: ReadonlyMap<string, Model<Api>>): Promise<ReturnType<typeof readOnlineMetadata>> {
+  private async readMetadataDocument(
+    builtin: ReadonlyMap<string, Model<Api>>,
+    conditional = true,
+  ): Promise<ReturnType<typeof readOnlineMetadata>> {
     const response = await fetch(MODEL_METADATA_URL, {
       redirect: 'error',
       headers: {
         ...attributionHeaders(),
         accept: 'application/json',
         'cache-control': 'no-cache',
-        ...this.metadataETag === undefined ? {} : { 'if-none-match': this.metadataETag },
+        ...conditional && this.metadataETag !== undefined ? { 'if-none-match': this.metadataETag } : {},
       },
       signal: AbortSignal.timeout(MODEL_METADATA_TIMEOUT_MS),
     })
-    if (response.status === 304 && this.metadataDocument !== undefined) {
+    if (response.status === 304) {
       await response.body?.cancel().catch(() => {})
-      const parsed = readOnlineMetadata(this.metadataDocument, {
-        builtin,
-        defaults: this.options.defaults,
-        overrides: this.options.overrides,
-      })
-      this.lastMetadata = parsed
-      return parsed
+      // The document is unchanged. This process may already hold it...
+      if (this.metadataDocument !== undefined) {
+        const parsed = readOnlineMetadata(this.metadataDocument, {
+          builtin,
+          defaults: this.options.defaults,
+          overrides: this.options.overrides,
+        })
+        this.lastMetadata = parsed
+        return parsed
+      }
+      // ...or it may be a new process that only has what was written down.
+      // The written facts are what the document said, so they answer the
+      // question the same way the document would.
+      if (this.cachedMetadata !== undefined) {
+        this.lastMetadata = this.cachedMetadata
+        return this.cachedMetadata
+      }
+      // Neither: the ETag outlived the facts it belongs to. Ask again
+      // without the condition, so the registry sends the document.
+      return this.readMetadataDocument(builtin, false)
     }
     if (!response.ok) {
       await response.body?.cancel().catch(() => {})
@@ -578,8 +604,9 @@ export class OpencodeGoCatalog {
     })
     this.lastMetadata = parsed
     // Remember what this read said, so a later process that cannot read the
-    // document still knows which models think and at which levels.
-    writeFactsCache(this.options.cacheDir, parsed.models)
+    // document still knows which models think and at which levels — and can
+    // ask the registry whether it changed, instead of downloading it again.
+    writeFactsCache(this.options.cacheDir, parsed.models, this.metadataETag)
     return parsed
   }
 
