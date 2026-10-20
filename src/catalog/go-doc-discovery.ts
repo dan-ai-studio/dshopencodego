@@ -44,6 +44,17 @@ const CACHE_FILE = 'go-doc-paths.json'
 /** The cache format's version, so a future change can be recognised. */
 const CACHE_VERSION = 1
 
+/**
+ * How long the repository listing waits before it is asked again.
+ *
+ * The listing is unauthenticated, and an unauthenticated GitHub API allows
+ * sixty requests an hour. The listing is also large — the provider's whole
+ * tree, thousands of entries. Asking it on every build would spend that
+ * budget on a provider that is merely unreachable, and would make every
+ * build slower for a question with the same answer.
+ */
+export const DISCOVERY_COOLDOWN_MS = 60 * 60_000
+
 /** What the cache file holds. */
 interface CacheFile {
   readonly version: number
@@ -51,6 +62,8 @@ interface CacheFile {
   readonly paths: readonly string[]
   /** When the file was written, for a human reading it. */
   readonly updatedAt: number
+  /** When the repository was last asked, whether or not it answered. */
+  readonly lastAttemptAt?: number
 }
 
 /**
@@ -180,4 +193,47 @@ export function rememberPaths(
     // A cache directory that cannot be written costs a rediscovery, nothing more.
   }
   return merged
+}
+
+/**
+ * Whether the repository may be asked again.
+ *
+ * The question is worth at most an hour: a provider whose document has
+ * moved is found within the hour, and one that is merely down is not asked
+ * again every minute while it is down.
+ * @param cacheDir - the plugin's cache directory.
+ * @returns true when the repository may be asked.
+ */
+export function discoveryAllowed(cacheDir: string | undefined): boolean {
+  if (cacheDir === undefined) return true
+  try {
+    const parsed = JSON.parse(readFileSync(join(cacheDir, CACHE_FILE), 'utf8')) as Partial<CacheFile>
+    if (typeof parsed.lastAttemptAt !== 'number') return true
+    return Date.now() - parsed.lastAttemptAt >= DISCOVERY_COOLDOWN_MS
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Record that the repository was asked, whether or not it answered.
+ *
+ * The attempt is what the budget is spent on, so a question that came back
+ * empty counts as a question.
+ * @param cacheDir - the plugin's cache directory.
+ */
+export function rememberAttempt(cacheDir: string | undefined): void {
+  if (cacheDir === undefined) return
+  try {
+    mkdirSync(cacheDir, { recursive: true })
+    const file: CacheFile = {
+      version: CACHE_VERSION,
+      paths: readCachedPaths(cacheDir),
+      updatedAt: Date.now(),
+      lastAttemptAt: Date.now(),
+    }
+    writeFileSync(join(cacheDir, CACHE_FILE), `${JSON.stringify(file, null, 2)}\n`, 'utf8')
+  } catch {
+    // A cache directory that cannot be written costs a rediscovery, nothing more.
+  }
 }

@@ -13,10 +13,13 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   discoverDocumentPaths,
+  discoveryAllowed,
   mirrorsOf,
   readCachedPaths,
+  rememberAttempt,
   rememberPaths,
   selectDocumentPaths,
+  DISCOVERY_COOLDOWN_MS,
 } from '../src/catalog/go-doc-discovery.ts'
 import { fetchGoDocument } from '../src/catalog/go-doc.ts'
 
@@ -116,6 +119,33 @@ describe('the path cache', () => {
     expect(readCachedPaths(directory)).toEqual([])
     // A cache directory that does not exist is not an error either.
     expect(readCachedPaths(join(directory, 'missing'))).toEqual([])
+  })
+})
+
+describe('the discovery budget', () => {
+  it('asks the repository at most once an hour', () => {
+    const directory = cacheDir()
+    // Nothing has been asked, so the question is allowed.
+    expect(discoveryAllowed(directory)).toBe(true)
+    rememberAttempt(directory)
+    // It has just been asked, so it is not asked again.
+    expect(discoveryAllowed(directory)).toBe(false)
+    // An hour later it may be.
+    writeFileSync(
+      join(directory, 'go-doc-paths.json'),
+      JSON.stringify({ version: 1, paths: [], updatedAt: 0, lastAttemptAt: Date.now() - DISCOVERY_COOLDOWN_MS }),
+      'utf8',
+    )
+    expect(discoveryAllowed(directory)).toBe(true)
+  })
+
+  it('counts a question that came back empty as a question', () => {
+    const directory = cacheDir()
+    rememberAttempt(directory)
+    // No paths were found, and the paths are still empty — but the budget was
+    // spent, so the repository is not asked again straight away.
+    expect(readCachedPaths(directory)).toEqual([])
+    expect(discoveryAllowed(directory)).toBe(false)
   })
 })
 

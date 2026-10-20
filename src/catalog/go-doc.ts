@@ -18,7 +18,7 @@ import { attributionHeaders, LlmError } from '@deepseek-ai/dsh-llm'
 import type { GoQuota } from '../go-limits.ts'
 import { METADATA_FETCH_TIMEOUT_MS } from './constants.ts'
 import { readBoundedText } from './json-response.ts'
-import { discoverDocumentPaths, mirrorsOf, readCachedPaths, rememberPaths } from './go-doc-discovery.ts'
+import { discoverDocumentPaths, discoveryAllowed, mirrorsOf, readCachedPaths, rememberAttempt, rememberPaths } from './go-doc-discovery.ts'
 import { readDocCache, writeDocCache } from './go-doc-cache.ts'
 import type { WireProtocol } from './protocol.ts'
 
@@ -106,16 +106,23 @@ function protocolOfEndpoint(endpoint: string): WireProtocol | undefined {
  *
  * Data starts after the header and its separator, and ends at the first line
  * that is not a table row, so three tables in one document stay apart.
+ *
+ * A row may be indented: the provider nests the allowance table inside a
+ * component's slot, and every line of it arrives with the same leading
+ * whitespace. Requiring the row to start at the first column would skip
+ * that table whole — and the allowance table is the one that says what a
+ * month of usage is worth, so the page would show a hand-transcribed
+ * snapshot instead of the provider's own numbers.
  * @param lines - the document, split into lines.
  * @param required - a header cell that table alone carries.
  * @returns one array of trimmed cells per data row.
  */
 function tableRows(lines: readonly string[], required: string): readonly (readonly string[])[] {
-  const start = lines.findIndex(line => line.startsWith('|') && line.includes(required))
+  const start = lines.findIndex(line => line.trimStart().startsWith('|') && line.includes(required))
   if (start < 0) return []
   const rows: string[][] = []
   for (let index = start + 2; index < lines.length; index++) {
-    const line = lines[index] ?? ''
+    const line = (lines[index] ?? '').trimStart()
     if (!line.startsWith('|')) break
     rows.push(line.split('|').slice(1, -1).map(entry => entry.trim()))
   }
@@ -294,27 +301,34 @@ export async function fetchGoDocument(
   }
 
   // Nothing known worked: ask the provider's repository where the document
-  // is. The listing is rate-limited, so this runs only when it must.
+  // is. The listing is rate-limited and large, so it runs only when it must,
+  // and not more than once an hour — a provider that is merely unreachable
+  // is not worth spending the budget on again and again.
   const discover = options.discover ?? discoverDocumentPaths
-  const discovered = await discover(signal)
-  if (discovered.length === 0) {
-    failures.push('the provider repository named no document')
+  if (options.discover === undefined && !discoveryAllowed(options.cacheDir)) {
+    failures.push('the provider repository was not asked again; it was asked within the hour')
   } else {
-    const merged = rememberPaths(options.cacheDir, discovered)
-    // A discovered path whose mirrors the known list already holds would be
-    // read a second time for the same answer. That is what happens when the
-    // known paths failed for a reason other than their address — a network
-    // hiccup — and asking again rarely differs. A path the provider has
-    // actually moved is a different one, and that is the case worth a read.
-    const fresh = merged
-      .filter(path => !GO_DOC_URLS.some(url => url.endsWith(path)))
-      .flatMap(mirrorsOf)
-    if (fresh.length === 0) {
-      failures.push('the provider repository named the path that was already tried')
+    if (options.discover === undefined) rememberAttempt(options.cacheDir)
+    const discovered = await discover(signal)
+    if (discovered.length === 0) {
+      failures.push('the provider repository named no document')
     } else {
-      const result = await readSources(fresh, signal, options.cacheDir)
-      if (result.document !== undefined) return result.document
-      failures.push(...result.failures)
+      const merged = rememberPaths(options.cacheDir, discovered)
+      // A discovered path whose mirrors the known list already holds would be
+      // read a second time for the same answer. That is what happens when the
+      // known paths failed for a reason other than their address — a network
+      // hiccup — and asking again rarely differs. A path the provider has
+      // actually moved is a different one, and that is the case worth a read.
+      const fresh = merged
+        .filter(path => !GO_DOC_URLS.some(url => url.endsWith(path)))
+        .flatMap(mirrorsOf)
+      if (fresh.length === 0) {
+        failures.push('the provider repository named the path that was already tried')
+      } else {
+        const result = await readSources(fresh, signal, options.cacheDir)
+        if (result.document !== undefined) return result.document
+        failures.push(...result.failures)
+      }
     }
   }
 

@@ -794,8 +794,15 @@ export async function discoverCatalogModels(
   catalog: OpencodeGoCatalog,
   signal?: AbortSignal,
 ): Promise<readonly LlmDiscoveredModel[]> {
-  const snapshot = await catalog.snapshot(true, signal)
-  if (!snapshot.live) {
+  // Not a forced refresh. A page that lists the models is a page that shows
+  // a snapshot, and the snapshot this process already has is the one to
+  // show: a refresh goes on behind it, and the next visit sees the new one.
+  // Waiting for the whole catalog here would make opening the model page
+  // cost a network round trip that the page does not need to be useful.
+  const snapshot = await catalog.snapshot(false, signal)
+  // A listing that could not be read is a different matter: there is no
+  // snapshot to show, and saying "unreachable" is the only honest answer.
+  if (snapshot.listingFailure !== undefined) {
     const detail = snapshot.listingFailure instanceof LlmError
       ? snapshot.listingFailure.message
       : 'the live model listing is unreachable'

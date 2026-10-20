@@ -50,8 +50,15 @@ function failureOf(error: unknown): Failure {
   return { message: '', retainPrevious: false }
 }
 
-/** Poll interval for the account reading; the meter is local and free. */
-const POLL_MS = 60_000
+/**
+ * Poll interval for the account reading; the meter is local and free.
+ *
+ * The reading is an aggregate of what the provider has counted since the
+ * window opened, so a minute of freshness is worth nothing over five: the
+ * number moves by a fraction of a percent in between, and the request
+ * itself is the only thing this costs.
+ */
+const POLL_MS = 5 * 60_000
 
 /**
  * How many unpriced model ids the panel names before it stops listing them.

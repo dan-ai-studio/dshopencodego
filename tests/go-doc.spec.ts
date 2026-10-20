@@ -73,6 +73,39 @@ describe('parseGoDocument', () => {
     expect(empty.quotas.size).toBe(0)
     expect(empty.protocols.size).toBe(0)
   })
+
+  it('reads an allowance table the provider nested inside a component', () => {
+    // The provider puts the allowance table in a component's slot, and every
+    // line of it arrives indented. A parser that requires the row to start
+    // at the first column skips that table whole, and the page then shows a
+    // hand-transcribed snapshot where the provider's own numbers would be.
+    const nested = [
+      '## Usage limits',
+      '',
+      '<PlanTabs id="go-pricing" label="Go plan" syncKey="go-plan">',
+      '  <div slot="go">',
+      '',
+      '    | Model | Input | Output | Cached Read | Cached Write | Monthly limit |',
+      '    | --------------------------------------- | ------ | ------ | ----------- | ------------ | --- |',
+      '    | GLM-5.3-Flash | $0.15 | $0.50 | $0.03 | - | **$60** |',
+      '    | Space Bunny Free | Free | Free | Free | - | **Unlimited** |',
+      '',
+      '  </div>',
+      '</PlanTabs>',
+      '',
+      '## Endpoints',
+      '',
+      '| Model | Model ID | Endpoint | AI SDK Package |',
+      '| --- | --- | --- | --- |',
+      '| GLM-5.3-Flash | glm-5.3-flash | `https://opencode.ai/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |',
+      '| Space Bunny Free | space-bunny-free | `https://opencode.ai/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |',
+    ].join('\n')
+    const doc = parseGoDocument(nested)
+    expect(doc.quotas.get('glm-5.3-flash')).toEqual({ monthlyUsd: 60 })
+    expect(doc.quotas.get('space-bunny-free')).toEqual({ monthlyUsd: 'unlimited' })
+    // The endpoint table is not indented, and it still reads.
+    expect(doc.protocols.get('glm-5.3-flash')).toBe('openai-completions')
+  })
 })
 
 describe('fetchGoDocument', () => {
