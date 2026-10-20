@@ -1,6 +1,6 @@
 # Verification: what costs money and what does not
 
-Everything in `npm test` runs hermetic — 316 cases in 43 spec files against the
+Everything in `npm test` runs hermetic — 326 cases in 44 spec files against the
 local mock gateway plus injected documents, zero tokens, and no credential.
 That is the default way to prove a change. Two of those cases spawn
 `live-check.mjs --check-only`, which performs the script's own **read-only**

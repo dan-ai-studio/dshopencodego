@@ -6,12 +6,18 @@ Makes [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) work p
 
 ## Why it exists
 
-A stock DSH route to OpenCode Go has two gaps that no configuration can close:
+A stock DSH route to OpenCode Go already works (`llm-pi-ai` ships the provider). What this plugin adds is what that route does **not** do:
 
-1. **The model list is a build-time snapshot.** DSH's `llm-pi-ai` uses the catalog pi-ai shipped with; when the gateway adds a model, you either wait for a pi-ai release or declare it by hand.
-2. **No session header.** Since 2026-09-05 Go requires a stable `x-opencode-session` on every request and answers `400 MissingSessionID` without it; `llm-pi-ai` sends only static profile headers, which cannot vary per conversation.
+| Capability | Stock DSH | This plugin |
+| --- | --- | --- |
+| **Live model catalog** | A build-time snapshot: the fixed table pi-ai ships with, so a new gateway model waits for a pi-ai release | Reads the gateway catalog live, with multi-level fallback and TTL caching |
+| **Quota windows** (5-hour / weekly / monthly) | None | ✅ |
+| **Estimated spend** | None | ✅ |
+| **Per-model switches** `modelVisibility` | None | ✅ |
 
-This plugin serves the `opencode-go` route with its own adapter and closes both gaps.
+This plugin serves the `opencode-go` route with its own adapter and adds the usage and settings surfaces.
+
+> **On the session header**: Go requires a stable `x-opencode-session` on every request and answers `400 MissingSessionID` without it. That was one of this plugin's original reasons to exist, but pi-ai implemented the injection on 2026-09-09 (`561a2e06`) and `llm-pi-ai` carries it automatically, so a stock DSH route does not miss the header either. This plugin still keeps its own implementation — it falls back to a one-off UUID when a session id is missing — until that fallback lands upstream; the review is in [`docs/scope-review-2026-10.md`](docs/scope-review-2026-10.md).
 
 ## Install
 
@@ -241,7 +247,7 @@ npm test            # contract tests against a real local HTTP mock gateway
 
 **Order matters**: `npm run build` must come before `npm test` — `tests/pack-contents.spec.ts` walks every `exports` target, and whether `lib/` exists decides whether that check runs or is silently skipped (it does not fail, it just stops protecting you). `package.json` no longer carries `prepare`, so `npm ci` will not build for you; all three CI workflows run `npm run build` explicitly.
 
-The suite covers configuration validation, the protocol ladder, gateway and online metadata, the catalog projection, the adapter on the wire (all three protocols), Remote contracts and services, session-header invariants, usage windows and the meter, the client controller and usage pill, both halves' mounting and registration, the error mapping for stream idle timeouts and aborts, the exit-code contract of the verification scripts, and several **structural invariants** (inject declarations match the source's reads, peer coverage holds both ways, the READMEs match the manifest). That is **43 test files** — a number `tests/readme-consistency.spec.ts` checks against the `tests/` directory, so it cannot drift.
+The suite covers configuration validation, the protocol ladder, gateway and online metadata, the catalog projection, the adapter on the wire (all three protocols), Remote contracts and services, session-header invariants, usage windows and the meter, the client controller and usage pill, both halves' mounting and registration, the error mapping for stream idle timeouts and aborts, the exit-code contract of the verification scripts, and several **structural invariants** (inject declarations match the source's reads, peer coverage holds both ways, the READMEs match the manifest, and the READMEs' claims about the upstream match the upstream actually installed). That is **44 test files** — a number `tests/readme-consistency.spec.ts` checks against the `tests/` directory, so it cannot drift.
 
 ## Releasing (maintainers)
 

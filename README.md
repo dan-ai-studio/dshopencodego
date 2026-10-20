@@ -6,12 +6,18 @@
 
 ## 为什么需要它
 
-原生 DSH 接 OpenCode Go 有两个缺口，都不是配置能补的：
+原生 DSH 已经能连 OpenCode Go（`llm-pi-ai` 内置该 provider）。本插件补的是它**不提供**的那几件事：
 
-1. **模型列表是构建期快照**。DSH 的 `llm-pi-ai` 用 pi-ai 打包时生成的目录；网关新增模型后，要么等 pi-ai 发版，要么手工声明。
-2. **没有会话头**。Go 自 2026-09-05 起要求每个请求带稳定的 `x-opencode-session`，缺失即 `400 MissingSessionID`；`llm-pi-ai` 只发静态 profile headers，无法按会话取值。
+| 能力 | 原生 DSH | 本插件 |
+| --- | --- | --- |
+| **实时模型目录** | 构建期快照：pi-ai 打包时生成的固定表，网关新增模型要等 pi-ai 发版 | 实时读取网关目录，多级回退 + TTL 缓存 |
+| **额度窗口**（5 小时 / 本周 / 本月） | 无 | ✅ |
+| **花费估算** | 无 | ✅ |
+| **逐模型开关** `modelVisibility` | 无 | ✅ |
 
-本插件为 `opencode-go` 路由提供自己的适配器，同时解决这两点。
+本插件为 `opencode-go` 路由提供自己的适配器，并提供用量与设置界面。
+
+> **关于会话头**：Go 要求每个请求带稳定的 `x-opencode-session`，缺失即 `400 MissingSessionID`。这一项曾是本插件的原始存在理由，但 pi-ai 已于 2026-09-09（`561a2e06`）实现注入、`llm-pi-ai` 自动携带，因此**原生 DSH 现在也不会缺会话头**。本插件当前仍保留自己的实现（为缺失会话 id 的请求提供一次性 UUID 兜底），待该兜底进入上游后再收缩——评估过程见 [`docs/scope-review-2026-10.md`](docs/scope-review-2026-10.md)。
 
 ## 安装
 
@@ -241,7 +247,7 @@ npm test            # 契约测试：真实 HTTP mock 网关，断言请求头/�
 
 **顺序有讲究**：`npm run build` 要排在 `npm test` 之前——`tests/pack-contents.spec.ts` 会遍历 `exports` 的每个目标，`lib/` 存在与否决定这条检查是执行还是被跳过（不报错，但会少一层保护）。`package.json` 已移除 `prepare`，因此 `npm ci` 不会再替你隐式构建；三个 CI workflow 都显式跑了 `npm run build`。
 
-测试覆盖配置校验、协议阶梯、网关与在线元数据、目录投影、适配器（三种协议的线上请求）、Remote 契约与服务、会话头不变量、用量窗口与计量、客户端控制器与用量组件、两半的挂载与登记、流空闲超时与中止的错误映射、验证脚本的退出码契约、以及几条**结构性不变量**（inject 声明与源码读取一致、peer 覆盖双向、README 与 manifest 一致）。共 **43 个测试文件**——这个数字由 `tests/readme-consistency.spec.ts` 对着 `tests/` 目录校验，不会漂移。
+测试覆盖配置校验、协议阶梯、网关与在线元数据、目录投影、适配器（三种协议的线上请求）、Remote 契约与服务、会话头不变量、用量窗口与计量、客户端控制器与用量组件、两半的挂载与登记、流空闲超时与中止的错误映射、验证脚本的退出码契约、以及几条**结构性不变量**（inject 声明与源码读取一致、peer 覆盖双向、README 与 manifest 一致、README 对上游的断言与实装的上游一致）。共 **44 个测试文件**——这个数字由 `tests/readme-consistency.spec.ts` 对着 `tests/` 目录校验，不会漂移。
 
 ## 发布（维护者）
 

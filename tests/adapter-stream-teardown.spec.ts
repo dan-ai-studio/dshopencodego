@@ -40,25 +40,39 @@ import type { OpencodeGoConfig } from '../src/config.ts'
 import { modelsDevDocument, offlineDocument, startMockGateway, stubModelsDev } from './mock-gateway.ts'
 
 /**
- * The stall window.
+ * The idle window the adapter itself uses.
  *
- * It has to outlast the adapter's ramp-up — catalog fetch, models.dev read,
- * SSE handshake, first bytes — on a *loaded* machine, because
- * `npm run test:coverage` runs every spec file in parallel with v8
- * instrumentation on. At 100 ms this test failed intermittently there (`received`
- * was still empty when the watchdog fired) while passing in isolation: the
- * assertion below wants a stall *after* partial output, so the window must clear
- * the ramp-up rather than merely the stall.
+ * The watchdog arms its timer inside `next()`, so the first window covers the
+ * SSE handshake *and* the first delta — not the gap between two deltas. That
+ * window therefore has to clear the handshake on a loaded machine: at 750 ms
+ * the watchdog fired before the first byte under parallel v8 instrumentation,
+ * which is what made this suite fail intermittently while passing in
+ * isolation. 3 s clears the handshake with room to spare; the stall itself is
+ * then detected within one window of the last delta.
  */
-const IDLE_TIMEOUT_MS = 750
+const IDLE_TIMEOUT_MS = 3_000
 
 /**
- * The ceiling the assertions race against. The first failure mode parks the
- * adapter in `iterator.return()` forever, so without this bound the suite would
- * hang CI instead of failing it. It stays well above `IDLE_TIMEOUT_MS` so a
- * loaded run reports the stall, not the deadline.
+ * The ceiling for the ramp-up — the time from calling `stream()` to the first
+ * chunk arriving.
+ *
+ * It is deliberately separate from the stall budget below. The two phases are
+ * different events with different causes: a slow ramp-up is a slow gateway, a
+ * missing stall is the regression this suite exists to catch. One shared
+ * deadline conflates them, and a loaded run then reports the stall as a hang
+ * (or the hang as a stall) depending on which phase happened to overrun.
  */
-const HARD_DEADLINE_MS = 5_000
+const FIRST_BYTE_DEADLINE_MS = 20_000
+
+/**
+ * The slack added to the idle window when waiting for the stall to surface.
+ *
+ * The watchdog fires one window after the last delta, so the stream settles
+ * roughly `IDLE_TIMEOUT_MS` after the first chunk. The slack absorbs timer
+ * granularity and scheduling delay without turning a genuine hang into a
+ * pass.
+ */
+const STALL_GRACE_MS = 3_000
 
 /** SSE headers with no `content-length`: the body stays open until the server says so. */
 const SSE_HEADERS = { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' }
@@ -173,15 +187,16 @@ type Bounded<T> = { kind: 'settled'; value: T } | { kind: 'hung' }
  * Bound a promise so a never-settling adapter fails the assertion instead of
  * the suite.
  * @param work - the promise to bound.
- * @returns its settled value, or `hung` once the hard deadline elapses.
+ * @param budgetMs - how long to wait before declaring it hung.
+ * @returns its settled value, or `hung` once the budget elapses.
  */
-async function withHardDeadline<T>(work: Promise<T>): Promise<Bounded<T>> {
+async function withDeadline<T>(work: Promise<T>, budgetMs: number): Promise<Bounded<T>> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
       work.then(value => ({ kind: 'settled' as const, value })),
       new Promise<{ kind: 'hung' }>(resolve => {
-        timer = setTimeout(() => resolve({ kind: 'hung' }), HARD_DEADLINE_MS)
+        timer = setTimeout(() => resolve({ kind: 'hung' }), budgetMs)
         // A still-armed timer must not hold the worker open after a fast pass.
         timer.unref()
       }),
@@ -207,38 +222,58 @@ describe('stream idle timeout teardown', () => {
     try {
       const adapter = adapterFor(server.baseURL)
       const received: StreamChunk[] = []
-      const startedAt = Date.now()
-      const bounded = await withHardDeadline((async () => {
-        for await (const chunk of adapter.stream(options())) received.push(chunk)
+      let firstChunkAt: number | undefined
+      let announceFirstChunk: (() => void) | undefined
+      const firstChunkArrived = new Promise<void>(resolve => { announceFirstChunk = resolve })
+
+      const settled = (async () => {
+        for await (const chunk of adapter.stream(options())) {
+          if (firstChunkAt === undefined) {
+            firstChunkAt = Date.now()
+            announceFirstChunk?.()
+          }
+          received.push(chunk)
+        }
+        return { kind: 'resolved' as const }
       })().then(
         () => ({ kind: 'resolved' as const }),
         (error: unknown) => ({ kind: 'rejected' as const, error }),
-      ))
-      const elapsedMs = Date.now() - startedAt
+      )
 
-      // An awaited `iterator.return()` queues this loop behind the very demand
-      // it abandons, so the call never settles and the deadline never surfaces.
+      // Phase one: the ramp-up. A slow gateway must not be reported as the
+      // stall this suite is about, so it gets its own, generous budget.
+      const rampUp = await withDeadline(firstChunkArrived, FIRST_BYTE_DEADLINE_MS)
       expect(
-        bounded.kind,
-        `adapter neither failed nor finished within ${HARD_DEADLINE_MS}ms; the idle timeout was swallowed by iterator teardown`,
+        rampUp.kind,
+        `the adapter produced no chunk within ${FIRST_BYTE_DEADLINE_MS}ms; the ramp-up never completed`,
       ).toBe('settled')
-      if (bounded.kind !== 'settled') return
-      const outcome = bounded.value
+      if (rampUp.kind !== 'settled' || firstChunkAt === undefined) return
 
-      expect(outcome.kind, 'the stalled stream must fail, not finish').toBe('rejected')
-      if (outcome.kind !== 'rejected') return
+      // Phase two: the stall. From the first chunk the stream must fail within
+      // one idle window plus slack — not hang, and not fail early.
+      const outcome = await withDeadline(settled, IDLE_TIMEOUT_MS + STALL_GRACE_MS)
+      expect(
+        outcome.kind,
+        'adapter neither failed nor finished after the stall window; the idle timeout was swallowed by iterator teardown',
+      ).toBe('settled')
+      if (outcome.kind !== 'settled') return
+      const result = outcome.value
+
+      expect(result.kind, 'the stalled stream must fail, not finish').toBe('rejected')
+      if (result.kind !== 'rejected') return
 
       // The watchdog's own reason is not the contract: the caller routes on
       // the LlmError code, which the teardown must not overwrite.
-      expect(outcome.error).toBeInstanceOf(LlmError)
-      expect((outcome.error as LlmError).code).toBe('TIMEOUT')
+      expect(result.error).toBeInstanceOf(LlmError)
+      expect((result.error as LlmError).code).toBe('TIMEOUT')
 
       // The stall happened after real output, not before the first byte.
       expect(received.map(chunk => chunk.type)).toContain('text-delta')
 
       // The elapsed time is the idle interval, not an indefinite wait.
+      const elapsedMs = Date.now() - firstChunkAt
       expect(elapsedMs).toBeGreaterThanOrEqual(IDLE_TIMEOUT_MS - 10)
-      expect(elapsedMs).toBeLessThan(HARD_DEADLINE_MS)
+      expect(elapsedMs).toBeLessThan(IDLE_TIMEOUT_MS + STALL_GRACE_MS)
     } finally {
       stub.restore()
     }
