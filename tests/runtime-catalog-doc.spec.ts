@@ -74,7 +74,8 @@ describe('fetchGoDocument request shape', () => {
       return Promise.resolve(new Response('# moved elsewhere\n', { status: 200 }))
     })
     try {
-      await expect(fetchGoDocument(controller.signal)).rejects.toMatchObject({ code: 'DOCUMENT_UNAVAILABLE' })
+      await expect(fetchGoDocument(controller.signal, { discover: async () => [] }))
+        .rejects.toMatchObject({ code: 'DOCUMENT_UNAVAILABLE' })
       expect(signals).toHaveLength(GO_DOC_URLS.length)
       expect(signals.every(signal => !signal.aborted)).toBe(true)
       // The request signal is the composition of the caller's cancellation and

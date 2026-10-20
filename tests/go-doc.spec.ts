@@ -89,7 +89,11 @@ describe('fetchGoDocument', () => {
     const spy = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response('# Moved elsewhere\n', { status: 200 }))
       .mockResolvedValueOnce(new Response('also gone', { status: 404 }))
-    await expect(fetchGoDocument()).rejects.toMatchObject({ code: 'DOCUMENT_UNAVAILABLE' })
+    // The discovery is injected so this case stays offline: the point is what
+    // happens when the known paths are exhausted, not what the provider's
+    // repository says today.
+    await expect(fetchGoDocument(undefined, { discover: async () => [] }))
+      .rejects.toMatchObject({ code: 'DOCUMENT_UNAVAILABLE' })
     expect(spy).toHaveBeenCalledTimes(GO_DOC_URLS.length)
   })
 

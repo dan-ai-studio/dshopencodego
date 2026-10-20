@@ -203,6 +203,14 @@ export interface CatalogOptions {
    * cancellation, forwarded to every documentation request.
    */
   readonly readDocument?: (signal?: AbortSignal) => Promise<GoDoc>
+  /**
+   * Where the discovered document paths are remembered.
+   *
+   * Absent means the plugin cannot write a cache, and the paths are then only
+   * known to the running process. That costs one discovery per start, and
+   * nothing else.
+   */
+  readonly cacheDir?: string
 }
 
 /**
@@ -308,7 +316,8 @@ export class OpencodeGoCatalog {
    */
   private async build(signal?: AbortSignal): Promise<CatalogSnapshot> {
     const builtin = builtinModels(this.options.baseURL)
-    const readDocument = this.options.readDocument ?? fetchGoDocument
+    const readDocument = this.options.readDocument
+      ?? ((signal?: AbortSignal) => fetchGoDocument(signal, { cacheDir: this.options.cacheDir }))
     const [listing, metadata, documentation] = await Promise.allSettled([
       fetchModelIds(this.options.baseURL),
       this.refreshMetadata(builtin),

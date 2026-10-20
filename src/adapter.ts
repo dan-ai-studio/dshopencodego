@@ -148,6 +148,13 @@ export interface OpencodeGoAdapterOptions {
    */
   readonly readDocument?: () => Promise<GoDoc>
   /**
+   * Where the discovered provider-document paths are remembered.
+   *
+   * Absent means the plugin keeps them in memory only, which costs one
+   * discovery per start and nothing else.
+   */
+  readonly cacheDir?: string
+  /**
    * Observe the provider's own usage for one completed call. This is the only
    * honest source of token counts: the gateway's `/usage` endpoint reports
    * account percentages, not tokens. The value carries the rates that were
@@ -196,6 +203,7 @@ export class OpencodeGoAdapter extends LlmAdapter {
           },
           overrides: config.modelProtocols,
           ...this.options.readDocument === undefined ? {} : { readDocument: this.options.readDocument },
+          ...this.options.cacheDir === undefined ? {} : { cacheDir: this.options.cacheDir },
           observers: {
             ...this.options.onFallback === undefined ? {} : { onFallback: this.options.onFallback },
             ...this.options.onUnconfigured === undefined ? {} : { onUnconfigured: this.options.onUnconfigured },

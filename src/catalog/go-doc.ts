@@ -18,6 +18,7 @@ import { attributionHeaders, LlmError } from '@deepseek-ai/dsh-llm'
 import type { GoQuota } from '../go-limits.ts'
 import { METADATA_FETCH_TIMEOUT_MS } from './constants.ts'
 import { readBoundedText } from './json-response.ts'
+import { discoverDocumentPaths, mirrorsOf, readCachedPaths, rememberPaths } from './go-doc-discovery.ts'
 import type { WireProtocol } from './protocol.ts'
 
 /**
@@ -217,6 +218,24 @@ async function readSource(url: string, signal?: AbortSignal): Promise<SourceRead
 }
 
 /**
+ * How the document is found and where the answer is kept.
+ *
+ * The discovery is injectable so a test can decide what the provider's
+ * repository says without reaching the network — which is the only way this
+ * module can be exercised offline at all.
+ */
+export interface GoDocOptions {
+  /** Where the discovered document paths are remembered. */
+  readonly cacheDir?: string | undefined
+  /**
+   * Ask the provider's repository where its document is.
+   *
+   * Defaults to the real listing. A test injects a fixed answer.
+   */
+  readonly discover?: (signal?: AbortSignal) => Promise<readonly string[]>
+}
+
+/**
  * Fetch and parse the documentation, asking every source concurrently.
  *
  * The second URL is a CDN cache of the same file, so waiting for the first to
@@ -225,20 +244,87 @@ async function readSource(url: string, signal?: AbortSignal): Promise<SourceRead
  * quota badge and the protocol fallback. `GO_DOC_URLS` order still decides:
  * the repository file is examined before its cache mirror, and a source that
  * fails is reported with its own reason.
+ *
+ * The known paths are tried first, then the paths a previous discovery
+ * remembered, and only then is the provider's repository asked where its
+ * document is. That order is what keeps the cost at one request in the common
+ * case while still surviving the provider moving the file: a path that is
+ * there is used, and a path that is not is replaced by a discovered one.
  * @param signal - caller cancellation; it reaches every source's fetch and
  *   aborts all of them, so a cancelled discovery stops waiting on the network.
+ * @param options - where the discovered paths are remembered.
  * @returns the parsed document from the first source that carried one.
  * @throws {LlmError} `DOCUMENT_UNAVAILABLE` when every source failed.
  */
-export async function fetchGoDocument(signal?: AbortSignal): Promise<GoDoc> {
-  const attempts = await Promise.all(GO_DOC_URLS.map(url => readSource(url, signal)))
+export async function fetchGoDocument(
+  signal?: AbortSignal,
+  options: GoDocOptions = {},
+): Promise<GoDoc> {
   const failures: string[] = []
-  for (const attempt of attempts) {
-    if ('document' in attempt) return attempt.document
-    failures.push(attempt.failure)
+  const known = await readSources(GO_DOC_URLS, signal)
+  if (known.document !== undefined) return known.document
+  failures.push(...known.failures)
+
+  // The paths a previous discovery found, in the order it found them. A path
+  // the known list already carries is skipped: asking for it twice would
+  // spend a request to learn the same answer twice.
+  const remembered = readCachedPaths(options.cacheDir)
+    .filter(path => !GO_DOC_URLS.some(url => url.endsWith(path)))
+  if (remembered.length > 0) {
+    const cached = await readSources(remembered.flatMap(mirrorsOf), signal)
+    if (cached.document !== undefined) return cached.document
+    failures.push(...cached.failures)
   }
+
+  // Nothing known worked: ask the provider's repository where the document
+  // is. The listing is rate-limited, so this runs only when it must.
+  const discover = options.discover ?? discoverDocumentPaths
+  const discovered = await discover(signal)
+  if (discovered.length === 0) {
+    failures.push('the provider repository named no document')
+  } else {
+    const merged = rememberPaths(options.cacheDir, discovered)
+    // A discovered path whose mirrors the known list already holds would be
+    // read a second time for the same answer. That is what happens when the
+    // known paths failed for a reason other than their address — a network
+    // hiccup — and asking again rarely differs. A path the provider has
+    // actually moved is a different one, and that is the case worth a read.
+    const fresh = merged
+      .filter(path => !GO_DOC_URLS.some(url => url.endsWith(path)))
+      .flatMap(mirrorsOf)
+    if (fresh.length === 0) {
+      failures.push('the provider repository named the path that was already tried')
+    } else {
+      const result = await readSources(fresh, signal)
+      if (result.document !== undefined) return result.document
+      failures.push(...result.failures)
+    }
+  }
+
+  // Every reason, not just the first stage's: a user reading this has to be
+  // able to tell "the path moved and the discovery could not follow it" from
+  // "every source timed out".
   throw new LlmError(
     `could not read the Go documentation (${failures.join('; ')})`,
     'DOCUMENT_UNAVAILABLE',
   )
+}
+
+/**
+ * Read a set of URLs, keeping the first document that carries one.
+ * @param urls - the URLs to read, all at once.
+ * @param signal - caller cancellation, forwarded to every read.
+ * @returns the first document found, or every failure that was seen.
+ */
+async function readSources(
+  urls: readonly string[],
+  signal?: AbortSignal,
+): Promise<{ readonly document?: GoDoc; readonly failures: readonly string[] }> {
+  const attempts = await Promise.all(urls.map(url => readSource(url, signal)))
+  const failures: string[] = []
+  for (const attempt of attempts) {
+    if ('document' in attempt) return { document: attempt.document, failures }
+    failures.push(attempt.failure)
+  }
+  return { failures }
 }
