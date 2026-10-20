@@ -781,6 +781,9 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
           {t('factsCached')} {new Date(reading.factsCachedAt).toISOString().slice(0, 10)}
         </p>
       )}
+      {reading !== undefined && reading.cached === true && (
+        <p className={css.hint}>{t('catalogRefreshing')}</p>
+      )}
       <div className={css.row}>
         <label className={css.hint} htmlFor="dshopencodego-refresh">{t('refreshLabel')}</label>
         <input

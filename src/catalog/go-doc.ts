@@ -19,6 +19,7 @@ import type { GoQuota } from '../go-limits.ts'
 import { METADATA_FETCH_TIMEOUT_MS } from './constants.ts'
 import { readBoundedText } from './json-response.ts'
 import { discoverDocumentPaths, mirrorsOf, readCachedPaths, rememberPaths } from './go-doc-discovery.ts'
+import { readDocCache, writeDocCache } from './go-doc-cache.ts'
 import type { WireProtocol } from './protocol.ts'
 
 /**
@@ -177,8 +178,9 @@ export function parseGoDocument(markdown: string): GoDoc {
 
 /** One source's attempt: the parsed document, or why that source failed. */
 type SourceRead =
-  | { readonly document: GoDoc }
-  | { readonly failure: string }
+  | { readonly url: string; readonly document: GoDoc; readonly body: string; readonly etag: string | undefined }
+  | { readonly url: string; readonly notModified: true }
+  | { readonly url: string; readonly failure: string }
 
 /**
  * Read and parse one source, bounded by the shared fetch timeout.
@@ -194,26 +196,41 @@ type SourceRead =
  * back to the frozen seed in `go-limits.ts`, which was written for exactly
  * this. Only a document that carries neither is a document this build does
  * not understand.
+ * @param url - the source to read.
+ * @param signal - caller cancellation.
+ * @param etag - the ETag a previous read was given, which makes the request
+ *   conditional: the registry answers `304 Not Modified` and sends no body.
+ * @returns what the source said.
  */
-async function readSource(url: string, signal?: AbortSignal): Promise<SourceRead> {
+async function readSource(url: string, signal?: AbortSignal, etag?: string): Promise<SourceRead> {
   const timeout = AbortSignal.timeout(METADATA_FETCH_TIMEOUT_MS)
   try {
     const response = await fetch(url, {
       redirect: 'error',
-      headers: { ...attributionHeaders(), accept: 'text/plain', 'cache-control': 'no-cache' },
+      headers: {
+        ...attributionHeaders(),
+        accept: 'text/plain',
+        'cache-control': 'no-cache',
+        ...etag === undefined ? {} : { 'if-none-match': etag },
+      },
       signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout]),
     })
+    if (response.status === 304) {
+      await response.body?.cancel().catch(() => {})
+      return { url, notModified: true }
+    }
     if (!response.ok) {
       await response.body?.cancel().catch(() => {})
-      return { failure: `${url} answered HTTP ${response.status}` }
+      return { url, failure: `${url} answered HTTP ${response.status}` }
     }
-    const document = parseGoDocument(await readBoundedText(response, GO_DOC_MAX_BYTES))
+    const body = await readBoundedText(response, GO_DOC_MAX_BYTES)
+    const document = parseGoDocument(body)
     if (document.quotas.size === 0 && document.protocols.size === 0) {
-      return { failure: `${url} carried neither an allowance table nor an endpoint table` }
+      return { url, failure: `${url} carried neither an allowance table nor an endpoint table` }
     }
-    return { document }
+    return { url, document, body, etag: response.headers.get('etag') ?? undefined }
   } catch (error: unknown) {
-    return { failure: `${url}: ${error instanceof Error ? error.message : String(error)}` }
+    return { url, failure: `${url}: ${error instanceof Error ? error.message : String(error)}` }
   }
 }
 
@@ -261,7 +278,7 @@ export async function fetchGoDocument(
   options: GoDocOptions = {},
 ): Promise<GoDoc> {
   const failures: string[] = []
-  const known = await readSources(GO_DOC_URLS, signal)
+  const known = await readSources(GO_DOC_URLS, signal, options.cacheDir)
   if (known.document !== undefined) return known.document
   failures.push(...known.failures)
 
@@ -271,7 +288,7 @@ export async function fetchGoDocument(
   const remembered = readCachedPaths(options.cacheDir)
     .filter(path => !GO_DOC_URLS.some(url => url.endsWith(path)))
   if (remembered.length > 0) {
-    const cached = await readSources(remembered.flatMap(mirrorsOf), signal)
+    const cached = await readSources(remembered.flatMap(mirrorsOf), signal, options.cacheDir)
     if (cached.document !== undefined) return cached.document
     failures.push(...cached.failures)
   }
@@ -295,7 +312,7 @@ export async function fetchGoDocument(
     if (fresh.length === 0) {
       failures.push('the provider repository named the path that was already tried')
     } else {
-      const result = await readSources(fresh, signal)
+      const result = await readSources(fresh, signal, options.cacheDir)
       if (result.document !== undefined) return result.document
       failures.push(...result.failures)
     }
@@ -312,19 +329,52 @@ export async function fetchGoDocument(
 
 /**
  * Read a set of URLs, keeping the first document that carries one.
- * @param urls - the URLs to read, all at once.
+ *
+ * The remembered document is asked for first, and asked for conditionally:
+ * the registry answers `304 Not Modified` and sends no body, so a process
+ * that knows the ETag gets the document for the price of a round trip. Only
+ * when that does not answer are the other sources tried, and then they are
+ * tried at once.
+ * @param urls - the URLs to read.
  * @param signal - caller cancellation, forwarded to every read.
+ * @param cacheDir - where the document is remembered.
  * @returns the first document found, or every failure that was seen.
  */
 async function readSources(
   urls: readonly string[],
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  cacheDir: string | undefined,
 ): Promise<{ readonly document?: GoDoc; readonly failures: readonly string[] }> {
-  const attempts = await Promise.all(urls.map(url => readSource(url, signal)))
   const failures: string[] = []
+  const cached = readDocCache(cacheDir)
+  if (cached !== undefined && urls.includes(cached.url)) {
+    const attempt = await readSource(cached.url, signal, cached.etag)
+    if ('notModified' in attempt) {
+      // The registry says the document has not changed, so the one this
+      // process wrote down is the one it would have been sent.
+      const document = parseGoDocument(cached.body)
+      if (document.quotas.size > 0 || document.protocols.size > 0) {
+        return { document, failures }
+      }
+      failures.push(`${attempt.url} answered 304, and the remembered copy carries no table this build can read`)
+    } else if ('document' in attempt) {
+      writeDocCache(cacheDir, { url: attempt.url, etag: attempt.etag, body: attempt.body })
+      return { document: attempt.document, failures }
+    } else {
+      failures.push(attempt.failure)
+    }
+  }
+  // The remembered address already had its turn; the others have not.
+  const rest = cached === undefined ? urls : urls.filter(url => url !== cached.url)
+  const attempts = await Promise.all(rest.map(url => readSource(url, signal)))
   for (const attempt of attempts) {
-    if ('document' in attempt) return { document: attempt.document, failures }
-    failures.push(attempt.failure)
+    if ('document' in attempt) {
+      writeDocCache(cacheDir, { url: attempt.url, etag: attempt.etag, body: attempt.body })
+      return { document: attempt.document, failures }
+    }
+    // A `notModified` cannot happen here: these requests carry no ETag, so
+    // the registry has nothing to compare against.
+    if ('failure' in attempt) failures.push(attempt.failure)
   }
   return { failures }
 }

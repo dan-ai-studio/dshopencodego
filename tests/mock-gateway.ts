@@ -150,6 +150,19 @@ async function readBody(request: IncomingMessage): Promise<unknown> {
 }
 
 /**
+ * Ports the fetch specification refuses, within the ephemeral range.
+ *
+ * The specification blocks a list of ports for the sake of the services
+ * that usually live on them; undici enforces it, so a request to one of
+ * them fails with `bad port` before it is sent. The operating system's
+ * ephemeral range overlaps that list, and a mock that lands on one of these
+ * fails every request it was started to serve.
+ */
+const BLOCKED_PORTS = new Set([
+  3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697,
+])
+
+/**
  * Start the mock gateway on an ephemeral loopback port.
  * @param options - listing, usage, and credential expectations.
  * @returns the running gateway; call `close()` to stop it.
@@ -217,7 +230,20 @@ export async function startMockGateway(options: MockGatewayOptions = {}): Promis
     })()
   })
   await new Promise<void>(resolve => { server.listen(0, '127.0.0.1', resolve) })
-  const address = server.address() as AddressInfo
+  let address = server.address() as AddressInfo
+  // The operating system hands out any free port, and some of them are
+  // ports the fetch specification refuses: 6697 is IRC over TLS, and
+  // undici rejects it with `bad port` before a byte is sent. A mock that
+  // lands there fails every request it is meant to serve, for a reason that
+  // has nothing to do with what is being tested. The list is the subset of
+  // the specification's blocked ports that falls inside the ephemeral range.
+  for (let attempt = 0; attempt < 10 && BLOCKED_PORTS.has(address.port); attempt += 1) {
+    await new Promise<void>(resolve => {
+      server.closeAllConnections()
+      server.close(() => { server.listen(0, '127.0.0.1', () => { resolve() }) })
+    })
+    address = server.address() as AddressInfo
+  }
   return {
     baseURL: `http://127.0.0.1:${address.port}/v1`,
     requests,

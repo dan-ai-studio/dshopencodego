@@ -48,6 +48,7 @@ import { readBoundedJson } from './json-response.ts'
 import { readOnlineMetadata, toPiModel } from './metadata.ts'
 import type { ModelDefaults, ModelFacts } from './metadata.ts'
 import { readFactsCache, writeFactsCache } from './metadata-cache.ts'
+import { readSnapshotCache, writeSnapshotCache } from './snapshot-cache.ts'
 import { asWireProtocol } from './protocol.ts'
 import type { GoQuota } from '../go-limits.ts'
 
@@ -103,6 +104,15 @@ export interface CatalogSnapshot {
    * a user cannot act on.
    */
   readonly degradations?: readonly CatalogDegradation[]
+  /**
+   * True when this snapshot was read from disk and is being brought up to
+   * date in the background.
+   *
+   * It is the difference between "here is the last known catalog" and "here
+   * is the catalog, and it is current". A page that shows the first must
+   * also say that a refresh is under way.
+   */
+  readonly cached?: boolean
   /**
    * When the facts in this snapshot were written, when they came from disk
    * rather than from a live read.
@@ -249,6 +259,8 @@ export class OpencodeGoCatalog {
   private document: GoDoc | undefined
   /** Ids that already forced a revalidation, with the time they did. */
   private readonly probedAt = new Map<string, number>()
+  /** The background refresh, kept so a caller can wait for it to be over. */
+  private backgroundRefresh: Promise<unknown> | undefined
 
   constructor(options: CatalogOptions) {
     this.options = options
@@ -267,7 +279,19 @@ export class OpencodeGoCatalog {
 
   /**
    * The cached snapshot, refreshed when it is older than the configured TTL.
-   * @param force - revalidate every source, ignoring the cache.
+   *
+   * A snapshot that is past its TTL is still served — and refreshed behind
+   * it. A caller that asks for a model must not wait for the network to
+   * learn what it already knew, so the answer is the one in hand and the
+   * refresh goes on without anyone watching it. A caller that forces a
+   * refresh — the settings page's button — waits for it, because asking to
+   * refresh and not waiting for the result is asking for nothing.
+   *
+   * A process that has never built a catalog reads the one it wrote down
+   * last time and refreshes that in the background. The first message of a
+   * session therefore names its model at once, instead of after a wait that
+   * belongs to the network rather than to the session.
+   * @param force - revalidate every source, ignoring the cache, and wait.
    * @param signal - caller cancellation, forwarded to the documentation read,
    *   the slowest source and the only one a caller can cancel; a build already
    *   in flight keeps the signal of the caller that started it, because one
@@ -277,6 +301,24 @@ export class OpencodeGoCatalog {
     if (!force && this.served !== undefined && Date.now() - this.served.fetchedAtMs < this.options.refreshMs) {
       return Promise.resolve(this.served)
     }
+    if (!force) {
+      // What this process knows is served, and what it does not know is
+      // learned in the background.
+      if (this.served === undefined) {
+        const remembered = this.readRememberedSnapshot()
+        if (remembered !== undefined) {
+          this.served = remembered
+          this.refreshInBackground()
+          return Promise.resolve(remembered)
+        }
+      } else {
+        // The snapshot in hand has outlived its TTL, but it is still the best
+        // answer available right now, and the caller should not wait to be
+        // told what was already known.
+        this.refreshInBackground()
+        return Promise.resolve(this.served)
+      }
+    }
     this.pending ??= this.build(signal)
       .then((snapshot) => {
         this.served = snapshot
@@ -284,6 +326,69 @@ export class OpencodeGoCatalog {
       })
       .finally(() => { this.pending = undefined })
     return this.pending
+  }
+
+  /**
+   * Refresh the catalog behind the snapshot in hand.
+   *
+   * The build is not awaited and its failure is not reported here: the
+   * snapshot in hand stays, and whoever asked for the refresh will see the
+   * next one.
+   */
+  private refreshInBackground(): void {
+    if (this.pending !== undefined) return
+    const refresh = this.build()
+      .then((snapshot) => {
+        this.served = snapshot
+        return snapshot
+      })
+      .finally(() => { this.pending = undefined })
+    this.pending = refresh
+    // Kept apart from `pending`, which the next build clears: this is the
+    // promise a caller can wait on to know the background work is over.
+    this.backgroundRefresh = refresh
+    void refresh.catch(() => undefined)
+  }
+
+  /**
+   * Wait for the background refresh, if one is running.
+   *
+   * The refresh belongs to no caller, so nothing else can wait for it. A
+   * host that is shutting down — or a test that must not have a request
+   * outlive it — needs to know when the quiet is over.
+   * @returns a promise that settles when the background refresh has.
+   */
+  settled(): Promise<void> {
+    const refresh = this.backgroundRefresh
+    return refresh === undefined
+      ? Promise.resolve()
+      : refresh.then(() => undefined, () => undefined)
+  }
+
+  /**
+   * The catalog a previous build produced, read from disk.
+   *
+   * It is presented as what it is: a listing from the past, being brought up
+   * to date in the background. The facts it carries are the ones the last
+   * build produced, so the protocols and the thinking levels are the ones
+   * that were true then.
+   * @returns the remembered catalog, or undefined when there is none.
+   */
+  private readRememberedSnapshot(): CatalogSnapshot | undefined {
+    const remembered = readSnapshotCache(this.options.cacheDir)
+    if (remembered === undefined) return undefined
+    const facts = new Map(remembered.facts)
+    return {
+      facts,
+      unavailable: new Map(),
+      provider: buildProvider(this.options.baseURL, [...facts.values()].map(fact => toPiModel(fact, this.options.baseURL))),
+      // The listing is from the past, and the page says so.
+      live: false,
+      // And a refresh of it is already under way.
+      cached: true,
+      fetchedAtMs: remembered.updatedAt,
+      ...remembered.quotas.size === 0 ? {} : { documentQuotas: remembered.quotas },
+    }
   }
 
   /**
@@ -410,13 +515,22 @@ export class OpencodeGoCatalog {
     const online = metadata.status === 'fulfilled'
       ? metadata.value
       : (this.lastMetadata ?? this.cachedMetadata)
-    return this.assemble(
+    const snapshot = this.assemble(
       listing.value,
       online,
       builtin,
       degradations,
       fromCache ? this.cachedAt : undefined,
     )
+    // Remember the catalog as it stands, so the next process can serve it
+    // without asking the network anything.
+    writeSnapshotCache(
+      this.options.cacheDir,
+      snapshot.facts,
+      this.document?.quotas ?? new Map(),
+      this.document?.protocols ?? new Map(),
+    )
+    return snapshot
   }
 
   /** Merge the listing with the metadata document and the installed entries. */

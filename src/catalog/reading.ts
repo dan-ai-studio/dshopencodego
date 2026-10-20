@@ -42,6 +42,16 @@ export interface CatalogReading {
    * like a current one.
    */
   readonly factsCachedAt?: number
+  /**
+   * True when the catalog behind this reading was read from disk and is
+   * being brought up to date in the background.
+   *
+   * The reading is usable — the models, the protocols, the levels are all
+   * there — but it was true when it was written, and a refresh is under
+   * way. The page says so, because a page that looks current and is not is
+   * worse than one that admits it.
+   */
+  readonly cached?: boolean
   /** When the underlying snapshot was built. */
   readonly fetchedAtMs: number
   /**
@@ -115,6 +125,7 @@ export function catalogReading(
     ...!snapshot.live && listingFailure !== undefined ? { error: listingFailure } : {},
     degradations: snapshot.degradations ?? [],
     ...snapshot.factsCachedAt === undefined ? {} : { factsCachedAt: snapshot.factsCachedAt },
+    ...snapshot.cached === undefined ? {} : { cached: snapshot.cached },
     fetchedAtMs: snapshot.fetchedAtMs,
     quotaSource: documentQuotas === undefined ? 'seed' : 'document',
     counts: {

@@ -27,7 +27,12 @@ import type { MockGateway } from './mock-gateway.ts'
 
 const gateways: MockGateway[] = []
 const directories: string[] = []
+const catalogs: OpencodeGoCatalog[] = []
 afterEach(async () => {
+  // A background refresh belongs to no caller, so it can outlive the case
+  // that started it — and a request that outlives a case is billed to the
+  // next one. Waiting for the quiet keeps the counts honest.
+  await Promise.all(catalogs.splice(0).map(catalog => catalog.settled()))
   await Promise.all(gateways.splice(0).map(gateway => gateway.close()))
   for (const directory of directories.splice(0)) {
     rmSync(directory, { recursive: true, force: true })
@@ -186,6 +191,7 @@ describe('a cold process that cannot read the metadata', () => {
         cacheDir: directory,
         readDocument: offlineDocument(),
       })
+      catalogs.push(second.catalogOf(configFor(server.baseURL)))
       const info = await second.resolveModel('opencode-go', 'glm-5.3')
       // The host reads these to decide whether the session's effort is legal.
       expect(info.reasoning?.efforts.map(effort => effort.id)).toContain('low')
