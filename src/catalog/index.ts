@@ -233,6 +233,14 @@ export interface CatalogOptions {
    * nothing else.
    */
   readonly cacheDir?: string
+  /**
+   * The fetch the gateway listing is read through.
+   *
+   * A factory rather than a function: the pin follows the configuration, and
+   * the configuration is live. A catalogue built before a pin was set must
+   * read the next listing from the pinned address without being rebuilt.
+   */
+  readonly fetch?: () => typeof fetch
 }
 
 /**
@@ -471,7 +479,7 @@ export class OpencodeGoCatalog {
     const readDocument = this.options.readDocument
       ?? ((signal?: AbortSignal) => fetchGoDocument(signal, { cacheDir: this.options.cacheDir }))
     const [listing, metadata, documentation] = await Promise.allSettled([
-      fetchModelIds(this.options.baseURL),
+      fetchModelIds(this.options.baseURL, undefined, this.options.fetch?.()),
       this.refreshMetadata(builtin, retry),
       readDocument(signal),
     ])

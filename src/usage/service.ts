@@ -28,6 +28,14 @@ export interface UsageServiceOptions {
   readonly resolveApiKey: () => Promise<string | undefined>
   /** The process-lifetime meter fed by the adapter. */
   readonly meter: UsageMeter
+  /**
+   * The fetch the usage read is made through.
+   *
+   * A factory rather than a function: the pin follows the configuration, and
+   * the configuration is live. A read made after a pin was set goes to the
+   * pinned address without the service being rebuilt.
+   */
+  readonly fetch?: () => typeof fetch
 }
 
 /** One endpoint and credential pair, with the opaque identity the client sees. */
@@ -91,7 +99,12 @@ export class OpencodeGoUsageService extends TypertRemoteService {
     }
     const { source } = this.identity
     try {
-      return await readUsageWindows({ baseURL, apiKey: key, source })
+      return await readUsageWindows({
+        baseURL,
+        apiKey: key,
+        source,
+        ...this.options.fetch === undefined ? {} : { request: this.options.fetch() },
+      })
     } catch (error: unknown) {
       throw usageFailure(error, source)
     }

@@ -45,6 +45,8 @@ import { assertBaseURL, PlainConfig, readConfig } from './config.ts'
 import type { LiveConfig, OpencodeGoConfig } from './config.ts'
 import { registerRemotes } from './remotes.ts'
 import { OpencodeGoCatalogService } from './catalog/service.ts'
+import { gatewayFetch as fetchThroughPin, resolveGatewayPin } from './network/pinning.ts'
+import { OpencodeGoNetworkService } from './network/service.ts'
 import { OpencodeGoUpdateService } from './update/index.ts'
 import { PLUGIN_VERSION } from './update/index.ts'
 import { OpencodeGoUsageService, UsageMeter } from './usage/index.ts'
@@ -163,9 +165,20 @@ export function apply(ctx: Context, raw?: unknown): void {
 
   const meter = new UsageMeter()
   const cacheDir = resolveCacheDir(ctx)
+  /**
+   * The fetch every gateway request is made through.
+   *
+   * The pin is read from the live configuration on every call, so a profile
+   * edit reaches the next request without a restart. With no pin configured
+   * this is the system's own fetch, with nothing added to it.
+   */
+  const gatewayRequest = (): typeof fetch => fetchThroughPin(
+    resolveGatewayPin(current().pinnedAddresses, current().baseURL),
+  )
   const adapter = new OpencodeGoAdapter({
     config: current,
     resolveApiKey,
+    fetch: gatewayRequest,
     ...cacheDir === undefined ? {} : { cacheDir },
     imageAccess: {
       resolveAttachments: () => ctx.get('attachments'),
@@ -195,6 +208,11 @@ export function apply(ctx: Context, raw?: unknown): void {
     baseURL: () => current().baseURL,
     resolveApiKey,
     meter,
+    fetch: gatewayRequest,
+  })
+  ctx.plugin(OpencodeGoNetworkService, {
+    baseURL: () => current().baseURL,
+    pinnedAddresses: () => current().pinnedAddresses,
   })
   ctx.plugin(OpencodeGoCatalogService, {
     catalog: () => adapter.catalogOf(current()),

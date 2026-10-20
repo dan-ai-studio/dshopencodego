@@ -22,6 +22,7 @@ import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { catalogRemote } from '../catalog/contract.ts'
+import { networkRemote } from '../network/contract.ts'
 import { updateRemote } from '../update/contract.ts'
 import { usageRemote } from '../usage/contract.ts'
 import type { TypertDisposer } from '@deepseek-ai/dsh-typert-protocol'
@@ -64,7 +65,12 @@ export function apply(ctx: ClientContext): void {
   // `src/remotes.ts`.
   const mounted = ctx.remote.$mount({
     package: usageRemote.package,
-    descriptors: [...usageRemote.descriptors, ...catalogRemote.descriptors, ...updateRemote.descriptors],
+    descriptors: [
+      ...usageRemote.descriptors,
+      ...catalogRemote.descriptors,
+      ...updateRemote.descriptors,
+      ...networkRemote.descriptors,
+    ],
   })
   ctx.effect(() => {
     let dispose: TypertDisposer | undefined
@@ -78,7 +84,10 @@ export function apply(ctx: ClientContext): void {
   // rather than returning undefined, and leaving it out made the settings
   // page's first update check throw into a panel that hid the failure —
   // a blank row for three releases.
-  ctx.inject(['configForms', 'remote.opencodeGoCatalog', 'remote.opencodeGoUpdate', 'remote.credentials'], (scope) => {
+  //
+  // The network namespace is here for the same reason: the page reads the
+  // gateway's pin through it, and reading an undeclared service throws.
+  ctx.inject(['configForms', 'remote.opencodeGoCatalog', 'remote.opencodeGoUpdate', 'remote.opencodeGoNetwork', 'remote.credentials'], (scope) => {
     // Profile-entry forms live on `configForms`; the entry id is this
     // plugin's, and a composition without the form renders the page read-only.
     const forms = scope.get('configForms') as

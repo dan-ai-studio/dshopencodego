@@ -26,16 +26,25 @@ export function readModelIds(body: unknown): readonly string[] {
 
 /**
  * Fetch the ids the gateway currently advertises.
+ *
+ * The request goes through the given fetch, so a gateway pinned to one
+ * address is read from that address — and, when that address is gone, from
+ * the address the system would have chosen.
  * @param baseURL - normalized gateway base without a trailing slash.
  * @param signal - caller cancellation, if any.
+ * @param request - the fetch to use; the system's own when none is given.
  * @returns the advertised ids in endpoint order, deduplicated.
  * @throws {LlmError} `DISCOVERY_FAILED` when the endpoint is unreachable, not
  *   OK, or does not answer a model listing.
  */
-export async function fetchModelIds(baseURL: string, signal?: AbortSignal): Promise<readonly string[]> {
+export async function fetchModelIds(
+  baseURL: string,
+  signal?: AbortSignal,
+  request: typeof fetch = globalThis.fetch,
+): Promise<readonly string[]> {
   const url = `${baseURL.replace(/\/+$/, '')}/models`
   const timeout = AbortSignal.timeout(METADATA_FETCH_TIMEOUT_MS)
-  const response = await fetch(url, {
+  const response = await request(url, {
     method: 'GET',
     redirect: 'error',
     // An explicit request header rather than `RequestInit.cache`: Node's fetch

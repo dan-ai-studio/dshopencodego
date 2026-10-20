@@ -68,6 +68,14 @@ interface UsageReadOptions {
   /** Opaque identity of the endpoint and credential pair, when known. */
   readonly source?: string
   readonly signal?: AbortSignal
+  /**
+   * The fetch to use.
+   *
+   * The read goes to the gateway, so a gateway pinned to one address is read
+   * from that address — and, when that address is gone, from the address the
+   * system would have chosen.
+   */
+  readonly request?: typeof fetch
 }
 
 /**
@@ -83,9 +91,10 @@ export async function readUsageWindows(options: UsageReadOptions): Promise<GoUsa
   }
   const url = `${options.baseURL.replace(/\/+$/, '')}/usage`
   const timeout = AbortSignal.timeout(USAGE_TIMEOUT_MS)
+  const request = options.request ?? globalThis.fetch
   let response: Response
   try {
-    response = await fetch(url, {
+    response = await request(url, {
       redirect: 'error',
       headers: {
         ...attributionHeaders(),

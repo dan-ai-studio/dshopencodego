@@ -2,6 +2,40 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.56] - 2026-10-21
+
+本版加一个**能让访问变快**的功能：把网关域名固定到一个更近的地址，并给它一个设置界面。
+
+### ✨ 改进 (Improvements)
+
+- **网关域名可以固定 IP 了**（`src/network/pinning.ts`、设置页「固定 IP」）。系统解析到的边缘节点有时离得很远，而每个请求都要为那段距离付费。
+  - **只改解析，不改域名**：请求里的域名、Host 头、TLS 的 SNI 与证书校验全部照旧，只有 socket 连到哪个地址被换掉。证书是发给 `opencode.ai` 的，所以那个地址必须能服务这个域名。
+  - **只对网关域名生效**：键必须等于 `baseURL` 的域名（默认 `opencode.ai`）。其它名字不在本插件的请求路径上，写了不生效；`models.dev` 与厂商文档始终走系统 DNS。
+  - **作用范围**：模型 API 请求、网关 listing（`/models`）、`/usage` 读取——三类都是发往网关的请求。
+  - **地址失效自动回退**：连不上（连接被拒、路由不可达、TLS 握手失败）就用系统 DNS 重试**一次**，并把这个地址记为失效，之后的请求直接走系统 DNS。**只有"请求还没发出去"才重试**——已经送达的请求不会发第二遍，所以**填错 IP 不会比不填更糟**。
+  - **不设置就是原样**：`pinnedAddresses` 为空时，插件用的就是系统自己的 fetch，不加任何东西。
+  - **非法地址被忽略**：写错的 IP 只是被忽略并回退系统 DNS，不会让请求失败。
+- **设置页里能直接填**（`src/client/Section.tsx`）。填的是网关域名当前对应的那个键；非法地址当场拒绝（IPv4 与 IPv6 都收，`010.1.1.1` 这种前导零不收——有的解析器按八进制读它）；地址失效后页面显示「已回退系统 DNS」。
+
+### 🐞 修正 (Fixes)
+
+- **上一轮未完成的那部分，现在能编译也能接线了**（`src/network/`、`tests/`）。上一轮加 `pinnedAddresses` 与 `src/network/` 时**只写了文件，没有接线，也没有让类型检查通过**：`src/network/pinning.ts` 与 `probe.ts` 里有 9 处类型错误（`connect.lookup` 的签名与 `node:dns` 的不同、无 DOM 的 lib 下没有 `RequestInfo`、npm undici 的 Dispatcher 与 Node 内置 fetch 的类型不兼容），测试夹具也没有补 `pinnedAddresses` 字段——`npm run typecheck` 当时是**红的**。
+  - 顺带修了一个**真会跑错**的地方：`probe.ts` 把 npm undici 的 Agent 交给了 **Node 内置的 fetch**。两者是不同副本、dispatcher 协议对不上，真跑起来连不上。已改为同一份 undici（`connect.lookup` 仍由 `net.connect` 承接，地址在 socket 里、域名在证书里）。
+  - `src/network/probe.ts`（给候选地址测速的工具）**没有随本次功能上线**，已从产物中移除。
+- **构建产物能加载了**（`scripts/build.mjs`）。`undici` 只有 CommonJS 入口，esbuild 把它编进 ESM 产物后，它自己的 `require('node:assert')` 变成没有 `require` 可调的 `__require`——**产物第一次被加载就会抛 `Dynamic require of "node:assert" is not supported`**。构建现在用 Node 自己的 `createRequire` 给那个 shim 一个真的 `require`。这条是被 `tests/verify-scripts.spec.ts` 抓到的：它加载真实产物，产物坏掉时那两个用例一起红。
+
+### 🧪 测试
+
+- **新增四个测试文件**：`tests/pinning.spec.ts`（固定地址的行为——真回环 socket、两个 server 只差地址、用响应内容区分走了哪条路）、`tests/pin-wiring.spec.ts`（三条路径都经过同一个 fetch）、`tests/pin-settings.spec.ts`（设置页控制器的读写、拒绝与降级）、`tests/pin-section.spec.tsx`（设置页**真的渲染出**「固定 IP」区块：域名、当前地址、失效提示）。
+- 套件为 **56 个测试文件 / 396 个用例**。
+
+### 📝 备注
+
+- 这一版**不改任何降级、缓存与协议行为**：没有配固定 IP 时，插件用的就是系统自己的 fetch，一个字节的额外开销都没有。
+- 固定 IP 只对**网关域名**有意义。`baseURL` 改成了别的域名，就固定那个域名——配置里的键始终要等于 `baseURL` 的域名。
+
+---
+
 ## [0.1.55] - 2026-10-21
 
 本版按「**先要可靠，再要快，不重要的耗时可以去掉**」的次序，做了四件事。

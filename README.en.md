@@ -109,6 +109,8 @@ Configuration lives in the profile's `cordis.patch.yml`:
       some-legacy-model: null                 # a whole-entry null: both fields explicitly fall back to the catalog values
     modelProtocols:                           # last resort: per-model protocol override
       some-new-model: openai-responses        # the only legal values are anthropic-messages / openai-completions / openai-responses
+    pinnedAddresses:                           # fixed IP: host -> address (only the gateway host counts)
+      opencode.ai: 104.18.32.47              # IPv4 or IPv6; an invalid or absent address uses the system DNS
     retryPolicy:                              # optional: this route's retry policy, executed by dsh-llm-retry
       mode: normal                            # or always (retry every failure; maxRetries is ignored)
       maxRetries: 2                           # default 5
@@ -140,6 +142,17 @@ A model that does not accept image input is rejected before the request is sent 
 **Tool declarations**: every request carries the complete current tool list. The session-folded history the host offers (`toolHistory`) is deliberately **not** projected: projecting it requires the route to declare a `toolUpdate` mode, and models.dev states no such mode for this gateway's models (only that tools are callable). Claiming one would silently change what the model sees.
 
 **Retries**: `retryPolicy` is optional — omit it and the host's own default applies. When set, the optional `dsh-llm-retry` plugin executes it, and a malformed policy fails where it is written rather than at the first failure.
+
+**Fixed IP**: `pinnedAddresses` pins the gateway's name to one address, so the requests reach a closer edge — the edge the system resolves to is sometimes far away, and every request pays for that distance.
+
+- **Only the resolution changes**: the name in the request, the host header, the TLS SNI and the certificate check all stay as they are; only the address in the socket is decided. The address therefore has to serve that name, because the certificate is issued for `opencode.ai`.
+- **Only the gateway's own name counts**: the key must be the host of `baseURL` (`opencode.ai` by default). No other name is on this plugin's request path, so a pin for one has no effect. `models.dev` and the provider's documentation always use the system DNS.
+- **Where it applies**: the model API request, the gateway listing (`/models`), and the `/usage` reading — the three requests that go to the gateway.
+- **A gone address falls back**: when the pinned address cannot be reached (connection refused, route unreachable, TLS handshake failed), the request is sent **once more** through the system DNS, and the address is remembered as spent so the later requests go straight to the system's resolution. **A wrong address never costs more than no address**: only a request that was never sent is sent again.
+- **Unset means untouched**: with no `pinnedAddresses`, the plugin uses the system's own fetch and adds nothing to it.
+- **An address that is not an address is ignored**: a typo (`1.2.3.256`, `010.1.1.1`, …) does not fail the request; it is ignored and the request uses the system DNS.
+
+The settings page (**OpenCode Go → Fixed IP**) writes the address for the gateway's current host, refuses an invalid one on the spot, and says "using the system DNS" once the address has been found to be gone.
 
 ## How a model is resolved
 
@@ -247,7 +260,7 @@ npm test            # contract tests against a real local HTTP mock gateway
 
 **Order matters**: `npm run build` must come before `npm test` — `tests/pack-contents.spec.ts` walks every `exports` target, and whether `lib/` exists decides whether that check runs or is silently skipped (it does not fail, it just stops protecting you). `package.json` no longer carries `prepare`, so `npm ci` will not build for you; all three CI workflows run `npm run build` explicitly.
 
-The suite covers configuration validation, the protocol ladder, gateway and online metadata, the catalog projection, the adapter on the wire (all three protocols), Remote contracts and services, session-header invariants, usage windows and the meter, the client controller and usage pill, both halves' mounting and registration, the error mapping for stream idle timeouts and aborts, the exit-code contract of the verification scripts, and several **structural invariants** (inject declarations match the source's reads, peer coverage holds both ways, the READMEs match the manifest, and the READMEs' claims about the upstream match the upstream actually installed). That is **52 test files** — a number `tests/readme-consistency.spec.ts` checks against the `tests/` directory, so it cannot drift.
+The suite covers configuration validation, the protocol ladder, gateway and online metadata, the catalog projection, the adapter on the wire (all three protocols), Remote contracts and services, session-header invariants, usage windows and the meter, the client controller and usage pill, both halves' mounting and registration, the error mapping for stream idle timeouts and aborts, the exit-code contract of the verification scripts, and several **structural invariants** (inject declarations match the source's reads, peer coverage holds both ways, the READMEs match the manifest, and the READMEs' claims about the upstream match the upstream actually installed). That is **56 test files** — a number `tests/readme-consistency.spec.ts` checks against the `tests/` directory, so it cannot drift.
 
 ## Releasing (maintainers)
 

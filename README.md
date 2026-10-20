@@ -109,6 +109,8 @@ DSH 桌面端是 Electron 壳 + 完整的 dsh Web 应用，本插件对它同样
       some-legacy-model: null                 # 整条 null：该模型两个字段都显式回退到目录值
     modelProtocols:                           # 最后兜底：逐模型协议覆盖
       some-new-model: openai-responses        # 合法值只有 anthropic-messages / openai-completions / openai-responses
+    pinnedAddresses:                           # 固定 IP：域名 → 地址（只对网关域名生效）
+      opencode.ai: 104.18.32.47              # 可写 IPv4 或 IPv6；不合法或未设置时走系统 DNS
     retryPolicy:                              # 可选：本路由的重试策略（由 dsh-llm-retry 执行）
       mode: normal                            # 也可用 always（对所有失败重试，maxRetries 被忽略）
       maxRetries: 2                           # 默认 5
@@ -140,6 +142,17 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 **工具声明**：每个请求都发送当前完整的工具列表。宿主提供的会话折叠历史（`toolHistory`）**故意不投影**：投影需要路由声明 `toolUpdate` 模式，而 models.dev 对本网关模型只声明"可调用工具"、没有声明该模式；凭空声明会让模型看到的东西悄悄改变。
 
 **重试**：`retryPolicy` 是可选的，不写就用宿主默认。写了就由可选的 `dsh-llm-retry` 插件执行，配置错误在写入时报错而不是等到失败发生。
+
+**固定 IP**：`pinnedAddresses` 把网关域名固定到一个地址，用来接入更近的边缘节点（系统解析到的边缘有时离得很远，而每个请求都要为那段距离付费）。
+
+- **只改解析，不改域名**：请求里的域名、Host 头、TLS 的 SNI 与证书校验全部照旧，只有 socket 连到哪个地址被换掉。因此该地址必须能服务这个域名——证书是发给 `opencode.ai` 的。
+- **只对网关域名生效**：键必须等于 `baseURL` 的域名（默认 `opencode.ai`）。其它名字不在本插件的请求路径上，写了不生效。`models.dev` 与厂商文档始终走系统 DNS。
+- **作用范围**：模型 API 请求、网关 listing（`/models`）、`/usage` 读取——这三类都是发往网关的请求。
+- **地址失效自动回退**：固定地址连不上时（连接被拒、路由不可达、TLS 握手失败），请求会用系统 DNS **重试一次**，并把这个地址记为失效，之后的请求直接走系统 DNS。**填错 IP 不会比不填更糟**：只有"请求还没发出去"才重试，已经送达的请求不会发第二遍。
+- **不设置就是原样**：`pinnedAddresses` 为空时，插件用的就是系统自己的 fetch，不加任何东西。
+- **非法地址被忽略**：写错的 IP（`1.2.3.256`、`010.1.1.1` 等）不会让请求失败，只是被忽略并回退系统 DNS。
+
+设置页（**OpenCode Go → 固定 IP**）里可以直接填地址：填的是网关域名当前对应的那个键，非法地址当场拒绝，地址失效后页面会显示"已回退系统 DNS"。
 
 ## 模型是怎么判定的
 
@@ -247,7 +260,7 @@ npm test            # 契约测试：真实 HTTP mock 网关，断言请求头/�
 
 **顺序有讲究**：`npm run build` 要排在 `npm test` 之前——`tests/pack-contents.spec.ts` 会遍历 `exports` 的每个目标，`lib/` 存在与否决定这条检查是执行还是被跳过（不报错，但会少一层保护）。`package.json` 已移除 `prepare`，因此 `npm ci` 不会再替你隐式构建；三个 CI workflow 都显式跑了 `npm run build`。
 
-测试覆盖配置校验、协议阶梯、网关与在线元数据、目录投影、适配器（三种协议的线上请求）、Remote 契约与服务、会话头不变量、用量窗口与计量、客户端控制器与用量组件、两半的挂载与登记、流空闲超时与中止的错误映射、验证脚本的退出码契约、以及几条**结构性不变量**（inject 声明与源码读取一致、peer 覆盖双向、README 与 manifest 一致、README 对上游的断言与实装的上游一致）。共 **52 个测试文件**——这个数字由 `tests/readme-consistency.spec.ts` 对着 `tests/` 目录校验，不会漂移。
+测试覆盖配置校验、协议阶梯、网关与在线元数据、目录投影、适配器（三种协议的线上请求）、Remote 契约与服务、会话头不变量、用量窗口与计量、客户端控制器与用量组件、两半的挂载与登记、流空闲超时与中止的错误映射、验证脚本的退出码契约、以及几条**结构性不变量**（inject 声明与源码读取一致、peer 覆盖双向、README 与 manifest 一致、README 对上游的断言与实装的上游一致）。共 **56 个测试文件**——这个数字由 `tests/readme-consistency.spec.ts` 对着 `tests/` 目录校验，不会漂移。
 
 ## 发布（维护者）
 

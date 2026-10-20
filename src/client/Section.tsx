@@ -14,10 +14,12 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { CatalogReading } from '../catalog/contract.ts'
+import type { NetworkReading } from '../network/contract.ts'
 import type { UpdateStatus } from '../update/contract.ts'
 import { PACKAGE_NAME, REPOSITORY } from '../update/check.ts'
 import { SEED_TRANSCRIBED } from '../go-limits.ts'
 import { isModelEnabled } from '../models.ts'
+import { isAddress } from './address.ts'
 import { compactCount, INITIAL_FILTER, inputModalityLabels, visibleModels } from './model-view.ts'
 import type { ModelFilter, ModelSort } from './model-view.ts'
 import css from './section.module.css'
@@ -29,6 +31,8 @@ export const API_KEY_REF = 'OPENCODE_GO_API_KEY'
 interface SectionSettings {
   readonly modelVisibility: Record<string, boolean>
   readonly refreshMinutes: number
+  /** Addresses the gateway may be pinned to, by host name. */
+  readonly pinnedAddresses: Record<string, string>
 }
 
 /** The read/write contract of the settings scope, structurally typed. */
@@ -83,6 +87,18 @@ export interface SectionServices {
       readUpdate(): Promise<RemoteResult<UpdateStatus>>
       refreshUpdate(): Promise<RemoteResult<UpdateStatus>>
     }
+    /**
+     * The gateway's pin.
+     *
+     * Optional because the mount is asynchronous and registers namespace by
+     * namespace: the page is built as soon as the catalog and credentials are
+     * visible, which can precede the rest of this package's own Remote
+     * contribution. Without it the page shows no pin at all rather than
+     * failing to render.
+     */
+    readonly opencodeGoNetwork?: {
+      readNetwork(): Promise<RemoteResult<NetworkReading>>
+    }
     readonly credentials: {
       describe(refs: string[]): Promise<RemoteResult<Record<string, { configured: boolean }>>>
       set(ref: string, value: string): Promise<RemoteResult<unknown>>
@@ -136,6 +152,12 @@ interface SectionState {
   readonly failure: string | undefined
   /** Settings-write trouble, kept apart from the catalog's own status line. */
   readonly writeFailure: WriteFailure | undefined
+  /** The gateway's pin, as the Host reports it. */
+  readonly network: NetworkReading | undefined
+  /** The pin could not be read; the page says so instead of guessing. */
+  readonly networkFailure: string | undefined
+  /** The address in the field is not one a socket can be sent to. */
+  readonly pinInvalid: boolean
   /** Set after a successful key write, so the button can confirm. */
   readonly saved: boolean | undefined
   readonly settings: SectionSettings | undefined
@@ -156,6 +178,9 @@ const INITIAL: SectionState = {
   keyConfigured: undefined,
   failure: undefined,
   writeFailure: undefined,
+  network: undefined,
+  networkFailure: undefined,
+  pinInvalid: false,
   saved: undefined,
   settings: undefined,
   writable: false,
@@ -164,7 +189,7 @@ const INITIAL: SectionState = {
   update: { phase: 'idle', status: undefined, message: undefined },
 }
 
-/** Read the two fields this page owns out of a settings snapshot value. */
+/** Read the three fields this page owns out of a settings snapshot value. */
 function settingsOf(value: unknown): SectionSettings | undefined {
   if (value === null || typeof value !== 'object') return undefined
   const record = value as Record<string, unknown>
@@ -173,9 +198,15 @@ function settingsOf(value: unknown): SectionSettings | undefined {
   if (visibility === null || typeof visibility !== 'object' || typeof minutes !== 'number') return undefined
   const entries = Object.entries(visibility as Record<string, unknown>)
     .filter(([, enabled]) => typeof enabled === 'boolean')
+  const pins = record['pinnedAddresses']
+  const pinEntries = pins !== null && typeof pins === 'object'
+    ? Object.entries(pins as Record<string, unknown>)
+      .filter(([, address]) => typeof address === 'string')
+    : []
   return {
     modelVisibility: Object.fromEntries(entries) as Record<string, boolean>,
     refreshMinutes: minutes,
+    pinnedAddresses: Object.fromEntries(pinEntries) as Record<string, string>,
   }
 }
 
@@ -203,6 +234,7 @@ export class SectionController {
     }
     void this.load(false)
     void this.loadKey()
+    void this.loadNetwork()
     void this.checkUpdate(false)
   }
 
@@ -254,6 +286,71 @@ export class SectionController {
       // An undescribed credential is reported as unknown, never as absent.
       this.set({ keyConfigured: undefined })
     }
+  }
+
+  /**
+   * Read the gateway's pin.
+   *
+   * The Host owns the answer: the address in force is not always the one in
+   * the configuration, because an address that was found to be gone leaves
+   * the requests on the system's own resolution.
+   */
+  async loadNetwork(): Promise<void> {
+    const remote = this.services.remote.opencodeGoNetwork
+    if (remote === undefined) return
+    try {
+      const result = await remote.readNetwork()
+      if (!result.ok) throw result.error
+      this.set({ network: result.value, networkFailure: undefined })
+    } catch (error: unknown) {
+      this.set({
+        network: undefined,
+        networkFailure: error instanceof Error ? error.message : 'the gateway pin could not be read',
+      })
+    }
+  }
+
+  /**
+   * Pin the gateway to one address.
+   *
+   * The address is checked before it is written: a typo that reached the
+   * Host would be ignored there, so the page would claim a pin that is not
+   * in force while the request quietly used the system's resolution.
+   * @param address - the address as typed.
+   */
+  async savePin(address: string): Promise<void> {
+    const scope = this.services.scope
+    const current = this.state.settings
+    const host = this.state.network?.host ?? ''
+    if (scope === undefined || current === undefined || !this.state.writable) return
+    if (host.length === 0) return
+    const trimmed = address.trim()
+    if (!isAddress(trimmed)) {
+      this.set({ pinInvalid: true })
+      return
+    }
+    await this.write(
+      () => scope.set('pinnedAddresses', { ...current.pinnedAddresses, [host]: trimmed }),
+      () => {
+        this.set({ pinInvalid: false })
+        void this.loadNetwork()
+      },
+    )
+  }
+
+  /** Unpin the gateway; its name goes back to the system's own resolution. */
+  async clearPin(): Promise<void> {
+    const scope = this.services.scope
+    const current = this.state.settings
+    const host = this.state.network?.host ?? ''
+    if (scope === undefined || current === undefined || !this.state.writable) return
+    if (host.length === 0) return
+    const rest = { ...current.pinnedAddresses }
+    delete rest[host]
+    await this.write(
+      () => scope.set('pinnedAddresses', rest),
+      () => { void this.loadNetwork() },
+    )
   }
 
   /**
@@ -692,6 +789,7 @@ function updateFailureText(message: string | undefined, t: (key: string) => stri
 export function Section({ controller, t, getLocale }: SectionInjected): React.JSX.Element {
   const state = useSyncExternalStore(controller.subscribe, controller.snapshot, controller.snapshot)
   const [keyDraft, setKeyDraft] = useState('')
+  const [pinDraft, setPinDraft] = useState('')
   const [busy, setBusy] = useState(false)
 
   const act = useCallback(async (operation: () => Promise<void>): Promise<void> => {
@@ -704,8 +802,12 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
   }, [])
 
   useEffect(() => { setKeyDraft('') }, [state.saved])
+  // The field follows the Host: a pin that was written, removed, or found to
+  // be gone is shown as the Host reports it, not as the page last typed.
+  useEffect(() => { setPinDraft(state.network?.address ?? '') }, [state.network?.address])
 
   const reading = state.reading
+  const network = state.network
   const visibility = state.settings?.modelVisibility ?? {}
   const editable = state.writable && state.settings !== undefined
   const rows = reading === undefined
@@ -743,6 +845,45 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
           {t('keyClear')}
         </button>
       </div>
+    </div>
+
+    <div className={css.block}>
+      <div className={css.row}>
+        <strong>{t('pinTitle')}</strong>
+        <span className={css.mono}>{network?.host ?? '—'}</span>
+        <span className={network?.failed === true ? css.warn : css.hint}>
+          {network === undefined
+            ? '—'
+            : network.failed === true
+              ? t('pinFailed')
+              : network.address === undefined ? t('pinNone') : network.address}
+        </span>
+      </div>
+      <p className={css.hint}>{t('pinHint')}</p>
+      {state.networkFailure !== undefined && (
+        <p className={css.warn}>{`${t('pinUnavailable')}: ${state.networkFailure}`}</p>
+      )}
+      <div className={css.row}>
+        <input
+          className={css.input}
+          type="text"
+          aria-label={t('pinTitle')}
+          placeholder={t('pinPlaceholder')}
+          value={pinDraft}
+          onChange={event => { setPinDraft(event.target.value) }}
+        />
+        <button type="button" className={css.button}
+          disabled={!editable || busy || pinDraft.trim().length === 0}
+          onClick={() => { void act(async () => { await controller.savePin(pinDraft) }) }}>
+          {t('pinSave')}
+        </button>
+        <button type="button" className={css.button}
+          disabled={!editable || busy || network?.address === undefined}
+          onClick={() => { void act(async () => { await controller.clearPin() }) }}>
+          {t('pinClear')}
+        </button>
+      </div>
+      {state.pinInvalid && <p className={css.warn}>{t('pinInvalid')}</p>}
     </div>
 
     <div className={css.block}>

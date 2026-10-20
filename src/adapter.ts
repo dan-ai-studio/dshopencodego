@@ -155,6 +155,14 @@ export interface OpencodeGoAdapterOptions {
    */
   readonly cacheDir?: string
   /**
+   * The fetch every gateway request is made through.
+   *
+   * A factory rather than a function: the pin follows the configuration, and
+   * the configuration is live. A request made after a pin was set goes to
+   * the pinned address without the adapter being rebuilt.
+   */
+  readonly fetch?: () => typeof fetch
+  /**
    * Observe the provider's own usage for one completed call. This is the only
    * honest source of token counts: the gateway's `/usage` endpoint reports
    * account percentages, not tokens. The value carries the rates that were
@@ -204,6 +212,7 @@ export class OpencodeGoAdapter extends LlmAdapter {
           overrides: config.modelProtocols,
           ...this.options.readDocument === undefined ? {} : { readDocument: this.options.readDocument },
           ...this.options.cacheDir === undefined ? {} : { cacheDir: this.options.cacheDir },
+          ...this.options.fetch === undefined ? {} : { fetch: this.options.fetch },
           observers: {
             ...this.options.onFallback === undefined ? {} : { onFallback: this.options.onFallback },
             ...this.options.onUnconfigured === undefined ? {} : { onUnconfigured: this.options.onUnconfigured },
@@ -427,6 +436,10 @@ export class OpencodeGoAdapter extends LlmAdapter {
         // The gateway refuses a request without `x-opencode-session`; the
         // attribution user-agent rides along on the same object.
         headers: providerHeaders(options.sessionId === undefined ? undefined : String(options.sessionId)),
+        // The request goes to the gateway, so it goes through the fetch that
+        // honours the gateway's pin — and through the system's own resolution
+        // when the pinned address turns out to be gone.
+        ...this.options.fetch === undefined ? {} : { fetch: this.options.fetch() },
         // The agent recovery layer owns visible attempts; one adapter call is
         // one SDK attempt.
         maxRetries: 0,
