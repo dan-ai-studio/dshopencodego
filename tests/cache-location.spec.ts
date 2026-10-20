@@ -87,8 +87,13 @@ describe('the cache directory', () => {
     const directory = realCacheDir()
     if (!existsSync(directory)) return
     for (const entry of readdirSync(directory)) {
-      // Only the two files this plugin writes may live there.
-      expect(['models-dev-facts.json', 'go-doc-paths.json']).toContain(entry)
+      // Only the files this plugin writes may live there.
+      expect([
+        'models-dev-facts.json',
+        'go-doc-paths.json',
+        'go-doc-cache.json',
+        'catalog-snapshot.json',
+      ]).toContain(entry)
       expect(statSync(join(directory, entry)).isFile()).toBe(true)
     }
   })

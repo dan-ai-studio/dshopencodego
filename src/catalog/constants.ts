@@ -43,6 +43,19 @@ export const MODEL_METADATA_TIMEOUT_MS = 30_000
  */
 export const METADATA_RETRY_DELAY_MS = 1_500
 
+/**
+ * How long a failed background refresh waits before it is tried again.
+ *
+ * A refresh that fails leaves the catalog's age where it was, so every call
+ * sees it as past its TTL and starts another. Without a back-off, a service
+ * that is down turns every model request into a full download attempt.
+ *
+ * Five minutes is short enough that a service that comes back is picked up
+ * soon, and long enough that a service that stays down is asked once, not
+ * once per request.
+ */
+export const BACKGROUND_RETRY_BACKOFF_MS = 5 * 60_000
+
 /** Response caps: the listing is tiny, the metadata document is not. */
 export const MODEL_LISTING_MAX_BYTES = 1024 * 1024
 export const MODEL_METADATA_MAX_BYTES = 16 * 1024 * 1024

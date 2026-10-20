@@ -179,4 +179,39 @@ describe('a process that starts with a remembered catalog', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('asks once when the service is down, not once per request', async () => {
+    const server = await startMockGateway({ listing: ['glm-5.3'] })
+    gateways.push(server)
+    const directory = cacheDir()
+    const stub = stubModelsDev(modelsDevDocument(THINKING_MODEL))
+    try {
+      await catalogFor(server, directory).snapshot(true)
+    } finally {
+      stub.restore()
+    }
+    let asked = 0
+    const realFetch = globalThis.fetch
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('https://models.dev/')) {
+        asked += 1
+        return new Response('nope', { status: 503 })
+      }
+      return realFetch(input as RequestInfo, init)
+    })
+    try {
+      const second = catalogFor(server, directory)
+      for (let request = 0; request < 5; request += 1) {
+        await second.forModel('glm-5.3')
+        await second.settled()
+      }
+      // A service that is down must not be asked once per request: the
+      // snapshot in hand keeps its age, so every call would otherwise see it
+      // as past its TTL and start another download.
+      expect(asked).toBe(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })

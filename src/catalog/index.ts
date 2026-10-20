@@ -39,6 +39,7 @@ import {
   MODEL_METADATA_URL,
   PROVIDER_ID,
   METADATA_RETRY_DELAY_MS,
+  BACKGROUND_RETRY_BACKOFF_MS,
   UNKNOWN_MODEL_PROBE_COOLDOWN_MS,
 } from './constants.ts'
 import { fetchModelIds } from './gateway.ts'
@@ -261,6 +262,8 @@ export class OpencodeGoCatalog {
   private readonly probedAt = new Map<string, number>()
   /** The background refresh, kept so a caller can wait for it to be over. */
   private backgroundRefresh: Promise<unknown> | undefined
+  /** When the last background refresh was started, for the back-off. */
+  private lastRefreshAttemptAt = 0
 
   constructor(options: CatalogOptions) {
     this.options = options
@@ -337,7 +340,15 @@ export class OpencodeGoCatalog {
    */
   private refreshInBackground(): void {
     if (this.pending !== undefined) return
-    const refresh = this.build()
+    // A refresh that just failed is not tried again at once.
+    //
+    // The snapshot in hand keeps its age, so every call sees it as past its
+    // TTL and starts a refresh — and a refresh that fails leaves the age
+    // where it was. Without this, a service that is down turns every model
+    // request into a full download attempt.
+    if (Date.now() - this.lastRefreshAttemptAt < BACKGROUND_RETRY_BACKOFF_MS) return
+    this.lastRefreshAttemptAt = Date.now()
+    const refresh = this.build(undefined, false)
       .then((snapshot) => {
         this.served = snapshot
         return snapshot
@@ -450,14 +461,18 @@ export class OpencodeGoCatalog {
   /**
    * Revalidate every source, reusing the metadata document when it is unchanged.
    * @param signal - caller cancellation, forwarded to the documentation read.
+   * @param retry - whether a failed metadata read is tried again. A caller
+   *   that is waiting for the answer wants it tried again; a refresh nobody
+   *   is waiting for does not, because the answer it wants is the one it
+   *   already has.
    */
-  private async build(signal?: AbortSignal): Promise<CatalogSnapshot> {
+  private async build(signal?: AbortSignal, retry = true): Promise<CatalogSnapshot> {
     const builtin = builtinModels(this.options.baseURL)
     const readDocument = this.options.readDocument
       ?? ((signal?: AbortSignal) => fetchGoDocument(signal, { cacheDir: this.options.cacheDir }))
     const [listing, metadata, documentation] = await Promise.allSettled([
       fetchModelIds(this.options.baseURL),
-      this.refreshMetadata(builtin),
+      this.refreshMetadata(builtin, retry),
       readDocument(signal),
     ])
     const degradations: CatalogDegradation[] = []
@@ -737,10 +752,14 @@ export class OpencodeGoCatalog {
    * @param builtin - the installed catalog, for the parse.
    * @returns the parsed metadata.
    */
-  private async refreshMetadata(builtin: ReadonlyMap<string, Model<Api>>): Promise<ReturnType<typeof readOnlineMetadata>> {
+  private async refreshMetadata(
+    builtin: ReadonlyMap<string, Model<Api>>,
+    retry: boolean,
+  ): Promise<ReturnType<typeof readOnlineMetadata>> {
     try {
       return await this.readMetadataDocument(builtin)
     } catch (first: unknown) {
+      if (!retry) throw first
       await new Promise<void>(resolve => { setTimeout(resolve, METADATA_RETRY_DELAY_MS) })
       try {
         return await this.readMetadataDocument(builtin)
