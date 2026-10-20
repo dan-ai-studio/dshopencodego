@@ -25,10 +25,17 @@ import type { WireProtocol } from './protocol.ts'
  *
  * The repository file is the source of truth; the jsDelivr entry caches the
  * same path and is tried when GitHub itself is unreachable.
+ *
+ * The path is the provider's own, and it moves: `go.mdx` used to live at
+ * `packages/web/src/content/docs/go.mdx` and the `packages/web` tree was
+ * restructured, after which every request answered 404. A document that cannot
+ * be read costs the endpoint table — the provider's own statement of each
+ * model's protocol — so the path is asserted against the live repository by
+ * `tests/go-doc-url.spec.ts` rather than left to rot unnoticed.
  */
 export const GO_DOC_URLS: readonly string[] = [
-  'https://raw.githubusercontent.com/anomalyco/opencode/dev/packages/web/src/content/docs/go.mdx',
-  'https://cdn.jsdelivr.net/gh/anomalyco/opencode@dev/packages/web/src/content/docs/go.mdx',
+  'https://raw.githubusercontent.com/anomalyco/opencode/dev/services/www/src/docs/content/console/go.mdx',
+  'https://cdn.jsdelivr.net/gh/anomalyco/opencode@dev/services/www/src/docs/content/console/go.mdx',
 ]
 
 /** The document is about 30 KB; the cap leaves room without inviting a flood. */
@@ -121,6 +128,12 @@ function tableRows(lines: readonly string[], required: string): readonly (readon
  * endpoint table and the other two attach by normalised display name. A row
  * that names no known model, or states no usable number, is skipped rather than
  * guessed; a tiered model whose rows disagree is dropped entirely.
+ *
+ * The two tables are read independently because the provider's page has
+ * carried them at different times: the endpoint table names each model's
+ * protocol, and the allowance table states the monthly allowance. A document
+ * that keeps one and drops the other is still worth reading — the one it
+ * keeps is evidence the other source cannot supply.
  * @param markdown - the raw document text.
  * @returns the parsed allowances and protocols; both may be empty when the
  *   document does not carry the expected tables.
@@ -169,9 +182,17 @@ type SourceRead =
 /**
  * Read and parse one source, bounded by the shared fetch timeout.
  *
- * A source that answers without a usable allowance table is a failure, not an
- * empty document: that is what a moved or restructured page looks like, and
- * the caller must keep its previous data rather than blank the page.
+ * A source that answers without a usable table is a failure, not an empty
+ * document: that is what a moved or restructured page looks like, and the
+ * caller must keep its previous data rather than blank the page.
+ *
+ * The two tables are independent evidence, so one missing table does not
+ * disqualify the other. The provider's endpoint table names each model's
+ * protocol — the most authoritative statement there is — and it outlived the
+ * allowance table when the provider restructured its page; the allowances fell
+ * back to the frozen seed in `go-limits.ts`, which was written for exactly
+ * this. Only a document that carries neither is a document this build does
+ * not understand.
  */
 async function readSource(url: string, signal?: AbortSignal): Promise<SourceRead> {
   const timeout = AbortSignal.timeout(METADATA_FETCH_TIMEOUT_MS)
@@ -186,7 +207,9 @@ async function readSource(url: string, signal?: AbortSignal): Promise<SourceRead
       return { failure: `${url} answered HTTP ${response.status}` }
     }
     const document = parseGoDocument(await readBoundedText(response, GO_DOC_MAX_BYTES))
-    if (document.quotas.size === 0) return { failure: `${url} carried no allowance table` }
+    if (document.quotas.size === 0 && document.protocols.size === 0) {
+      return { failure: `${url} carried neither an allowance table nor an endpoint table` }
+    }
     return { document }
   } catch (error: unknown) {
     return { failure: `${url}: ${error instanceof Error ? error.message : String(error)}` }

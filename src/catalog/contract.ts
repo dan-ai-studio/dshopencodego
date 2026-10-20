@@ -74,13 +74,36 @@ function parseModel(value: unknown): ModelSummary {
     ...typeof row['releaseDate'] === 'string' ? { releaseDate: row['releaseDate'] } : {},
     ...row['goQuota'] === undefined ? {} : { goQuota: parseGoQuota(row['goQuota']) },
     ...row['cost'] === undefined ? {} : { cost: parseCost(row['cost']) },
-    ...row['protocolSource'] === 'builtin' || row['protocolSource'] === 'online'
+    // `document` is the provider's own endpoint table — the most authoritative
+    // evidence there is — so it must survive the wire. Dropping it made a
+    // documented protocol indistinguishable from an unknown one on the page.
+    ...row['protocolSource'] === 'builtin' || row['protocolSource'] === 'document'
+      || row['protocolSource'] === 'online'
       || row['protocolSource'] === 'inferred' || row['protocolSource'] === 'override'
       ? { protocolSource: row['protocolSource'] } : {},
     ...typeof row['assumedLimits'] === 'boolean' ? { assumedLimits: row['assumedLimits'] } : {},
     ...parseModalities(row['inputModalities']),
     ...typeof row['configurationMissing'] === 'string' ? { configurationMissing: row['configurationMissing'] } : {},
   }
+}
+
+/**
+ * One source the catalog could not read, as it crosses the wire.
+ *
+ * Absent means the payload predates the field — a cached client bundle with a
+ * newer host — and such a reading simply has no degradation to report.
+ */
+function parseDegradations(value: unknown): readonly { readonly source: 'metadata' | 'document'; readonly reason: string }[] {
+  if (!Array.isArray(value)) return []
+  const kept: { source: 'metadata' | 'document'; reason: string }[] = []
+  for (const item of value) {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) continue
+    const row = item as Record<string, unknown>
+    if (row['source'] !== 'metadata' && row['source'] !== 'document') continue
+    if (typeof row['reason'] !== 'string') continue
+    kept.push({ source: row['source'], reason: row['reason'] })
+  }
+  return kept
 }
 
 /** Validate a catalog reading crossing the wire. */
@@ -108,6 +131,7 @@ export function parseCatalogReading(value: unknown): CatalogReading {
     models: row['models'].map(parseModel),
     stale: row['stale'],
     ...typeof row['error'] === 'string' ? { error: row['error'] } : {},
+    degradations: parseDegradations(row['degradations']),
     fetchedAtMs: row['fetchedAtMs'],
     quotaSource: quotaSource ?? 'seed',
     counts: {

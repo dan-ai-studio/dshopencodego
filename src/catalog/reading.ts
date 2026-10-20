@@ -14,6 +14,7 @@ import { isModelEnabled, recommendedIds, sortModels } from '../models.ts'
 import type { ModelSummary } from '../models.ts'
 import { goQuotaFor } from '../go-limits.ts'
 import type { CatalogSnapshot } from './index.ts'
+import type { CatalogDegradation } from './index.ts'
 
 /** One settings-page reading of the catalog. */
 export interface CatalogReading {
@@ -23,6 +24,15 @@ export interface CatalogReading {
   readonly stale: boolean
   /** Why the reading is stale, when it is. */
   readonly error?: string
+  /**
+   * Sources this reading could not read.
+   *
+   * Empty when every source answered. Otherwise the page is showing a
+   * degraded catalog: a protocol that no source describes is a guess, and the
+   * thinking levels the online metadata carries are missing. Saying so is the
+   * difference between a user who can act and a user who cannot.
+   */
+  readonly degradations: readonly CatalogDegradation[]
   /** When the underlying snapshot was built. */
   readonly fetchedAtMs: number
   /**
@@ -94,6 +104,7 @@ export function catalogReading(
     models: sortModels(models, now),
     stale: !snapshot.live,
     ...!snapshot.live && listingFailure !== undefined ? { error: listingFailure } : {},
+    degradations: snapshot.degradations ?? [],
     fetchedAtMs: snapshot.fetchedAtMs,
     quotaSource: documentQuotas === undefined ? 'seed' : 'document',
     counts: {

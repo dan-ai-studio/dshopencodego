@@ -768,6 +768,11 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
       </div>
       {state.failure !== undefined && <p className={css.warn}>{t('catalogStale')}: {state.failure}</p>}
       {reading !== undefined && reading.stale && state.failure === undefined && <p className={css.warn}>{t('catalogStale')}</p>}
+      {reading !== undefined && reading.degradations.length > 0 && (
+        <p className={css.warn}>
+          {t('catalogDegraded')}: {reading.degradations.map(degradation => `${t(degradation.source === 'metadata' ? 'catalogDegradedMetadata' : 'catalogDegradedDocument')} — ${degradation.reason}`).join('; ')}
+        </p>
+      )}
       {reading !== undefined && reading.quotaSource === 'seed' && (
         <p className={css.hint}>{t('quotaSeed')} {SEED_TRANSCRIBED}</p>
       )}

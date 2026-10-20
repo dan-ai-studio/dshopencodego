@@ -92,4 +92,25 @@ describe('fetchGoDocument', () => {
     await expect(fetchGoDocument()).rejects.toMatchObject({ code: 'DOCUMENT_UNAVAILABLE' })
     expect(spy).toHaveBeenCalledTimes(GO_DOC_URLS.length)
   })
+
+  it('accepts a document that carries only the endpoint table', async () => {
+    // The provider restructured its page: the endpoint table — the provider's
+    // own statement of each model's protocol — survived, the allowance table
+    // did not. One missing table must not discard the other, or the protocol
+    // evidence disappears and every model falls back to a guess.
+    const endpointOnly = [
+      '## Endpoints',
+      '',
+      '| Model | Model ID | Endpoint | AI SDK Package |',
+      '| --- | --- | --- | --- |',
+      '| GLM-5.3-Flash | glm-5.3-flash | `https://opencode.ai/inference/go/openai/v1/chat/completions` | `@ai-sdk/openai-compatible` |',
+    ].join('\n')
+    // Every source is asked concurrently, so both answers are stubbed.
+    const spy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(endpointOnly, { status: 200 }))
+    const doc = await fetchGoDocument()
+    expect(doc.protocols.get('glm-5.3-flash')).toBe('openai-completions')
+    expect(doc.quotas.size).toBe(0)
+    expect(spy).toHaveBeenCalledTimes(GO_DOC_URLS.length)
+  })
 })

@@ -316,6 +316,30 @@ describe('live catalog', () => {
     }
   })
 
+  it('does not refetch the catalog for an id that keeps failing to resolve', async () => {
+    // The host resolves a model on every list and on every new session, and
+    // the metadata document is megabytes. An id that will never resolve — a
+    // mistyped id, a retired model, a stale session entry — must not make
+    // every one of those resolutions refetch the whole document. This is the
+    // difference between a plugin that starts slow and a host that gets
+    // slower the longer it runs.
+    const server = await gateway({ listing: ['glm-5.3'] })
+    const stub = stubModelsDev(modelsDevDocument({}))
+    try {
+      const catalog = catalogFor(server.baseURL)
+      await catalog.snapshot()
+      const before = server.requests.filter(request => request.path.endsWith('/models')).length
+      await catalog.forModel('never-published')
+      await catalog.forModel('never-published')
+      await catalog.forModel('never-published')
+      const after = server.requests.filter(request => request.path.endsWith('/models')).length
+      // One revalidation, not three.
+      expect(after - before).toBe(1)
+    } finally {
+      stub.restore()
+    }
+  })
+
   it('revalidates when a cold catalog cannot serve the requested model', async () => {
     // The pre-warmed case above compares the awaited snapshot with what was
     // cached before it — a comparison that is only ever true when something

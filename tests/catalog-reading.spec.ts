@@ -205,6 +205,7 @@ describe('settings catalog reading', () => {
     const reading = {
       models: [{ id: 'glm-5.3', name: 'GLM-5.3', contextWindow: 1000, maxTokens: 100, protocolSource: 'builtin' as const, assumedLimits: false }],
       stale: false,
+      degradations: [],
       fetchedAtMs: 1,
       quotaSource: 'seed' as const,
       counts: { total: 1, enabled: 1, deprecated: 0, unconfigured: 0, inferred: 0 },
@@ -212,5 +213,29 @@ describe('settings catalog reading', () => {
     expect(parseCatalogReading(reading)).toEqual(reading)
     expect(() => parseCatalogReading({ ...reading, counts: { total: -1 } })).toThrow(/invalid catalog count/)
     expect(() => parseCatalogReading({ ...reading, models: [{ name: 'no id' }] })).toThrow(/invalid catalog model/)
+  })
+
+  it('reports a degraded source instead of reading as complete', async () => {
+    const server = await gateway({ listing: ['glm-5.3'] })
+    const stub = stubModelsDev(modelsDevDocument({
+      'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 1000, output: 100 } },
+    }))
+    try {
+      const catalog = new OpencodeGoCatalog({
+        baseURL: server.baseURL,
+        refreshMs: 60_000,
+        defaults: DEFAULTS,
+        overrides: {},
+        readDocument: async () => { throw new Error('the document moved') },
+      })
+      const reading = catalogReading(await catalog.snapshot(true), {})
+      // A degraded reading that looks whole is the one state a user cannot
+      // act on: the protocol is a guess and the thinking levels are missing,
+      // and neither says so.
+      expect(reading.degradations.map(degradation => degradation.source)).toContain('document')
+      expect(reading.degradations[0]?.reason).toMatch(/the document moved/)
+    } finally {
+      stub.restore()
+    }
   })
 })

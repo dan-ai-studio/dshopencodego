@@ -38,6 +38,7 @@ import {
   MODEL_METADATA_URL,
   PROVIDER_ID,
   METADATA_FETCH_TIMEOUT_MS,
+  UNKNOWN_MODEL_PROBE_COOLDOWN_MS,
 } from './constants.ts'
 import { fetchModelIds } from './gateway.ts'
 import { fetchGoDocument, GO_DOC_URLS } from './go-doc.ts'
@@ -54,6 +55,23 @@ export { readOnlineMetadata, toPiModel, modelBaseURL } from './metadata.ts'
 export type { ModelFacts, OnlineMetadata, ModelDefaults } from './metadata.ts'
 export { decideProtocol, inferProtocol, protocolOfNpm } from './protocol.ts'
 export type { ProtocolDecision, ProtocolSource, WireProtocol } from './protocol.ts'
+
+/**
+ * One source the catalog could not read.
+ *
+ * A degradation is not a failure: the snapshot still answers, from the
+ * installed catalog and the frozen seed. But it is not the same answer, and
+ * the difference is invisible unless it is said out loud — a model whose
+ * protocol was inferred reads exactly like one whose protocol the provider
+ * documented, and a thinking level that the online metadata would have
+ * supplied is simply absent.
+ */
+export interface CatalogDegradation {
+  /** Which source could not be read. */
+  readonly source: 'metadata' | 'document'
+  /** Why it failed, in the source's own words. */
+  readonly reason: string
+}
 
 /** One resolved view of the gateway's models. */
 export interface CatalogSnapshot {
@@ -73,6 +91,16 @@ export interface CatalogSnapshot {
   readonly documentQuotas?: ReadonlyMap<string, GoQuota>
   /** Retained for explicit discovery when the listing failed. */
   readonly listingFailure?: unknown
+  /**
+   * Sources this build could not read.
+   *
+   * Empty when every source answered. Otherwise the reading is degraded: the
+   * protocol of a model no installed entry describes falls back to a guess,
+   * and the thinking levels the online metadata carries are missing. The page
+   * shows this, because a degraded reading that looks whole is the one state
+   * a user cannot act on.
+   */
+  readonly degradations?: readonly CatalogDegradation[]
   readonly fetchedAtMs: number
 }
 
@@ -82,6 +110,20 @@ interface CatalogObservers {
   readonly onFallback?: (detail: { url: string; error: unknown; kept: number }) => void
   /** Ids that could not be configured, reported once per build. */
   readonly onUnconfigured?: (detail: { readonly id: string; readonly reason: string }[]) => void
+}
+
+/**
+ * A failure reason in one line, for a page that has to say it.
+ *
+ * The degradation reaches a person, so it carries the source's own words
+ * rather than a generic apology: which URL answered what, or which fetch
+ * timed out, is the difference between "retry" and "this path is wrong".
+ * @param reason - whatever the source rejected with.
+ * @returns the message, or the value's own spelling.
+ */
+function reasonText(reason: unknown): string {
+  if (reason instanceof Error) return reason.message
+  return typeof reason === 'string' ? reason : String(reason)
 }
 
 /**
@@ -176,6 +218,8 @@ export class OpencodeGoCatalog {
   private lastMetadata: ReturnType<typeof readOnlineMetadata> | undefined
   /** The last parsed documentation; retained across failed fetches. */
   private document: GoDoc | undefined
+  /** Ids that already forced a revalidation, with the time they did. */
+  private readonly probedAt = new Map<string, number>()
 
   constructor(options: CatalogOptions) {
     this.options = options
@@ -226,7 +270,8 @@ export class OpencodeGoCatalog {
     // Presence in `unavailable` is a positive statement (the gateway
     // advertises the id but this build cannot configure it), so it needs no
     // revalidation and is reported below.
-    if (!snapshot.facts.has(id) && !snapshot.unavailable.has(id)) {
+    if (!snapshot.facts.has(id) && !snapshot.unavailable.has(id) && this.mayProbe(id)) {
+      this.probedAt.set(id, Date.now())
       snapshot = await this.snapshot(true, signal)
     }
     const reason = snapshot.unavailable.get(id)
@@ -241,6 +286,23 @@ export class OpencodeGoCatalog {
   }
 
   /**
+   * Whether this id may revalidate the catalog again.
+   *
+   * The revalidation is what makes a newly published model usable without a
+   * restart, so it cannot simply be dropped. It is also the most expensive
+   * thing this route does — the metadata document is megabytes — and the host
+   * resolves a model on every list and on every new session. An id that never
+   * resolves would therefore pay that cost forever, which is how a plugin
+   * makes a host slow down over time rather than start slow.
+   * @param id - the model id that was not found.
+   * @returns true when the id may force a revalidation now.
+   */
+  private mayProbe(id: string): boolean {
+    const last = this.probedAt.get(id)
+    return last === undefined || Date.now() - last >= UNKNOWN_MODEL_PROBE_COOLDOWN_MS
+  }
+
+  /**
    * Revalidate every source, reusing the metadata document when it is unchanged.
    * @param signal - caller cancellation, forwarded to the documentation read.
    */
@@ -252,7 +314,9 @@ export class OpencodeGoCatalog {
       this.refreshMetadata(builtin),
       readDocument(signal),
     ])
+    const degradations: CatalogDegradation[] = []
     if (metadata.status === 'rejected') {
+      degradations.push({ source: 'metadata', reason: reasonText(metadata.reason) })
       this.options.observers?.onFallback?.({
         url: MODEL_METADATA_URL,
         error: metadata.reason,
@@ -264,6 +328,7 @@ export class OpencodeGoCatalog {
     } else {
       // Not a page-stale event: the allowances keep their previous source, and
       // the page says so wherever the frozen seed is in use.
+      degradations.push({ source: 'document', reason: reasonText(documentation.reason) })
       this.options.observers?.onFallback?.({
         url: GO_DOC_URLS[0] ?? 'the Go documentation',
         error: documentation.reason,
@@ -286,6 +351,7 @@ export class OpencodeGoCatalog {
         provider: buildProvider(this.options.baseURL, [...facts.values()].map(fact => toPiModel(fact, this.options.baseURL))),
         live: false,
         listingFailure: listing.reason,
+        ...degradations.length === 0 ? {} : { degradations },
         fetchedAtMs: Date.now(),
         ...this.documentQuotas(),
       }
@@ -297,6 +363,7 @@ export class OpencodeGoCatalog {
       listing.value,
       metadata.status === 'fulfilled' ? metadata.value : this.lastMetadata,
       builtin,
+      degradations,
     )
   }
 
@@ -305,13 +372,18 @@ export class OpencodeGoCatalog {
     ids: readonly string[],
     online: ReturnType<typeof readOnlineMetadata> | undefined,
     builtin: ReadonlyMap<string, Model<Api>>,
+    degradations: readonly CatalogDegradation[] = [],
   ): CatalogSnapshot {
     const facts = new Map<string, ModelFacts>()
     const unavailable = new Map<string, string>()
     for (const id of ids) {
       const parsed = online?.models.get(id)
       if (parsed !== undefined) {
-        facts.set(id, parsed)
+        // The provider's own endpoint table outranks models.dev's SDK hint, so
+        // a model the document names is not left carrying the online answer.
+        // `withDocumentedProtocol` never touches a builtin entry, so the wire
+        // quirks the adapter relies on stay intact.
+        facts.set(id, this.withDocumentedProtocol(parsed))
         continue
       }
       const reason = online?.errors.get(id)
@@ -349,14 +421,23 @@ export class OpencodeGoCatalog {
       unavailable,
       provider: buildProvider(this.options.baseURL, [...facts.values()].map(fact => toPiModel(fact, this.options.baseURL))),
       live: true,
+      ...degradations.length === 0 ? {} : { degradations },
       fetchedAtMs: Date.now(),
       ...this.documentQuotas(),
     }
   }
 
-  /** The document allowances as a snapshot field, absent until one fetch lands. */
+  /**
+   * The document allowances as a snapshot field, absent until one fetch lands.
+   *
+   * A document that carries no allowance table leaves the field absent rather
+   * than empty, so the frozen seed in `go-limits.ts` answers instead. An empty
+   * map would look like "the provider states no allowance for any model", and
+   * that is a different claim from "this build has no live allowances".
+   */
   private documentQuotas(): { documentQuotas?: ReadonlyMap<string, GoQuota> } {
-    return this.document === undefined ? {} : { documentQuotas: this.document.quotas }
+    if (this.document === undefined || this.document.quotas.size === 0) return {}
+    return { documentQuotas: this.document.quotas }
   }
 
   /**

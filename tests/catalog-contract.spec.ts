@@ -25,6 +25,7 @@ const READING: CatalogReading = {
     { id: 'ghost', name: 'ghost', configurationMissing: 'unknown protocol' },
   ],
   stale: false,
+  degradations: [],
   fetchedAtMs: 7,
   quotaSource: 'seed',
   counts: { total: 3, enabled: 1, deprecated: 1, unconfigured: 1, inferred: 1 },
@@ -63,5 +64,38 @@ describe('parseCatalogReading', () => {
       counts: { total: 1, enabled: 0, deprecated: 0, unconfigured: 0, inferred: 0 },
     })
     expect(parsed.models[0]).toEqual({ id: 'plain', name: 'Plain' })
+    // A payload that predates the field carries no degradation, not a broken one.
+    expect(parsed.degradations).toEqual([])
+  })
+
+  it('carries the degradations and the documented protocol across the wire', () => {
+    const parsed = parseCatalogReading({
+      ...READING,
+      degradations: [
+        { source: 'metadata', reason: 'models.dev answered 503' },
+        { source: 'document', reason: 'raw.githubusercontent.com answered HTTP 404' },
+      ],
+      models: [{ id: 'doc', name: 'Doc', protocolSource: 'document' }],
+    })
+    expect(parsed.degradations).toEqual([
+      { source: 'metadata', reason: 'models.dev answered 503' },
+      { source: 'document', reason: 'raw.githubusercontent.com answered HTTP 404' },
+    ])
+    // `document` is the provider's own endpoint table — the most authoritative
+    // evidence there is. Dropping it made a documented protocol
+    // indistinguishable from an unknown one on the page.
+    expect(parsed.models[0]).toMatchObject({ protocolSource: 'document' })
+  })
+
+  it('drops a degradation it cannot name rather than failing the reading', () => {
+    const parsed = parseCatalogReading({
+      ...READING,
+      degradations: [
+        { source: 'listing', reason: 'unknown source' },
+        { source: 'metadata' },
+        { source: 'document', reason: 'timed out' },
+      ],
+    })
+    expect(parsed.degradations).toEqual([{ source: 'document', reason: 'timed out' }])
   })
 })
