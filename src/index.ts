@@ -29,8 +29,6 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 // Type-only: pulls the loader's `ctx.fiber.entry` merge, which supplies this
 // mount's entry id — the settings namespace both discovery and the DSH Models
 // page are keyed by.
@@ -79,25 +77,30 @@ function isLiveConfig(raw: unknown): raw is LiveConfig {
  * Where this plugin remembers what it discovered.
  *
  * The Harness publishes a home-path resolver on the context
- * (`ctx.dshHomePath`, provided by `app-boot`); it is optional, because a
- * context that was not launched by dsh has none. The fallback follows the
- * Harness' own rule — `$DSH_HOME`, then `~/.dsh` — so a custom home is
- * respected instead of writing the cache beside the wrong tree.
+ * (`ctx.dshHomePath`, provided by `app-boot`), and that resolver already
+ * follows the Harness' own rule — `$DSH_HOME`, then `~/.dsh` — so a custom
+ * home is respected instead of writing the cache beside the wrong tree.
+ *
+ * Without a resolver there is no home to write into, and the plugin writes
+ * nothing. That is not a loss: the resolver is present in every host the
+ * Harness runs, and a context without one is a context that is not a
+ * Harness — a test, or an embedder that has its own idea of where state
+ * belongs. Falling back to a guessed path there would put this plugin's
+ * cache into somebody's home directory without asking, and would let a
+ * test's fixtures overwrite the real one.
  * @param ctx - the plugin's Cordis context.
- * @returns the directory the discovered document paths are cached in.
+ * @returns the directory the cache belongs in, or undefined when there is
+ *   no home to put it in.
  */
-function resolveCacheDir(ctx: Context): string {
+function resolveCacheDir(ctx: Context): string | undefined {
   const home = (ctx as { dshHomePath?: (...segments: string[]) => string }).dshHomePath
-  if (typeof home === 'function') {
-    try {
-      return home('cache', '@dan-ai-studio/dshopencodego')
-    } catch {
-      // A resolver that throws is no resolver; the fallback below still works.
-    }
+  if (typeof home !== 'function') return undefined
+  try {
+    return home('cache', '@dan-ai-studio/dshopencodego')
+  } catch {
+    // A resolver that throws is no resolver.
+    return undefined
   }
-  const configured = process.env.DSH_HOME?.trim()
-  const root = configured !== undefined && configured.length > 0 ? configured : join(homedir(), '.dsh')
-  return join(root, 'cache', '@dan-ai-studio/dshopencodego')
 }
 
 /**
@@ -159,10 +162,11 @@ export function apply(ctx: Context, raw?: unknown): void {
   }
 
   const meter = new UsageMeter()
+  const cacheDir = resolveCacheDir(ctx)
   const adapter = new OpencodeGoAdapter({
     config: current,
     resolveApiKey,
-    cacheDir: resolveCacheDir(ctx),
+    ...cacheDir === undefined ? {} : { cacheDir },
     imageAccess: {
       resolveAttachments: () => ctx.get('attachments'),
       resolveImageAccess: (attachments, ref) => llm.resolveImageAttachmentAccess(
