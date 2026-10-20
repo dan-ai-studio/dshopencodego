@@ -33,6 +33,15 @@ export interface CatalogReading {
    * difference between a user who can act and a user who cannot.
    */
   readonly degradations: readonly CatalogDegradation[]
+  /**
+   * When the model metadata behind this reading was written, when it came
+   * from disk rather than from a live read.
+   *
+   * The listing is live; the capacities, prices, and thinking levels behind
+   * it may not be. The page shows this, because a stale number reads exactly
+   * like a current one.
+   */
+  readonly factsCachedAt?: number
   /** When the underlying snapshot was built. */
   readonly fetchedAtMs: number
   /**
@@ -105,6 +114,7 @@ export function catalogReading(
     stale: !snapshot.live,
     ...!snapshot.live && listingFailure !== undefined ? { error: listingFailure } : {},
     degradations: snapshot.degradations ?? [],
+    ...snapshot.factsCachedAt === undefined ? {} : { factsCachedAt: snapshot.factsCachedAt },
     fetchedAtMs: snapshot.fetchedAtMs,
     quotaSource: documentQuotas === undefined ? 'seed' : 'document',
     counts: {

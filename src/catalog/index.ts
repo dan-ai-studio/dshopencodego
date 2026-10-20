@@ -35,9 +35,10 @@ import type { LlmDiscoveredModel } from '@deepseek-ai/dsh-llm'
 import {
   DISPLAY_NAME,
   MODEL_METADATA_MAX_BYTES,
+  MODEL_METADATA_TIMEOUT_MS,
   MODEL_METADATA_URL,
   PROVIDER_ID,
-  METADATA_FETCH_TIMEOUT_MS,
+  METADATA_RETRY_DELAY_MS,
   UNKNOWN_MODEL_PROBE_COOLDOWN_MS,
 } from './constants.ts'
 import { fetchModelIds } from './gateway.ts'
@@ -46,6 +47,7 @@ import type { GoDoc } from './go-doc.ts'
 import { readBoundedJson } from './json-response.ts'
 import { readOnlineMetadata, toPiModel } from './metadata.ts'
 import type { ModelDefaults, ModelFacts } from './metadata.ts'
+import { readFactsCache, writeFactsCache } from './metadata-cache.ts'
 import { asWireProtocol } from './protocol.ts'
 import type { GoQuota } from '../go-limits.ts'
 
@@ -101,6 +103,15 @@ export interface CatalogSnapshot {
    * a user cannot act on.
    */
   readonly degradations?: readonly CatalogDegradation[]
+  /**
+   * When the facts in this snapshot were written, when they came from disk
+   * rather than from a live read.
+   *
+   * The listing is always live; the metadata behind it may be older. The page
+   * says so, because a capacity that was true last week reads exactly like
+   * one that is true now.
+   */
+  readonly factsCachedAt?: number
   readonly fetchedAtMs: number
 }
 
@@ -224,6 +235,16 @@ export class OpencodeGoCatalog {
   private metadataDocument: unknown
   private metadataETag: string | undefined
   private lastMetadata: ReturnType<typeof readOnlineMetadata> | undefined
+  /**
+   * The facts a previous successful read produced, read from disk.
+   *
+   * This is what a cold process falls back on when the online metadata cannot
+   * be read. Without it a degraded catalog declares every model unable to
+   * think, and the host refuses the effort the session is already using.
+   */
+  private cachedMetadata: ReturnType<typeof readOnlineMetadata> | undefined
+  /** When the cached facts were written, for the page to show. */
+  private readonly cachedAt: number | undefined
   /** The last parsed documentation; retained across failed fetches. */
   private document: GoDoc | undefined
   /** Ids that already forced a revalidation, with the time they did. */
@@ -231,6 +252,11 @@ export class OpencodeGoCatalog {
 
   constructor(options: CatalogOptions) {
     this.options = options
+    const cached = readFactsCache(options.cacheDir)
+    if (cached !== undefined) {
+      this.cachedMetadata = { models: cached.facts, errors: new Map() }
+      this.cachedAt = cached.updatedAt
+    }
   }
 
   /**
@@ -368,11 +394,22 @@ export class OpencodeGoCatalog {
     // A metadata outage keeps the last successful parse: the previous document
     // is strictly better evidence than the installed catalog alone, because it
     // carries the capacities, modalities, and lifecycle the catalog may not.
+    //
+    // When this process has never had a successful read, the facts written
+    // down by the last one are the next best evidence. They are stale, and the
+    // page says so, but they are what keeps a thinking model from being
+    // declared unable to think — which the host then refuses the session's
+    // effort over, failing a run that had nothing wrong with it.
+    const fromCache = metadata.status !== 'fulfilled' && this.lastMetadata === undefined
+    const online = metadata.status === 'fulfilled'
+      ? metadata.value
+      : (this.lastMetadata ?? this.cachedMetadata)
     return this.assemble(
       listing.value,
-      metadata.status === 'fulfilled' ? metadata.value : this.lastMetadata,
+      online,
       builtin,
       degradations,
+      fromCache ? this.cachedAt : undefined,
     )
   }
 
@@ -382,6 +419,7 @@ export class OpencodeGoCatalog {
     online: ReturnType<typeof readOnlineMetadata> | undefined,
     builtin: ReadonlyMap<string, Model<Api>>,
     degradations: readonly CatalogDegradation[] = [],
+    factsCachedAt?: number,
   ): CatalogSnapshot {
     const facts = new Map<string, ModelFacts>()
     const unavailable = new Map<string, string>()
@@ -431,6 +469,7 @@ export class OpencodeGoCatalog {
       provider: buildProvider(this.options.baseURL, [...facts.values()].map(fact => toPiModel(fact, this.options.baseURL))),
       live: true,
       ...degradations.length === 0 ? {} : { degradations },
+      ...factsCachedAt === undefined ? {} : { factsCachedAt },
       fetchedAtMs: Date.now(),
       ...this.documentQuotas(),
     }
@@ -493,8 +532,18 @@ export class OpencodeGoCatalog {
     }
   }
 
-  /** Conditional metadata GET: an unchanged document keeps its parsed form. */
-  private async refreshMetadata(builtin: ReadonlyMap<string, Model<Api>>): Promise<ReturnType<typeof readOnlineMetadata>> {
+  /**
+   * Read the model metadata document, once.
+   *
+   * The document is megabytes, so its budget is longer than the other two
+   * reads' — and the host that runs this is not always a plain Node process:
+   * the desktop build fetches over the browser's network stack, where the
+   * same document that a shell reads in half a second can take long enough
+   * to outrun a budget set for kilobyte-sized documents.
+   * @param builtin - the installed catalog, for the parse.
+   * @returns the parsed metadata.
+   */
+  private async readMetadataDocument(builtin: ReadonlyMap<string, Model<Api>>): Promise<ReturnType<typeof readOnlineMetadata>> {
     const response = await fetch(MODEL_METADATA_URL, {
       redirect: 'error',
       headers: {
@@ -503,7 +552,7 @@ export class OpencodeGoCatalog {
         'cache-control': 'no-cache',
         ...this.metadataETag === undefined ? {} : { 'if-none-match': this.metadataETag },
       },
-      signal: AbortSignal.timeout(METADATA_FETCH_TIMEOUT_MS),
+      signal: AbortSignal.timeout(MODEL_METADATA_TIMEOUT_MS),
     })
     if (response.status === 304 && this.metadataDocument !== undefined) {
       await response.body?.cancel().catch(() => {})
@@ -528,7 +577,38 @@ export class OpencodeGoCatalog {
       overrides: this.options.overrides,
     })
     this.lastMetadata = parsed
+    // Remember what this read said, so a later process that cannot read the
+    // document still knows which models think and at which levels.
+    writeFactsCache(this.options.cacheDir, parsed.models)
     return parsed
+  }
+
+  /**
+   * Read the model metadata document, retrying once.
+   *
+   * The failure this answers is not a broken network: the same document is
+   * reachable from a browser on the same machine while the host cannot read
+   * it. It is the host being busy — a plugin reload rewrites modules, unpacks
+   * packages, and rebuilds the runtime while the catalog asks for the
+   * document, and the request that loses that race is a timeout, not a
+   * refusal. A second attempt, a moment later, is the same request on a host
+   * that has finished what it was doing.
+   * @param builtin - the installed catalog, for the parse.
+   * @returns the parsed metadata.
+   */
+  private async refreshMetadata(builtin: ReadonlyMap<string, Model<Api>>): Promise<ReturnType<typeof readOnlineMetadata>> {
+    try {
+      return await this.readMetadataDocument(builtin)
+    } catch (first: unknown) {
+      await new Promise<void>(resolve => { setTimeout(resolve, METADATA_RETRY_DELAY_MS) })
+      try {
+        return await this.readMetadataDocument(builtin)
+      } catch (second: unknown) {
+        // The first reason is the one that happened first, and it is usually
+        // the more specific one; the second is appended because it may differ.
+        throw new Error(`${reasonText(first)}; retry: ${reasonText(second)}`)
+      }
+    }
   }
 }
 

@@ -18,8 +18,30 @@ export const MODEL_METADATA_URL = 'https://models.dev/api.json'
 /** The models.dev provider key this plugin reads. */
 export const MODEL_METADATA_PROVIDER = 'opencode-go'
 
-/** Timeout for the two metadata GETs. */
+/** Timeout for the two small metadata GETs. */
 export const METADATA_FETCH_TIMEOUT_MS = 10_000
+
+/**
+ * Timeout for the model metadata document.
+ *
+ * It is the one read measured in megabytes — 5.9 MB for the whole of
+ * models.dev, of which this plugin uses one provider — and the host that
+ * fetches it is not always a plain Node process. The desktop build fetches
+ * over the browser's network stack, where the same document a shell reads in
+ * half a second can outrun a budget set for kilobyte-sized documents. The
+ * longer budget costs nothing when the read succeeds; it is the difference
+ * between a catalog and a degraded one.
+ */
+export const MODEL_METADATA_TIMEOUT_MS = 30_000
+
+/**
+ * How long to wait before the one retry of the metadata read.
+ *
+ * Long enough for the host to finish whatever it was doing — a plugin
+ * reload, a package unpack — and short enough that a genuinely unreachable
+ * document still fails inside the catalog build.
+ */
+export const METADATA_RETRY_DELAY_MS = 1_500
 
 /** Response caps: the listing is tiny, the metadata document is not. */
 export const MODEL_LISTING_MAX_BYTES = 1024 * 1024

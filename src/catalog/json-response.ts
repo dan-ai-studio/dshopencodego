@@ -31,7 +31,11 @@ export async function readBoundedJson(response: Response, url: string, maxBytes:
     text = await readBoundedText(response, maxBytes)
   } catch (error: unknown) {
     if (error instanceof LlmError) throw error
-    throw new LlmError(`could not read ${url}`, 'DISCOVERY_FAILED', { cause: error })
+    // The reason has to survive: a timeout, a refused connection, and a
+    // certificate the host does not trust call for different responses, and
+    // "could not read <url>" says none of them.
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new LlmError(`could not read ${url}: ${detail}`, 'DISCOVERY_FAILED', { cause: error })
   }
   try {
     return JSON.parse(text)

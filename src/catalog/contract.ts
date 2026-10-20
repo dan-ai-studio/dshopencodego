@@ -132,6 +132,7 @@ export function parseCatalogReading(value: unknown): CatalogReading {
     stale: row['stale'],
     ...typeof row['error'] === 'string' ? { error: row['error'] } : {},
     degradations: parseDegradations(row['degradations']),
+    ...typeof row['factsCachedAt'] === 'number' ? { factsCachedAt: row['factsCachedAt'] } : {},
     fetchedAtMs: row['fetchedAtMs'],
     quotaSource: quotaSource ?? 'seed',
     counts: {

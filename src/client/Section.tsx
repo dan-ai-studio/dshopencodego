@@ -776,6 +776,11 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
       {reading !== undefined && reading.quotaSource === 'seed' && (
         <p className={css.hint}>{t('quotaSeed')} {SEED_TRANSCRIBED}</p>
       )}
+      {reading !== undefined && reading.factsCachedAt !== undefined && (
+        <p className={css.hint}>
+          {t('factsCached')} {new Date(reading.factsCachedAt).toISOString().slice(0, 10)}
+        </p>
+      )}
       <div className={css.row}>
         <label className={css.hint} htmlFor="dshopencodego-refresh">{t('refreshLabel')}</label>
         <input
