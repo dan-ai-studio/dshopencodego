@@ -231,6 +231,7 @@ describe('Console streaming on the wire', () => {
           requestImageMaxBytes: 400_000,
           modelLimits: {},
           modelProtocols: {},
+          pinnedAddresses: {},
         }),
         resolveApiKey: () => Promise.resolve('test-key'),
         readDocument: offlineDocument(),

@@ -164,6 +164,7 @@ function configFor(baseURL: string, streamIdleTimeoutMs: number): OpencodeGoConf
     requestImageMaxBytes: 400_000,
     modelLimits: {},
     modelProtocols: {},
+    pinnedAddresses: {},
   }
 }
 

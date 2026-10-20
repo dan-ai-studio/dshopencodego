@@ -135,6 +135,7 @@ function configFor(baseURL: string): OpencodeGoConfig {
     requestImageMaxBytes: 400_000,
     modelLimits: {},
     modelProtocols: {},
+    pinnedAddresses: {},
   }
 }
 

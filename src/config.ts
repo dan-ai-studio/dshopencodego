@@ -85,6 +85,12 @@ export interface OpencodeGoConfig {
    */
   modelProtocols: Record<string, string>
   /**
+   * Addresses a name should be sent to instead of the one the system
+   * resolves, by host name. A name that is not listed keeps the system's
+   * own resolution, and so keeps its own fallback.
+   */
+  pinnedAddresses: Record<string, string>
+  /**
    * Retry policy for this route, owned here and executed by the optional
    * `dsh-llm-retry` plugin. Absent leaves the host's own default in force.
    */
@@ -106,6 +112,7 @@ const fields = {
     maxTokens: z.union([z.const(null), z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER)]),
   })])).default({}),
   modelProtocols: z.dict(z.string()).default({}),
+  pinnedAddresses: z.dict(z.string()).default({}),
   retryPolicy: RetryPolicySchema,
 }
 

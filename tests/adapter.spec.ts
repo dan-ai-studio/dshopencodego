@@ -40,6 +40,7 @@ function configFor(baseURL: string, overrides: Partial<OpencodeGoConfig> = {}): 
     requestImageMaxBytes: 400_000,
     modelLimits: {},
     modelProtocols: {},
+    pinnedAddresses: {},
     ...overrides,
   }
 }

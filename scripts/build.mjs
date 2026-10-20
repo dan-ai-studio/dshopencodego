@@ -62,6 +62,19 @@ await build({
   platform: 'node',
   target: 'node22',
   define: { __DSHOPENCODEGO_VERSION__: JSON.stringify(pkg.version) },
+  // A CommonJS dependency in an ESM bundle needs a `require` to call.
+  //
+  // `undici` ships no ESM entry, so esbuild compiles its CommonJS graph
+  // itself and rewrites its `require('node:assert')` into the `__require`
+  // shim — which, in an ESM file, has no `require` to forward to and throws
+  // `Dynamic require of "node:assert" is not supported` the first time the
+  // module is loaded. The banner gives that shim a real `require` to use:
+  // Node's own `createRequire`, which resolves the built-in modules the
+  // CommonJS graph asks for.
+  banner: {
+    js: "import { createRequire as __dshCreateRequire } from 'node:module';"
+      + ' const require = __dshCreateRequire(import.meta.url);',
+  },
 })
 
 /** Identities the DSH Web module table provides to every plugin bundle. */
