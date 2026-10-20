@@ -93,13 +93,22 @@ jobs:
       # `+ @dan-ai-studio/dshopencodego@0.1.44`. The first version of this step
       # waited 5×10s, gave up at 50s, and failed a release that had in fact
       # succeeded — the worst kind of false negative, because it invites a
-      # duplicate publish attempt. 12×15s leaves room, and the failure text now
-      # states what is actually known instead of implying the publish was lost.
+      # duplicate publish attempt.
+      #
+      # The window kept growing as npm's own queue did: 12×15s (180s) served
+      # 0.1.46 and 0.1.47, but 0.1.48 was accepted at 10:52:28Z and only
+      # became visible at 10:59Z — about seven minutes, well past 180s. npm
+      # prints "Your package is being processed and may take a few minutes to
+      # become available" for every publish, and how long that takes is
+      # npm's business, not ours. 20×30s leaves ten minutes, and the failure
+      # text states what is actually known instead of implying the publish was
+      # lost: the version is immutable, so a red run here is a reason to check
+      # the registry, never a reason to publish again.
       - name: The registry must serve the version just published
         run: |
           version="$(node -p "require('./package.json').version")"
-          attempts=12
-          delay=15
+          attempts=20
+          delay=30
           for attempt in $(seq 1 $attempts); do
             published="$(npm view "@dan-ai-studio/dshopencodego@$version" version 2>/dev/null || true)"
             if [ "$published" = "$version" ]; then
