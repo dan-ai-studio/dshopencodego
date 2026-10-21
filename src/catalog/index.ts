@@ -123,6 +123,16 @@ export interface CatalogSnapshot {
    * one that is true now.
    */
   readonly factsCachedAt?: number
+  /**
+   * When the content of this snapshot was obtained.
+   *
+   * It is the age of the *knowledge*, not of the attempt: a snapshot that
+   * could not be rebuilt keeps the age of the last reading that succeeded,
+   * because that is when the content became true. Stamping it with the time
+   * of the failure instead would make a failed refresh look like a fresh one,
+   * and the TTL that governs the next attempt would then be measured from
+   * the failure rather than from the last thing that was actually known.
+   */
   readonly fetchedAtMs: number
 }
 
@@ -330,12 +340,22 @@ export class OpencodeGoCatalog {
         return Promise.resolve(this.served)
       }
     }
-    this.pending ??= this.build(signal)
-      .then((snapshot) => {
-        this.served = snapshot
-        return snapshot
-      })
-      .finally(() => { this.pending = undefined })
+    if (this.pending === undefined) {
+      // A forced refresh is still an attempt, and it is recorded as one.
+      //
+      // Without this, a refresh a human just asked for that failed would be
+      // followed immediately by the background retry asking the same question
+      // again — the back-off would only ever govern the attempts nobody
+      // asked for. A human may ask again at any time: the forced path never
+      // waits for the back-off.
+      this.lastRefreshAttemptAt = Date.now()
+      this.pending = this.build(signal)
+        .then((snapshot) => {
+          this.served = snapshot
+          return snapshot
+        })
+        .finally(() => { this.pending = undefined })
+    }
     return this.pending
   }
 
@@ -521,7 +541,20 @@ export class OpencodeGoCatalog {
         live: false,
         listingFailure: listing.reason,
         ...degradations.length === 0 ? {} : { degradations },
-        fetchedAtMs: Date.now(),
+        // The age of this snapshot is the age of what it holds, not the age of
+        // the failure.
+        //
+        // Stamping it "now" resets the TTL on every failure, and the refresh
+        // behind it then waits a whole TTL before asking again — which is
+        // exactly when a gateway that came back would be noticed. The age
+        // stays where the last successful listing left it, so the TTL keeps
+        // expiring and the back-off decides how often the gateway is asked
+        // while it is down.
+        //
+        // Zero means "no listing has ever answered": there is nothing to be
+        // old about, so the snapshot is treated as already stale and the
+        // back-off is the only thing between it and the next attempt.
+        fetchedAtMs: previous?.fetchedAtMs ?? 0,
         ...this.documentQuotas(),
       }
     }

@@ -53,6 +53,11 @@ export const METADATA_RETRY_DELAY_MS = 1_500
  * Five minutes is short enough that a service that comes back is picked up
  * soon, and long enough that a service that stays down is asked once, not
  * once per request.
+ *
+ * This is also the ceiling on how long an outage costs. A failed refresh
+ * keeps the age of the last reading that succeeded, so the TTL stays expired
+ * and the next call after this window tries again — a gateway that comes back
+ * is noticed within five minutes, not within a whole TTL.
  */
 export const BACKGROUND_RETRY_BACKOFF_MS = 5 * 60_000
 

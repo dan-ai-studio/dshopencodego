@@ -52,7 +52,7 @@ export interface CatalogReading {
    * worse than one that admits it.
    */
   readonly cached?: boolean
-  /** When the underlying snapshot was built. */
+  /** When the content behind this reading was obtained. */
   readonly fetchedAtMs: number
   /**
    * Where the per-model allowances came from: the provider's live document, or

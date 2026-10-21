@@ -173,6 +173,8 @@ The gateway's `/v1/models` answers only *which* models exist, never *how* to cal
 - a model the provider **retires** disappears on the next refresh;
 - the bundled catalog is **frozen at the plugin's version** and affects only the quality of the "how to call it" decision, never *which* models exist.
 
+When the gateway is **temporarily unavailable**, the plugin keeps the last listing that succeeded, marks it stale on the page, and retries in the background. The retry rate is governed by a **five-minute back-off** rather than by the TTL, so a gateway that comes back is picked up within five minutes; while it stays down it is asked once, not once per model request. The settings page's Recheck button revalidates at any time and is not bound by that back-off.
+
 The only thing that waits on a plugin release is a missing wire quirk in the pi-ai catalog (DeepSeek's `thinkingFormat`, say) — the model itself is already usable.
 
 ## The model list in the settings page
@@ -260,7 +262,7 @@ npm test            # contract tests against a real local HTTP mock gateway
 
 **Order matters**: `npm run build` must come before `npm test` — `tests/pack-contents.spec.ts` walks every `exports` target, and whether `lib/` exists decides whether that check runs or is silently skipped (it does not fail, it just stops protecting you). `package.json` no longer carries `prepare`, so `npm ci` will not build for you; all three CI workflows run `npm run build` explicitly.
 
-The suite covers configuration validation, the protocol ladder, gateway and online metadata, the catalog projection, the adapter on the wire (all three protocols), Remote contracts and services, session-header invariants, usage windows and the meter, the client controller and usage pill, both halves' mounting and registration, the error mapping for stream idle timeouts and aborts, the exit-code contract of the verification scripts, and several **structural invariants** (inject declarations match the source's reads, peer coverage holds both ways, the READMEs match the manifest, and the READMEs' claims about the upstream match the upstream actually installed). That is **56 test files** — a number `tests/readme-consistency.spec.ts` checks against the `tests/` directory, so it cannot drift.
+The suite covers configuration validation, the protocol ladder, gateway and online metadata, the catalog projection, the adapter on the wire (all three protocols), Remote contracts and services, session-header invariants, usage windows and the meter, the client controller and usage pill, both halves' mounting and registration, the error mapping for stream idle timeouts and aborts, the exit-code contract of the verification scripts, and several **structural invariants** (inject declarations match the source's reads, peer coverage holds both ways, the READMEs match the manifest, and the READMEs' claims about the upstream match the upstream actually installed). That is **57 test files** — a number `tests/readme-consistency.spec.ts` checks against the `tests/` directory, so it cannot drift.
 
 ## Releasing (maintainers)
 
