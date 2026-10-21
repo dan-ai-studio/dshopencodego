@@ -44,6 +44,15 @@ export interface MockGatewayOptions {
   readonly toolCall?: boolean
   /** Answer every inference endpoint with this status and body. */
   readonly failInference?: { status: number; body: unknown }
+  /**
+   * Answer every inference endpoint with a 200 and this raw stream body.
+   *
+   * A gateway failure that arrives *inside* an open stream carries no status
+   * code at all, which is why it needs its own door: `failInference` always
+   * sets one, and a status code alone would classify the failure before the
+   * text is ever read.
+   */
+  readonly streamBody?: string
 }
 
 /** A running mock gateway. */
@@ -202,6 +211,12 @@ export async function startMockGateway(options: MockGatewayOptions = {}): Promis
             monthly: { status: 'rate-limited', percent: 100, resetsAt: '2026-10-01T00:00:00.000Z' },
           },
         }))
+        return
+      }
+      if (options.streamBody !== undefined
+        && (path.endsWith('/chat/completions') || path.endsWith('/messages') || path.endsWith('/responses'))) {
+        response.writeHead(200, SSE_HEADERS)
+        response.end(options.streamBody)
         return
       }
       if (options.failInference !== undefined

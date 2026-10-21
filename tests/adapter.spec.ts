@@ -447,6 +447,30 @@ describe('stream mapping', () => {
     expect(classifyPiAiError('something odd')).toBe('PI_AI_ERROR')
   })
 
+  it('ends a turn with a retryable code when the gateway fails inside the stream', async () => {
+    // The live failure, reproduced on a real socket: the gateway opens the
+    // stream and then reports its own transient fault inside it, so the
+    // failure carries no status code at all. The transport flattens it to
+    // text, and only the text is left to classify — which is why the rule
+    // has to read the type the gateway wrote rather than a code that never
+    // arrived.
+    const server = await gateway({
+      listing: ['glm-5.3'],
+      streamBody: 'data: {"error":{"message":"Streaming response failed: [internal_error] Internal server error. Please retry your request."}}\n\n',
+    })
+    const stub = stubModelsDev(DOCUMENT)
+    try {
+      const chunks = await collect(adapterFor(server).stream(options('glm-5.3')))
+      const finish = chunks.at(-1)
+      expect(finish).toMatchObject({
+        type: 'finish',
+        reason: { kind: 'error', failure: { code: 'SERVER' } },
+      })
+    } finally {
+      stub.restore()
+    }
+  })
+
   it('turns a zero-content completion into an error, not an empty success', () => {
     expect(mapStopReason({ stopReason: 'stop', content: [], model: 'm', usage: {} } as never))
       .toMatchObject({ kind: 'error', failure: { code: expect.stringContaining('EMPTY_RESPONSE') } })
