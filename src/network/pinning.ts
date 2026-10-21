@@ -261,6 +261,17 @@ export function isPinSpent(pin: GatewayPin): boolean {
 }
 
 /**
+ * Forget the addresses that were found to be gone.
+ *
+ * The memory belongs to the process, so it outlives every request. A test
+ * that needs a spent address to be unspent again has no other way to say
+ * so, and a spent address is exactly what such a test sets up.
+ */
+export function resetSpentAddresses(): void {
+  spent.clear()
+}
+
+/**
  * The name a request is for.
  *
  * A request names its host in one of three shapes: a string, a `URL`, or a
@@ -275,6 +286,26 @@ function hostOf(input: string | URL | Request): string | undefined {
     return normalize(new URL(input.url).hostname)
   } catch {
     return undefined
+  }
+}
+
+/**
+ * Whether a refusal came from the edge rather than from the gateway.
+ *
+ * The edge answers a name it does not serve with its own error document;
+ * the gateway answers a rejected request with its own. Only the first means
+ * the address is wrong, and only the first may be sent again — a gateway
+ * that refuses a credential has refused it for a reason that another
+ * address will not change.
+ * @param response - the refused response.
+ * @returns true when the edge refused the name.
+ */
+async function edgeRefused(response: Response): Promise<boolean> {
+  try {
+    // The clone, because the caller still owns the original body.
+    return (await response.clone().text()).includes('developers.cloudflare.com')
+  } catch {
+    return false
   }
 }
 
@@ -304,10 +335,20 @@ export function gatewayFetch(pin: GatewayPin): typeof fetch {
     if (isPinSpent(pin)) return globalThis.fetch(input, init)
     try {
       const dispatcher = dispatcherFor(pin.host, address)
-      return await dispatchingFetch(input, {
+      const response = await dispatchingFetch(input, {
         ...init,
         dispatcher,
       } as unknown as RequestInit)
+      // The edge answered, and what it said was "this name is not mine":
+      // the address does not serve the gateway. The system's own resolution
+      // would have picked one that does, and an address that refuses is
+      // worse than no address at all.
+      if (response.status === 403 && await edgeRefused(response)) {
+        await response.body?.cancel().catch(() => {})
+        spent.add(spentKey(pin))
+        return globalThis.fetch(input, init)
+      }
+      return response
     } catch (error: unknown) {
       // A request that was sent must not be sent again; a request that was
       // not sent may be, and the only question is whether the address or the

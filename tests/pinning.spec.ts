@@ -13,7 +13,7 @@ import { createServer as createTlsServer } from 'node:https'
 import { readFileSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
-import { closeDispatcher, gatewayFetch, isPinSpent, resolveGatewayPin } from '../src/network/pinning.ts'
+import { closeDispatcher, gatewayFetch, isPinSpent, resetSpentAddresses, resolveGatewayPin } from '../src/network/pinning.ts'
 import { parseNetworkReading } from '../src/network/contract.ts'
 
 /**
@@ -55,12 +55,40 @@ async function serveOn(address: string, port: number, word: string): Promise<Loo
   }
 }
 
+/**
+ * A server that refuses, the way an edge refuses a name it does not serve.
+ * @param address - the address to bind.
+ * @param port - the port to bind.
+ * @param body - what the refusal says.
+ * @returns the running server.
+ */
+async function serveRefusing(address: string, port: number, body: string): Promise<Loop> {
+  let hits = 0
+  const server = createServer((_request, response) => {
+    hits += 1
+    response.writeHead(403, { 'content-type': 'application/json' })
+    response.end(body)
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(port, address, () => { resolve() })
+  })
+  return {
+    port: (server.address() as AddressInfo).port,
+    hits: () => hits,
+    close: () => new Promise<void>((resolve) => { server.close(() => { resolve() }) }),
+  }
+}
+
 /** The servers this file opened, closed after each case. */
 const opened: Loop[] = []
 
 afterEach(async () => {
   await Promise.all(opened.splice(0).map(loop => loop.close()))
   await closeDispatcher()
+  // The memory of a spent address belongs to the process, so it outlives
+  // every request — and every test.
+  resetSpentAddresses()
 })
 
 describe('pinning', () => {
@@ -148,6 +176,49 @@ describe('pinning', () => {
     // And the address is remembered, so the next request does not pay for it
     // a second time.
     expect(isPinSpent(pin)).toBe(true)
+  })
+
+  it('falls back when the edge refuses the name', async () => {
+    const system = await serveOn('::1', 0, 'system')
+    opened.push(system)
+    // The edge answers a name it does not serve with its own document.
+    const refusing = await serveRefusing(
+      '127.0.0.2',
+      system.port,
+      '{"type":"https://developers.cloudflare.com/errors/1000"}',
+    )
+    opened.push(refusing)
+
+    const base = `http://localhost:${system.port}`
+    const pin = resolveGatewayPin({ localhost: '127.0.0.2' }, base)
+    const response = await gatewayFetch(pin)(`${base}/`)
+
+    // The edge said "this name is not mine", so the request went again, to
+    // the address the system would have chosen.
+    expect(await response.text()).toBe('system')
+    expect(refusing.hits()).toBe(1)
+    expect(system.hits()).toBe(1)
+    // And the address is remembered, so the next request does not pay for
+    // the refusal again.
+    expect(isPinSpent(pin)).toBe(true)
+  })
+
+  it('does not fall back when the gateway itself refuses', async () => {
+    const system = await serveOn('::1', 0, 'system')
+    opened.push(system)
+    // A refusal in the gateway's own words: another address will not change
+    // it, so it is the caller's answer.
+    const refusing = await serveRefusing('127.0.0.3', system.port, '{"error":"invalid api key"}')
+    opened.push(refusing)
+
+    const base = `http://localhost:${system.port}`
+    const pin = resolveGatewayPin({ localhost: '127.0.0.3' }, base)
+    const response = await gatewayFetch(pin)(`${base}/`)
+
+    expect(response.status).toBe(403)
+    expect(refusing.hits()).toBe(1)
+    expect(system.hits()).toBe(0)
+    expect(isPinSpent(pin)).toBe(false)
   })
 
   it('does not spend an address that answered', async () => {
