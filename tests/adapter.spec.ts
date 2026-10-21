@@ -432,6 +432,21 @@ describe('stream mapping', () => {
     expect(classifyPiAiError('429 rate limit exceeded')).not.toBe('ACCOUNT_QUOTA')
   })
 
+  it('classifies a gateway internal_error as SERVER, so the host retries it', () => {
+    // Observed live: the gateway answers a transient fault with its own
+    // `internal_error` type and no status code. Every status-based rule
+    // misses it, so it used to fall through to the catch-all — a code the
+    // host has no remedy for, failing a turn the gateway asked to retry.
+    expect(classifyPiAiError('[internal_error] Internal server error. Please retry your request.'))
+      .toBe('SERVER')
+    expect(classifyPiAiError('Streaming response failed: [internal_error] Internal server error. Please retry your request.'))
+      .toBe('SERVER')
+    // The hyphenated spelling pi-ai's own retry table accepts is the same fault.
+    expect(classifyPiAiError('internal-error: upstream unavailable')).toBe('SERVER')
+    // An unrelated oddity still has no remedy and stays unrecognized.
+    expect(classifyPiAiError('something odd')).toBe('PI_AI_ERROR')
+  })
+
   it('turns a zero-content completion into an error, not an empty success', () => {
     expect(mapStopReason({ stopReason: 'stop', content: [], model: 'm', usage: {} } as never))
       .toMatchObject({ kind: 'error', failure: { code: expect.stringContaining('EMPTY_RESPONSE') } })

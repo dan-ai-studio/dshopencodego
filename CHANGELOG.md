@@ -2,6 +2,30 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.60] - 2026-10-21
+
+本版修一个**让瞬时上游故障变成整轮失败**的缺口：网关请重试，宿主却不重试。
+
+### 🐞 修正 (Fixes)
+
+- **网关的 `internal_error` 现在分类为 `SERVER`，而不是落进兜底码**（`src/conversion/stream.ts`）。这条错误**不带状态码**：正文是 `[internal_error] Internal server error. Please retry your request.`——网关自己说了「请重试」，但所有按状态码判定的规则都落空，它便一路掉到 `PI_AI_ERROR`。
+  - 后果很直接：`PI_AI_ERROR` 不在宿主的默认可重试集合里（`EMPTY_RESPONSE` / `RATE_LIMIT` / `SERVER` / `TIMEOUT` / `TRANSPORT`），于是**宿主一次都不重试**。一个本该重试一次就好的瞬时故障，直接把整轮对话判死。
+  - 而 pi-ai 自己的可重试表**本来就把这种措辞算作可重试**（同时含 `internal.?error` 与 `please retry your request`），恰好命中。分类与它一致之后，宿主的重试层才终于能按它的判断行事。
+  - 这一条与此前对 `server_error` 的处理是同一个道理（见 0.1.22）：**有类型标签的失败，类型比状态码更有说服力**。
+
+### 🧪 测试
+
+- **新增一条用例**：锁住实测到的那条正文（连同 `Streaming response failed: ` 前缀）被分类为 `SERVER`；连字符写法同样成立；无关的怪消息仍落回 `PI_AI_ERROR`。
+- 套件为 **57 个测试文件 / 405 个用例**。
+
+### 📝 备注
+
+- **重试是安全的**：失败的一轮落地为 `assistant/attempt` 而非 `assistant/message`，不进对话历史；工具调用只在成功收尾后才执行，因此重跑不会重复输出、也不会重复触发副作用。唯一代价是上游可能已为那次生成到一半的输出计过费——这是所有 provider 层重试的共同取舍。
+- 宿主默认给 **5 次重试 + 指数退避 500ms→10s + 10% 抖动**，本插件**不另设策略**：`src/adapter.ts` 早已把 SDK 自带的重试关掉（`maxRetries: 0`），重试归宿主，插件只负责把失败翻译成宿主认识的样子。
+- DSH 自带的 `packages/llm/llm-pi-ai/src/stream.ts` 有一份几乎相同的拷贝，也有同样的缺口，但它只影响走 `dsh-llm-pi-ai` 的路由，与本插件的 `opencode-go` 路由无关，故不在本版处理。
+
+---
+
 ## [0.1.59] - 2026-10-21
 
 本版修一个**让验证脚本"说谎"**的问题：它问错了对象。

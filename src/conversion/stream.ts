@@ -66,6 +66,14 @@ export function classifyPiAiError(message: string): string {
   // the endpoint to recover rather than slowing down, so it classifies as
   // SERVER even though the status code alone reads as a rate limit.
   if (/server_error/i.test(message)) return 'SERVER'
+  // A failure typed as `internal_error` is the gateway's own transient fault,
+  // and it says so: "Please retry your request." No status code rides along
+  // with it, so every status-based rule above misses it and it would fall
+  // through to the catch-all — a code the host has no remedy for, which turns
+  // a request that asks to be retried into a failed turn. pi-ai's own retry
+  // table already reads this wording as retryable, so this classification
+  // agrees with it and lets the host's retry layer act on it.
+  if (/internal.?error/i.test(message)) return 'SERVER'
   if (/\b429\b|rate.?limit/i.test(message)) return 'RATE_LIMIT'
   if (/\b413\b|payload too large|request body too large|length limit exceeded/i.test(message)) return 'INVALID_REQUEST'
   if (/\b400\b|invalid.?request/i.test(message)) return 'INVALID_REQUEST'
