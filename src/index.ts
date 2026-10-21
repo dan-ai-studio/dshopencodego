@@ -59,7 +59,7 @@ declare module '@deepseek-ai/cordis' {
 
 export { OpencodeGoAdapter } from './adapter.ts'
 export type { OpencodeGoAdapterOptions, OpencodeGoImageAccess } from './adapter.ts'
-export { DEFAULT_BASE_URL, CONSOLE_BASE_URL, DISPLAY_NAME, PROVIDER_ID, OpencodeGoCatalog, discoverCatalogModels } from './catalog/index.ts'
+export { DEFAULT_BASE_URL, CONSOLE_BASE_URL, DISPLAY_NAME, PROVIDER_ID, OpencodeGoCatalog, discoverCatalogModels, fetchModelIds } from './catalog/index.ts'
 export { Config, PlainConfig, assertBaseURL, DEFAULT_API_KEY_ENV } from './config.ts'
 export type { OpencodeGoConfig } from './config.ts'
 export { SESSION_HEADER, SESSION_AFFINITY_HEADER, opencodeSessionValue, providerHeaders } from './session-header.ts'

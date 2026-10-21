@@ -319,7 +319,7 @@ export async function main(argv) {
   const baseURL = process.env['PROXY_BASE'] ?? 'http://127.0.0.1:8787/zen/go/v1'
   // Loaded here rather than at module load so the exit-code contract test can
   // import the pure helpers above without pulling in the built adapter.
-  const { OpencodeGoAdapter } = await import('../../lib/index.js')
+  const { OpencodeGoAdapter, fetchModelIds } = await import('../../lib/index.js')
   const usage = []
   const adapter = new OpencodeGoAdapter({
     config: () => ({
@@ -345,16 +345,29 @@ export async function main(argv) {
   const observed = []
   const restoreFetch = watchRequests(observed)
   try {
-    const listed = await adapter.listModels('opencode-go')
-    console.log(`catalog: ${listed.length} models advertised by the gateway`)
-    if (listed.length === 0) {
+    // The gateway's own listing decides membership, so that is what is
+    // asked for. The catalog also knows what the provider published, and
+    // the two are not the same thing: a model the provider documents is
+    // not one this subscription may call — and the catalog answers from
+    // its cache and from models.dev, so it can list models the gateway
+    // never advertised.
+    let advertised
+    try {
+      advertised = await fetchModelIds(baseURL)
+    } catch (error) {
+      console.error(`FAILED could not read the model listing at ${baseURL}: ${String(error?.message ?? error)}`)
+      console.error('start the recording proxy or point PROXY_BASE at a reachable gateway, then retry.')
+      return 1
+    }
+    console.log(`gateway: ${advertised.length} model(s) advertised at ${baseURL}`)
+    if (advertised.length === 0) {
       console.error(`FAILED the gateway at ${baseURL} advertised no models;` +
         ' start the recording proxy or point PROXY_BASE at a reachable gateway, then retry.')
       return 1
     }
-    if (!listed.some(model => model.id === picked.model)) {
+    if (!advertised.includes(picked.model)) {
       console.error(`FAILED the gateway does not advertise "${picked.model}"; it advertises: ` +
-        listed.slice(0, 12).map(model => model.id).join(', '))
+        advertised.slice(0, 12).join(', '))
       console.error('the gateway listing decides membership: pass --model=<id> with one of those ids.')
       return 1
     }

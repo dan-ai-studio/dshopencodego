@@ -8,17 +8,20 @@
  *
  * Cost boundary: every child process gets `PROXY_BASE=http://127.0.0.1:1/v1`,
  * a dead local port, so no gateway request can leave the machine and no token
- * is ever billed. The scripts do read the provider documentation and
- * models.dev while building their catalog — read-only GETs that the script
- * itself performs, never a paid inference call. The credential store is a
+ * is ever billed. The one case that needs a gateway that *answers* points
+ * `PROXY_BASE` at a mock on the loopback interface, which is still this
+ * machine. The scripts do read the provider documentation and models.dev
+ * while building their catalog — read-only GETs that the script itself
+ * performs, never a paid inference call. The credential store is a
  * throwaway file in a temp directory, so the real one is never touched.
  */
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { startMockGateway } from './mock-gateway.ts'
 // The verify scripts are plain ESM JavaScript with no declarations: the
 // contract under test is what the process does, not a typed API surface.
 // @ts-expect-error - no declarations for the .mjs tooling
@@ -74,6 +77,47 @@ function run(script: string, args: readonly string[], env: Readonly<Record<strin
   })
   if (result.error !== undefined) throw result.error
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
+}
+
+/**
+ * Run one verify script as a child process without freezing this one.
+ *
+ * A child that asks a gateway started in this process needs the event loop
+ * to keep turning while it waits: `spawnSync` would freeze the very server
+ * the child is asking to answer, and the child would time out on a gateway
+ * that is right there.
+ * @param script - the script to run.
+ * @param args - its arguments.
+ * @param env - environment overrides.
+ * @returns the exit code and what the script wrote.
+ */
+function runAsync(script: string, args: readonly string[], env: Readonly<Record<string, string>> = {}): Promise<RunResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [script, ...args], {
+      env: {
+        ...process.env,
+        PROXY_BASE: DEAD_BASE,
+        USERPROFILE: credentialsHome,
+        HOME: credentialsHome,
+        ...env,
+      },
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => { stdout += chunk })
+    child.stderr.on('data', (chunk: string) => { stderr += chunk })
+    child.on('error', reject)
+    const timer = setTimeout(() => {
+      child.kill()
+      reject(new Error(`${script} did not finish within ${SCRIPT_TIMEOUT}ms`))
+    }, SCRIPT_TIMEOUT)
+    child.on('close', (status) => {
+      clearTimeout(timer)
+      resolve({ status, stdout, stderr })
+    })
+  })
 }
 
 describe('model-probe.mjs exit codes', () => {
@@ -155,11 +199,26 @@ describe('live-check.mjs exit codes', () => {
     expect(result.stderr).toContain('--model=<id>')
   })
 
-  it('exits 1 when the gateway advertises nothing', () => {
+  it('exits 1 when the gateway advertises nothing', async () => {
+    // A gateway that answers, and answers with nothing. Asking the real
+    // gateway would make this a question about the network rather than
+    // about the script.
+    const gateway = await startMockGateway({ listing: [] })
+    try {
+      const result = await runAsync(LIVE_SCRIPT, ['--allow-live'], { PROXY_BASE: gateway.baseURL })
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain('advertised no models')
+      expect(`${result.stdout}${result.stderr}`).not.toContain('has no published price')
+    } finally {
+      await gateway.close()
+    }
+  })
+
+  it('exits 1 when the gateway listing cannot be read', () => {
+    // The dead port refuses the connection, so the listing never arrives.
     const result = run(LIVE_SCRIPT, ['--allow-live'])
     expect(result.status).toBe(1)
-    expect(result.stderr).toContain('advertised no models')
-    expect(`${result.stdout}${result.stderr}`).not.toContain('has no published price')
+    expect(result.stderr).toContain('could not read the model listing')
   })
 
   it('lists priced candidates with --list-models', () => {
