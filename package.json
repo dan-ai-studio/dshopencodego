@@ -1,6 +1,6 @@
 {
   "name": "@dan-ai-studio/dshopencodego",
-  "version": "0.1.61",
+  "version": "0.1.62",
   "description": "OpenCode Go provider for DeepSeek Harness: live gateway catalog, per-conversation session header, usage",
   "type": "module",
   "license": "MIT",
@@ -145,6 +145,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^7.0.2",
+    "undici": "~8.12.3",
     "vitest": "^5.0.5"
   },
   "keywords": [

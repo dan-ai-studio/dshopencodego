@@ -144,15 +144,29 @@ let current: { key: string; agent: Dispatcher } | undefined
  * pool, and a new one for every request would throw that pool away and pay a
  * handshake each time. When the pin changes, the old pool is closed — its
  * sockets point at addresses that are no longer wanted.
+ *
+ * The idle timeout is the pool's own, and it is what keeps a conversation
+ * from paying a handshake on every turn: the timer is reset by each
+ * response, so a connection that is used often is never dropped, and the
+ * value only bounds the silence between two requests.
+ *
+ * The ceiling is set to the same number so a server that states a longer
+ * `Keep-Alive` of its own cannot outlive the configured intent — undici
+ * takes the smaller of the two.
  * @param host - the gateway's name.
  * @param address - the address it is pinned to.
+ * @param keepAliveTimeoutMs - how long an idle connection is kept.
  * @returns the dispatcher.
  */
-function dispatcherFor(host: string, address: string): Dispatcher {
-  const key = `${host}@${address}`
+function dispatcherFor(host: string, address: string, keepAliveTimeoutMs: number): Dispatcher {
+  const key = `${host}@${address}@${String(keepAliveTimeoutMs)}`
   if (current?.key === key) return current.agent
   void current?.agent.close()
-  const agent = new Agent({ connect: { lookup: pinnedLookup(address) } })
+  const agent = new Agent({
+    connect: { lookup: pinnedLookup(address) },
+    keepAliveTimeout: keepAliveTimeoutMs,
+    keepAliveMaxTimeout: keepAliveTimeoutMs,
+  })
   current = { key, agent }
   return agent
 }
@@ -321,9 +335,10 @@ async function edgeRefused(response: Response): Promise<boolean> {
  * by the address the system would have chosen — so the request is sent
  * again, that way, and the answer is the one the caller gets.
  * @param pin - the gateway's name and its pinned address.
+ * @param keepAliveTimeoutMs - how long an idle connection is kept.
  * @returns the fetch to use.
  */
-export function gatewayFetch(pin: GatewayPin): typeof fetch {
+export function gatewayFetch(pin: GatewayPin, keepAliveTimeoutMs: number): typeof fetch {
   const address = pin.address
   // Nothing is pinned: the system's own fetch, with nothing added to it.
   if (address === undefined) return globalThis.fetch
@@ -334,7 +349,7 @@ export function gatewayFetch(pin: GatewayPin): typeof fetch {
     // The address is known to be gone: do not pay for it twice.
     if (isPinSpent(pin)) return globalThis.fetch(input, init)
     try {
-      const dispatcher = dispatcherFor(pin.host, address)
+      const dispatcher = dispatcherFor(pin.host, address, keepAliveTimeoutMs)
       const response = await dispatchingFetch(input, {
         ...init,
         dispatcher,

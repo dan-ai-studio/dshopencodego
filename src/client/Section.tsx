@@ -17,6 +17,7 @@ import type { CatalogReading } from '../catalog/contract.ts'
 import type { NetworkReading } from '../network/contract.ts'
 import type { UpdateStatus } from '../update/contract.ts'
 import { PACKAGE_NAME, REPOSITORY } from '../update/check.ts'
+import { DEFAULT_KEEP_ALIVE_TIMEOUT_MS, MAX_KEEP_ALIVE_TIMEOUT_SECONDS } from '../network/keep-alive.ts'
 import { SEED_TRANSCRIBED } from '../go-limits.ts'
 import { isModelEnabled } from '../models.ts'
 import { isAddress } from './address.ts'
@@ -33,6 +34,8 @@ interface SectionSettings {
   readonly refreshMinutes: number
   /** Addresses the gateway may be pinned to, by host name. */
   readonly pinnedAddresses: Record<string, string>
+  /** Idle time a gateway connection is kept, in milliseconds. */
+  readonly keepAliveTimeoutMs: number
 }
 
 /** The read/write contract of the settings scope, structurally typed. */
@@ -189,7 +192,7 @@ const INITIAL: SectionState = {
   update: { phase: 'idle', status: undefined, message: undefined },
 }
 
-/** Read the three fields this page owns out of a settings snapshot value. */
+/** Read the fields this page owns out of a settings snapshot value. */
 function settingsOf(value: unknown): SectionSettings | undefined {
   if (value === null || typeof value !== 'object') return undefined
   const record = value as Record<string, unknown>
@@ -203,10 +206,15 @@ function settingsOf(value: unknown): SectionSettings | undefined {
     ? Object.entries(pins as Record<string, unknown>)
       .filter(([, address]) => typeof address === 'string')
     : []
+  // A profile written before this field existed has no value for it, and the
+  // schema's own default then applies — the same number an unwritten field
+  // means everywhere else.
+  const keepAlive = record['keepAliveTimeoutMs']
   return {
     modelVisibility: Object.fromEntries(entries) as Record<string, boolean>,
     refreshMinutes: minutes,
     pinnedAddresses: Object.fromEntries(pinEntries) as Record<string, string>,
+    keepAliveTimeoutMs: typeof keepAlive === 'number' ? keepAlive : DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
   }
 }
 
@@ -636,6 +644,26 @@ export class SectionController {
     )
   }
 
+  /**
+   * Set how long an idle gateway connection is kept, clamped to the schema's
+   * own bounds.
+   *
+   * The value is in seconds here and stored in milliseconds, because a
+   * person reading a number of seconds can tell whether it is right and a
+   * person reading a number of milliseconds cannot.
+   */
+  async setKeepAliveTimeoutSeconds(seconds: number): Promise<void> {
+    const scope = this.services.scope
+    const current = this.state.settings
+    if (scope === undefined || current === undefined || !this.state.writable) return
+    if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > MAX_KEEP_ALIVE_TIMEOUT_SECONDS) return
+    const milliseconds = seconds * 1000
+    await this.write(
+      () => scope.set('keepAliveTimeoutMs', milliseconds),
+      () => this.set({ settings: { ...current, keepAliveTimeoutMs: milliseconds } }),
+    )
+  }
+
   private async write(operation: () => Promise<void | boolean>, onAccepted?: () => void): Promise<void> {
     this.set({ saving: true })
     try {
@@ -938,6 +966,20 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
           onChange={event => { void controller.setRefreshMinutes(Number(event.target.value)) }}
         />
         <span className={css.hint}>{t('refreshHint')}</span>
+      </div>
+      <div className={css.row}>
+        <label className={css.hint} htmlFor="dshopencodego-keepalive">{t('keepAliveLabel')}</label>
+        <input
+          id="dshopencodego-keepalive"
+          className={css.number}
+          type="number"
+          min={1}
+          max={MAX_KEEP_ALIVE_TIMEOUT_SECONDS}
+          disabled={!editable || state.saving}
+          value={state.settings === undefined ? '' : Math.round(state.settings.keepAliveTimeoutMs / 1000)}
+          onChange={event => { void controller.setKeepAliveTimeoutSeconds(Number(event.target.value)) }}
+        />
+        <span className={css.hint}>{t('keepAliveHint')}</span>
       </div>
       {state.writeFailure !== undefined && <p className={css.warn}>
         {state.writeFailure.kind === 'rejected'

@@ -122,7 +122,7 @@ describe('since-boot meter', () => {
     const meter = new UsageMeter()
     const config: OpencodeGoConfig = {
       enabled: true, modelVisibility: {}, apiKeyEnv: 'OPENCODE_GO_API_KEY', baseURL: server.baseURL,
-      refreshMinutes: 60, streamIdleTimeoutMs: 30_000, maxRequestImageBytes: 6_000_000,
+      refreshMinutes: 60, streamIdleTimeoutMs: 30_000, keepAliveTimeoutMs: 600_000, maxRequestImageBytes: 6_000_000,
       requestImagePixelBudget: 1_440_000, requestImageMaxBytes: 400_000, modelLimits: {}, modelProtocols: {},
       pinnedAddresses: {},
     }

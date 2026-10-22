@@ -7,7 +7,18 @@
  * reparsing them, or profile edits stop reaching the next request.
  */
 import { describe, expect, it } from 'vitest'
-import { assertBaseURL, DEFAULT_API_KEY_ENV, DEFAULT_REFRESH_MINUTES, PlainConfig, readConfig } from '../src/config.ts'
+import {
+  assertBaseURL,
+  DEFAULT_API_KEY_ENV,
+  DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
+  DEFAULT_KEEP_ALIVE_TIMEOUT_SECONDS,
+  DEFAULT_REFRESH_MINUTES,
+  MAX_KEEP_ALIVE_TIMEOUT_MS,
+  MAX_KEEP_ALIVE_TIMEOUT_SECONDS,
+  PlainConfig,
+  readConfig,
+  TIMER_CEILING_MS,
+} from '../src/config.ts'
 import type { LiveConfig } from '../src/config.ts'
 
 function liveOf(values: Record<string, unknown>): LiveConfig {
@@ -36,8 +47,42 @@ describe('PlainConfig', () => {
     expect(config.apiKeyEnv).toBe(DEFAULT_API_KEY_ENV)
     expect(config.baseURL).toBe('https://opencode.ai/inference/go/v1')
     expect(config.refreshMinutes).toBe(DEFAULT_REFRESH_MINUTES)
+    expect(config.keepAliveTimeoutMs).toBe(DEFAULT_KEEP_ALIVE_TIMEOUT_MS)
     expect(config.modelLimits).toEqual({})
     expect(config.modelProtocols).toEqual({})
+  })
+
+  it('keeps a configured idle time and refuses one out of range', () => {
+    // The idle time is a setting, so it is a number a profile may write.
+    expect(PlainConfig({ keepAliveTimeoutMs: 30_000 }).keepAliveTimeoutMs).toBe(30_000)
+    // A pool that drops a connection after no time at all is not a pool, and
+    // one that keeps it for days is a socket held onto a machine that has
+    // stopped talking.
+    expect(() => PlainConfig({ keepAliveTimeoutMs: 0 })).toThrow()
+    expect(() => PlainConfig({ keepAliveTimeoutMs: -1 })).toThrow()
+    expect(() => PlainConfig({ keepAliveTimeoutMs: MAX_KEEP_ALIVE_TIMEOUT_MS + 1 })).toThrow()
+  })
+
+  it('keeps the idle time below the point where a Node timer overflows', () => {
+    // A timer above 2^31-1 does not become a longer timer: it overflows and
+    // becomes ONE MILLISECOND, so the connection would be dropped at once —
+    // and silently, because the warning goes to stderr and nowhere else. The
+    // bound has to make that unreachable, not merely unlikely.
+    expect(MAX_KEEP_ALIVE_TIMEOUT_MS).toBeLessThan(TIMER_CEILING_MS)
+    expect(() => PlainConfig({ keepAliveTimeoutMs: TIMER_CEILING_MS + 1 })).toThrow()
+    expect(() => PlainConfig({ keepAliveTimeoutMs: Number.MAX_SAFE_INTEGER })).toThrow()
+  })
+
+  it('derives the millisecond value from the second value, so the two cannot disagree', () => {
+    // The page speaks in seconds and the setting is stored in milliseconds.
+    // If those two numbers were written separately they could drift, and a
+    // drift in the maximum would make the page refuse every value.
+    expect(DEFAULT_KEEP_ALIVE_TIMEOUT_MS).toBe(DEFAULT_KEEP_ALIVE_TIMEOUT_SECONDS * 1000)
+    expect(MAX_KEEP_ALIVE_TIMEOUT_MS).toBe(MAX_KEEP_ALIVE_TIMEOUT_SECONDS * 1000)
+    // And the maximum must be a whole number of seconds, or the page's own
+    // bound would not be a whole number either.
+    expect(Number.isSafeInteger(MAX_KEEP_ALIVE_TIMEOUT_SECONDS)).toBe(true)
+    expect(Number.isSafeInteger(MAX_KEEP_ALIVE_TIMEOUT_MS / 1000)).toBe(true)
   })
 
   it('keeps an explicit model switch, capacity override, and protocol override', () => {

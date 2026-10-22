@@ -17,6 +17,21 @@ import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import z from '@deepseek-ai/schemastery'
 import { DEFAULT_BASE_URL } from './catalog/constants.ts'
+import {
+  DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
+  DEFAULT_KEEP_ALIVE_TIMEOUT_SECONDS,
+  MAX_KEEP_ALIVE_TIMEOUT_MS,
+  MAX_KEEP_ALIVE_TIMEOUT_SECONDS,
+  TIMER_CEILING_MS,
+} from './network/keep-alive.ts'
+
+export {
+  DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
+  DEFAULT_KEEP_ALIVE_TIMEOUT_SECONDS,
+  MAX_KEEP_ALIVE_TIMEOUT_MS,
+  MAX_KEEP_ALIVE_TIMEOUT_SECONDS,
+  TIMER_CEILING_MS,
+}
 
 /** Credential reference resolving the OpenCode Go API key. */
 export const DEFAULT_API_KEY_ENV = 'OPENCODE_GO_API_KEY'
@@ -71,6 +86,14 @@ export interface OpencodeGoConfig {
   refreshMinutes: number
   /** Largest idle gap between stream events before the request fails. */
   streamIdleTimeoutMs: number
+  /**
+   * Idle time a gateway connection is kept between requests, in milliseconds.
+   *
+   * The timer is reset by every response, so a connection that is used
+   * often is never dropped; this bounds only the silence between two
+   * requests.
+   */
+  keepAliveTimeoutMs: number
   /** Request-level bound on base64-encoded image payload, in bytes. */
   maxRequestImageBytes: number
   /** Total-pixel budget for one request image. */
@@ -104,6 +127,12 @@ const fields = {
   baseURL: z.string().default(DEFAULT_BASE_URL),
   refreshMinutes: z.number().step(1).min(1).max(7 * 24 * 60).default(DEFAULT_REFRESH_MINUTES),
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
+  // The ceiling is the plugin's own, and it is well under the point where a
+  // Node timer overflows: a value above 2^31-1 does not become a longer
+  // timer, it becomes ONE MILLISECOND, which would drop the connection at
+  // once and say so only in a warning on stderr. The bound here is what
+  // keeps that unreachable.
+  keepAliveTimeoutMs: z.number().step(1).min(1).max(MAX_KEEP_ALIVE_TIMEOUT_MS).default(DEFAULT_KEEP_ALIVE_TIMEOUT_MS),
   maxRequestImageBytes: z.number().step(1).min(1).default(DEFAULT_MAX_REQUEST_IMAGE_BYTES),
   requestImagePixelBudget: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET),
   requestImageMaxBytes: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_MAX_BYTES),

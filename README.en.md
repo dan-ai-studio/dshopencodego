@@ -97,6 +97,10 @@ Configuration lives in the profile's `cordis.patch.yml`:
                                               # or https://opencode.ai/inference/v1 (Console main endpoint, pay-as-you-go/free models)
     refreshMinutes: 60                        # live catalog TTL, 1 ~ 10080 (7 days)
     streamIdleTimeoutMs: 300000               # stream idle timeout: longest silence between events (ms)
+    keepAliveTimeoutMs: 600000                # connection kept idle between requests (ms, 1 ~ 1800000)
+                                               # the timer restarts on every answer, so a connection in
+                                               # frequent use is never dropped; a long pause in a
+                                               # conversation costs one handshake (about 200ms)
     maxRequestImageBytes: 6291456             # whole-request image payload cap (after base64, bytes)
     requestImagePixelBudget: 1440000          # total-pixel budget for one image
     requestImageMaxBytes: 400000              # encoded-byte target for one image (before base64)
@@ -121,11 +125,18 @@ Configuration lives in the profile's `cordis.patch.yml`:
         jitterRatio: 0.1                      # default 0.1, range 0 ~ 1
 ```
 
-**Validated on save**: those constraints are checked when the profile is **written**, not at the first request — `baseURL` must be http(s) with no query or fragment; `refreshMinutes` ranges from 1 to 10080; every `modelLimits` field may be `null`, meaning "select the catalog value explicitly" (`modelLimits.<id>: null` sends both fields back); `modelProtocols` accepts only those three values, and a wrong one makes that model appear as *configuration missing* (switch off, not selectable) rather than falling back to a guess; `retryPolicy` is a union (`normal` reads `maxRetries`/`retryableCodes`/`backoff`, `always` reads only `backoff`) and unknown keys are rejected.
+**Validated on save**: those constraints are checked when the profile is **written**, not at the first request — `baseURL` must be http(s) with no query or fragment; `refreshMinutes` ranges from 1 to 10080; `keepAliveTimeoutMs` ranges from 1 to 1800000; every `modelLimits` field may be `null`, meaning "select the catalog value explicitly" (`modelLimits.<id>: null` sends both fields back); `modelProtocols` accepts only those three values, and a wrong one makes that model appear as *configuration missing* (switch off, not selectable) rather than falling back to a guess; `retryPolicy` is a union (`normal` reads `maxRetries`/`retryableCodes`/`backoff`, `always` reads only `backoff`) and unknown keys are rejected.
 
 The API key comes from the Harness credential store (reference name `OPENCODE_GO_API_KEY`), or from `export OPENCODE_GO_API_KEY=...`.
 
 **Stream timeout**: `streamIdleTimeoutMs` bounds the **longest silence between two stream events**, not the total request duration — a long-thinking model that keeps producing events is never cut off. Default 5 minutes; the ceiling is `2147483647` (about 24.8 days). Exceeding it raises `TIMEOUT`, which is retryable.
+
+**Connection kept**: `keepAliveTimeoutMs` decides **how long a connection to the gateway is held between two requests**. The timer **restarts on every answer**, so a connection in frequent use is never dropped; it bounds only the silence between two requests. Default 10 minutes.
+
+- The reason is practical: once a connection is dropped, the next request pays a TCP and a TLS handshake again — **about 200 milliseconds** from here to the gateway — and that cost lands on the **first token of the next turn**. A pause in a conversation (reading the answer, thinking, typing) usually runs 5 to 30 seconds, which is longer than the HTTP client's own 4-second default, so **almost every turn paid for a handshake it did not need**.
+- This only affects deployments that **pin an address** (`pinnedAddresses`): with no pin the request goes through the system's own fetch, and this plugin adds nothing to it.
+- The settings page shows and accepts the value in **seconds** (a number of milliseconds is not readable at a glance) and stores it in milliseconds. Range: 1 to 1800000 milliseconds.
+- Once a connection has been idle that long, the pool **reclaims it** on its own — no separate mechanism is needed. The actual release comes a couple of seconds later than the setting, which is the client's own small margin beyond the deadline the server states. When the plugin is unloaded, the pool is **closed with it**: the pool belongs to the plugin and should not be left behind on the machine.
 
 **Images**: three fields, one layer each. An image outside a bound is refused explicitly rather than silently downscaled or dropped:
 

@@ -97,6 +97,9 @@ DSH 桌面端是 Electron 壳 + 完整的 dsh Web 应用，本插件对它同样
                                               # 也可指定为 https://opencode.ai/inference/v1（Console 主端点，含按量/免费模型）
     refreshMinutes: 60                        # 目录缓存时长，1 ~ 10080（7 天）
     streamIdleTimeoutMs: 300000               # 流空闲超时：两次流事件之间的最长静默（毫秒）
+    keepAliveTimeoutMs: 600000                # 连接空闲保留：两次请求之间连接留多久（毫秒，1 ~ 1800000）
+                                               # 每次收到回答后重新计时，所以常用时连接不会被断开；
+                                               # 对话中每次停顿较久都要重新握手一次（约 200ms）
     maxRequestImageBytes: 6291456             # 整个请求的图片载荷上限（base64 之后，字节）
     requestImagePixelBudget: 1440000          # 单张图的总像素预算
     requestImageMaxBytes: 400000              # 单张图编码前的字节目标（base64 之前）
@@ -121,11 +124,18 @@ DSH 桌面端是 Electron 壳 + 完整的 dsh Web 应用，本插件对它同样
         jitterRatio: 0.1                      # 默认 0.1，取值 0 ~ 1
 ```
 
-**保存即校验**：上面这些约束在**写入 profile 时**就检查，不会拖到第一次请求——`baseURL` 必须是 http(s) 且不带 query/fragment；`refreshMinutes` 取值 1 ~ 10080；`modelLimits` 的每个字段都可以写 `null`，语义是"显式选回目录值"（`modelLimits.<模型>: null` 表示两个字段一起回退）；`modelProtocols` 只接受那三个合法值，写错会让该模型以"配置缺失"出现（开关关闭、不可选），而不是回退到猜测；`retryPolicy` 是联合类型（`normal` 读 `maxRetries`/`retryableCodes`/`backoff`，`always` 只读 `backoff`），未知字段会被拒绝。
+**保存即校验**：上面这些约束在**写入 profile 时**就检查，不会拖到第一次请求——`baseURL` 必须是 http(s) 且不带 query/fragment；`refreshMinutes` 取值 1 ~ 10080；`keepAliveTimeoutMs` 取值 1 ~ 1800000；`modelLimits` 的每个字段都可以写 `null`，语义是"显式选回目录值"（`modelLimits.<模型>: null` 表示两个字段一起回退）；`modelProtocols` 只接受那三个合法值，写错会让该模型以"配置缺失"出现（开关关闭、不可选），而不是回退到猜测；`retryPolicy` 是联合类型（`normal` 读 `maxRetries`/`retryableCodes`/`backoff`，`always` 只读 `backoff`），未知字段会被拒绝。
 
 API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），也可以直接 `export OPENCODE_GO_API_KEY=...`。
 
 **流超时**：`streamIdleTimeoutMs` 约束的是**两次流事件之间的最长静默**，不是请求总时长——长思考模型只要持续产出事件就不会被误判。默认 5 分钟，上限为 `2147483647`（约 24.8 天）。超时抛出 `TIMEOUT`（可重试类）。
+
+**连接保留**：`keepAliveTimeoutMs` 决定**与网关的连接在两次请求之间保留多久**。计时器**每次收到回答后重新开始**，所以常用时连接不会被断开，它约束的只是两次请求之间的静默。默认 10 分钟。
+
+- 背后的原因很实际：连接一旦被断开，下一次请求要重新做一次 TCP 与 TLS 握手，**到网关这一侧约 200 毫秒**，而这笔开销正好落在**下一轮的第一个 token 上**。对话里的停顿（读答案、思考、再打字）通常在 5 ~ 30 秒，正好跨过 HTTP 客户端默认的 4 秒，于是**几乎每一轮都在白付一次握手**。
+- 这条只影响**固定了地址**（`pinnedAddresses`）的部署：没有固定地址时走的是系统自己的 fetch，本插件不加任何东西。
+- 设置页里以**秒**显示与填写（毫秒的数字人读不出量级），存储时换算成毫秒。取值 1 ~ 1800000 毫秒。
+- 空闲满这个时间之后，连接由连接池**自己回收**，不需要额外的清理机制（实际释放时间比设置值多约 2 秒，那是客户端在服务端给的期限之外自留的一点缓冲）。插件被卸载时，连接池也会**一并关掉**——它是插件的，不该留在机器上。
 
 **图片**：三个字段各管一层，超限的图片会被明确拒绝，而不是静默降质或丢弃：
 

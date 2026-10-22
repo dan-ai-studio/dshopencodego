@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SectionController, API_KEY_REF, VISIBILITY_WRITE_DELAY_MS } from '../src/client/Section.tsx'
 import type { SectionServices, SettingsScopeLike } from '../src/client/Section.tsx'
+import { MAX_KEEP_ALIVE_TIMEOUT_MS } from '../src/config.ts'
 import type { CatalogReading } from '../src/catalog/contract.ts'
 
 const READING: CatalogReading = {
@@ -188,6 +189,21 @@ describe('settings controller', () => {
     expect(test.writes).toHaveLength(0)
     await controller.setRefreshMinutes(30)
     expect(test.writes).toEqual([{ field: 'refreshMinutes', value: 30 }])
+  })
+
+  it('writes the idle time in milliseconds and refuses one out of range', async () => {
+    const test = harness()
+    const controller = new SectionController(test.services)
+    await settle()
+    // The page speaks in seconds and the setting is stored in milliseconds:
+    // a person can tell whether a number of seconds is right, and a person
+    // cannot tell whether a number of milliseconds is.
+    await controller.setKeepAliveTimeoutSeconds(0)
+    await controller.setKeepAliveTimeoutSeconds(MAX_KEEP_ALIVE_TIMEOUT_MS / 1000 + 1)
+    await controller.setKeepAliveTimeoutSeconds(1.5)
+    expect(test.writes).toHaveLength(0)
+    await controller.setKeepAliveTimeoutSeconds(30)
+    expect(test.writes).toEqual([{ field: 'keepAliveTimeoutMs', value: 30_000 }])
   })
 
   it('stays read-only when there is no settings surface', async () => {

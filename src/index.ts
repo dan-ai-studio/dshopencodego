@@ -45,7 +45,7 @@ import { assertBaseURL, PlainConfig, readConfig } from './config.ts'
 import type { LiveConfig, OpencodeGoConfig } from './config.ts'
 import { registerRemotes } from './remotes.ts'
 import { OpencodeGoCatalogService } from './catalog/service.ts'
-import { gatewayFetch as fetchThroughPin, resolveGatewayPin } from './network/pinning.ts'
+import { closeDispatcher, gatewayFetch as fetchThroughPin, resolveGatewayPin } from './network/pinning.ts'
 import { OpencodeGoNetworkService } from './network/service.ts'
 import { OpencodeGoUpdateService } from './update/index.ts'
 import { PLUGIN_VERSION } from './update/index.ts'
@@ -174,6 +174,7 @@ export function apply(ctx: Context, raw?: unknown): void {
    */
   const gatewayRequest = (): typeof fetch => fetchThroughPin(
     resolveGatewayPin(current().pinnedAddresses, current().baseURL),
+    current().keepAliveTimeoutMs,
   )
   const adapter = new OpencodeGoAdapter({
     config: current,
@@ -349,6 +350,12 @@ export function apply(ctx: Context, raw?: unknown): void {
   ctx.effect(() => () => {
     registration?.()
     undiscover()
+    // The gateway connection pool is this plugin's, and the plugin's life is
+    // the host's — so when the plugin goes away, the sockets should go with
+    // it rather than linger until the process ends. The disposer is allowed
+    // to be async, and the host awaits it, so the sockets are really closed
+    // before the next version of the plugin starts.
+    return closeDispatcher()
   })
 
   // Validate a profile edit before it is persisted, then re-evaluate the gate.

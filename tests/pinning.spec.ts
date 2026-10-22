@@ -10,11 +10,20 @@
  */
 import { createServer } from 'node:http'
 import { createServer as createTlsServer } from 'node:https'
+import { createServer as createNetServer } from 'node:net'
 import { readFileSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 import { closeDispatcher, gatewayFetch, isPinSpent, resetSpentAddresses, resolveGatewayPin } from '../src/network/pinning.ts'
 import { parseNetworkReading } from '../src/network/contract.ts'
+
+/**
+ * The idle time these tests give a kept connection.
+ *
+ * Long enough that a connection survives between two requests in a test, and
+ * the same value the plugin ships by default.
+ */
+const KEEP_ALIVE_MS = 600_000
 
 /**
  * One server on the loopback interface, answering with a fixed word.
@@ -84,8 +93,11 @@ async function serveRefusing(address: string, port: number, body: string): Promi
 const opened: Loop[] = []
 
 afterEach(async () => {
-  await Promise.all(opened.splice(0).map(loop => loop.close()))
+  // The dispatcher goes first: it owns the sockets, and a server that is
+  // still holding an open connection waits for the peer to let go. Closing
+  // them in the other order hangs until the connection is timed out.
   await closeDispatcher()
+  await Promise.all(opened.splice(0).map(loop => loop.close()))
   // The memory of a spent address belongs to the process, so it outlives
   // every request — and every test.
   resetSpentAddresses()
@@ -99,7 +111,7 @@ describe('pinning', () => {
     opened.push(pinned)
 
     const base = `http://localhost:${pinned.port}`
-    const request = gatewayFetch(resolveGatewayPin({ localhost: '127.0.0.2' }, base))
+    const request = gatewayFetch(resolveGatewayPin({ localhost: '127.0.0.2' }, base), KEEP_ALIVE_MS)
     const response = await request(`${base}/`)
 
     expect(await response.text()).toBe('pinned')
@@ -113,7 +125,7 @@ describe('pinning', () => {
     opened.push(system)
     const base = `http://localhost:${system.port}`
 
-    const request = gatewayFetch(resolveGatewayPin({}, base))
+    const request = gatewayFetch(resolveGatewayPin({}, base), KEEP_ALIVE_MS)
     // Nothing is added to the system's own fetch: no pin, no dispatcher, no
     // second attempt.
     expect(request).toBe(globalThis.fetch)
@@ -130,9 +142,9 @@ describe('pinning', () => {
     // about the gateway's own name.
     const pin = resolveGatewayPin({ 'other.test': '127.0.0.2' }, base)
     expect(pin.address).toBeUndefined()
-    expect(gatewayFetch(pin)).toBe(globalThis.fetch)
+    expect(gatewayFetch(pin, KEEP_ALIVE_MS)).toBe(globalThis.fetch)
 
-    const response = await gatewayFetch(pin)(`${base}/`)
+    const response = await gatewayFetch(pin, KEEP_ALIVE_MS)(`${base}/`)
     expect(await response.text()).toBe('system')
   })
 
@@ -152,9 +164,9 @@ describe('pinning', () => {
     // request: the request then goes to the system's own resolution.
     const pin = resolveGatewayPin({ localhost: '127.0.0.256' }, base)
     expect(pin.address).toBeUndefined()
-    expect(gatewayFetch(pin)).toBe(globalThis.fetch)
+    expect(gatewayFetch(pin, KEEP_ALIVE_MS)).toBe(globalThis.fetch)
 
-    const response = await gatewayFetch(pin)(`${base}/`)
+    const response = await gatewayFetch(pin, KEEP_ALIVE_MS)(`${base}/`)
     expect(await response.text()).toBe('system')
   })
 
@@ -166,7 +178,7 @@ describe('pinning', () => {
     // Nothing listens on that loopback address, so the connection is
     // refused — the shape an address that is gone takes.
     const pin = resolveGatewayPin({ localhost: '127.0.0.3' }, base)
-    const request = gatewayFetch(pin)
+    const request = gatewayFetch(pin, KEEP_ALIVE_MS)
     const response = await request(`${base}/`)
 
     // The answer is the one the caller gets: the request was sent again, to
@@ -191,7 +203,7 @@ describe('pinning', () => {
 
     const base = `http://localhost:${system.port}`
     const pin = resolveGatewayPin({ localhost: '127.0.0.2' }, base)
-    const response = await gatewayFetch(pin)(`${base}/`)
+    const response = await gatewayFetch(pin, KEEP_ALIVE_MS)(`${base}/`)
 
     // The edge said "this name is not mine", so the request went again, to
     // the address the system would have chosen.
@@ -213,7 +225,7 @@ describe('pinning', () => {
 
     const base = `http://localhost:${system.port}`
     const pin = resolveGatewayPin({ localhost: '127.0.0.3' }, base)
-    const response = await gatewayFetch(pin)(`${base}/`)
+    const response = await gatewayFetch(pin, KEEP_ALIVE_MS)(`${base}/`)
 
     expect(response.status).toBe(403)
     expect(refusing.hits()).toBe(1)
@@ -227,7 +239,7 @@ describe('pinning', () => {
     const base = `http://localhost:${pinned.port}`
 
     const pin = resolveGatewayPin({ localhost: '127.0.0.2' }, base)
-    await gatewayFetch(pin)(`${base}/`)
+    await gatewayFetch(pin, KEEP_ALIVE_MS)(`${base}/`)
     expect(isPinSpent(pin)).toBe(false)
   })
 
@@ -262,8 +274,171 @@ describe('pinning', () => {
     // offered, which is the point: the address is pinned, the name is not.
     const base = `https://pinned.test:${port}`
     const pin = resolveGatewayPin({ 'pinned.test': '127.0.0.1' }, base)
-    await expect(gatewayFetch(pin)(`${base}/`)).rejects.toThrow()
+    await expect(gatewayFetch(pin, KEEP_ALIVE_MS)(`${base}/`)).rejects.toThrow()
     expect(seen).toBe('pinned.test')
+  })
+})
+
+describe('the connection kept between requests', () => {
+  it('survives a pause longer than the pool would otherwise allow', async () => {
+    // Undici's own default lets an idle connection go after four seconds, and
+    // a conversation pauses for longer than that all the time. A connection
+    // dropped in the pause is one that has to be built again — a TCP and a
+    // TLS handshake, about a fifth of a second from here to the gateway — and
+    // that cost lands on the first token of the next turn.
+    //
+    // The server is a raw socket rather than an HTTP one, and the reason is
+    // the `Keep-Alive` header. A server that states its own timeout has its
+    // value used in preference to the client's, so an HTTP server would
+    // answer with `Keep-Alive: timeout=60` and this would measure the
+    // server's patience instead of the pool's. The gateway sends no such
+    // header, and this server sends none either: the number that governs is
+    // the pool's own.
+    let connections = 0
+    const server = createNetServer(socket => {
+      socket.on('data', () => {
+        socket.write('HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 4\r\n\r\nkept')
+      })
+    })
+    server.on('connection', () => { connections += 1 })
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.2', () => { resolve() })
+    })
+    const port = (server.address() as AddressInfo).port
+    opened.push({
+      port,
+      hits: () => 0,
+      close: () => new Promise<void>((resolve) => { server.close(() => { resolve() }) }),
+    })
+
+    const base = `http://localhost:${port}`
+    const pin = resolveGatewayPin({ localhost: '127.0.0.2' }, base)
+    const request = gatewayFetch(pin, KEEP_ALIVE_MS)
+
+    const first = await request(`${base}/`)
+    expect(await first.text()).toBe('kept')
+    expect(connections).toBe(1)
+
+    // Longer than the four seconds the pool would otherwise wait.
+    await new Promise(resolve => { setTimeout(resolve, 4_500) })
+
+    const second = await request(`${base}/`)
+    expect(await second.text()).toBe('kept')
+    // One connection for two requests: the socket was still there.
+    expect(connections).toBe(1)
+  })
+
+  it('uses the timeout it was given, not a fixed one', async () => {
+    // The idle time is a setting, so the pool has to obey the number it is
+    // handed. A short one has to drop the connection — otherwise the setting
+    // is a label over a constant, and a reader of the page would be misled
+    // about what their value does.
+    let connections = 0
+    const server = createNetServer(socket => {
+      socket.on('data', () => {
+        socket.write('HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 4\r\n\r\nkept')
+      })
+    })
+    server.on('connection', () => { connections += 1 })
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.2', () => { resolve() })
+    })
+    const port = (server.address() as AddressInfo).port
+    opened.push({
+      port,
+      hits: () => 0,
+      close: () => new Promise<void>((resolve) => { server.close(() => { resolve() }) }),
+    })
+
+    const base = `http://localhost:${port}`
+    const pin = resolveGatewayPin({ localhost: '127.0.0.2' }, base)
+    // A second is short enough to be observed and long enough not to race.
+    const request = gatewayFetch(pin, 1_000)
+
+    await (await request(`${base}/`)).text()
+    expect(connections).toBe(1)
+
+    await new Promise(resolve => { setTimeout(resolve, 1_500) })
+
+    await (await request(`${base}/`)).text()
+    // The idle time elapsed, so the connection was let go and a new one was
+    // made — the setting was obeyed.
+    expect(connections).toBe(2)
+  })
+
+  it('lets go of its sockets when the plugin lets go of it', async () => {
+    // The pool belongs to the plugin, and the plugin's life is the host's.
+    // When the plugin is unloaded — a profile edit that reloads it, a
+    // shutdown — the sockets should go with it rather than linger on the
+    // machine until the process ends.
+    const sockets: import('node:net').Socket[] = []
+    const server = createNetServer(socket => {
+      sockets.push(socket)
+      socket.on('data', () => {
+        socket.write('HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 4\r\n\r\nkept')
+      })
+    })
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.2', () => { resolve() })
+    })
+    const port = (server.address() as AddressInfo).port
+    opened.push({
+      port,
+      hits: () => 0,
+      close: () => new Promise<void>((resolve) => { server.close(() => { resolve() }) }),
+    })
+
+    const base = `http://localhost:${port}`
+    const pin = resolveGatewayPin({ localhost: '127.0.0.2' }, base)
+    const request = gatewayFetch(pin, KEEP_ALIVE_MS)
+
+    await (await request(`${base}/`)).text()
+    expect(sockets.length).toBe(1)
+
+    await closeDispatcher()
+    // Closing is graceful: the pool stops taking new work, finishes what it
+    // has, and then lets the idle sockets go. The server sees the close, but
+    // not the instant the close is asked for.
+    await new Promise(resolve => { setTimeout(resolve, 500) })
+    expect(sockets.every(socket => socket.destroyed)).toBe(true)
+  })
+
+  it('opens a new pool after the old one was closed', async () => {
+    // Closing the pool must not leave the plugin pointing at a dead one: the
+    // next request has to build a fresh pool and work.
+    let connections = 0
+    const server = createNetServer(socket => {
+      socket.on('data', () => {
+        socket.write('HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 4\r\n\r\nkept')
+      })
+    })
+    server.on('connection', () => { connections += 1 })
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.2', () => { resolve() })
+    })
+    const port = (server.address() as AddressInfo).port
+    opened.push({
+      port,
+      hits: () => 0,
+      close: () => new Promise<void>((resolve) => { server.close(() => { resolve() }) }),
+    })
+
+    const base = `http://localhost:${port}`
+    const pin = resolveGatewayPin({ localhost: '127.0.0.2' }, base)
+    const request = gatewayFetch(pin, KEEP_ALIVE_MS)
+
+    await (await request(`${base}/`)).text()
+    await closeDispatcher()
+    await new Promise(resolve => { setTimeout(resolve, 200) })
+
+    const response = await request(`${base}/`)
+    expect(await response.text()).toBe('kept')
+    // A new socket: the old pool was gone, so this one was built again.
+    expect(connections).toBe(2)
   })
 })
 

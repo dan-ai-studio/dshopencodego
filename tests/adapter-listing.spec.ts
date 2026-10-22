@@ -22,6 +22,7 @@ function configFor(baseURL: string, overrides: Partial<OpencodeGoConfig> = {}): 
     baseURL,
     refreshMinutes: 60,
     streamIdleTimeoutMs: 30_000,
+    keepAliveTimeoutMs: 600_000,
     maxRequestImageBytes: 6_000_000,
     requestImagePixelBudget: 1_440_000,
     requestImageMaxBytes: 400_000,

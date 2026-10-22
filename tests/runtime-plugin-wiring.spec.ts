@@ -21,6 +21,8 @@ interface Harness {
   registerConfigurableProviders: ReturnType<typeof vi.fn>
   errors: string[]
   infos: string[]
+  /** Run the teardown the plugin registered. */
+  teardown: () => Promise<void>
 }
 
 /** The live references a loader hands a plugin, with `get()` per field. */
@@ -63,6 +65,10 @@ function context(options: {
   // of this same provider, so the mount must never call this. The mock records
   // any call, which is how the test below holds that decision.
   const registerConfigurableProviders = vi.fn()
+  // The plugin's teardown is registered through `ctx.effect`, and the
+  // disposer it registers is what closes the gateway's connection pool. The
+  // mock keeps it so a test can run it.
+  const disposers: (() => unknown)[] = []
 
   const ctx: Record<string, unknown> = {
     // A bare mount (a programmatic `apply`) has no loader fiber at all.
@@ -80,7 +86,18 @@ function context(options: {
       registerConfigurableProviders,
     },
     plugin: vi.fn(),
-    effect: vi.fn(),
+    // The plugin's teardown is registered through `ctx.effect`, and the
+    // disposer it registers is what closes the gateway's connection pool. The
+    // mock keeps it so a test can run it.
+    //
+    // The catalog warm-up's body is deliberately not run: it is a network
+    // read this harness has no business making. Only the teardown's body
+    // runs, and only its disposer is kept.
+    effect: vi.fn((execute: () => (() => unknown) | void, label?: string) => {
+      if (label === 'dshopencodego: catalog warm-up') return
+      const disposer = execute()
+      if (typeof disposer === 'function') disposers.push(disposer)
+    }),
     on: vi.fn((event: string, listener: () => void) => {
       if (event === 'loader/volatile-update') state.volatileUpdate = listener
     }),
@@ -98,6 +115,10 @@ function context(options: {
     errors,
     infos,
     discoveryNs,
+    // The teardown the plugin registered, so a test can run it.
+    teardown: async () => {
+      for (const disposer of disposers.splice(0)) await disposer()
+    },
     // Read through the mutable state: `apply` fills these once it registers.
     get discover() { return state.discover },
     get volatileUpdate() { return state.volatileUpdate },
@@ -220,5 +241,19 @@ describe('discovery cancellation', () => {
       spy.mockRestore()
       await server.close()
     }
+  })
+
+  it('closes the gateway connection pool when the plugin is torn down', async () => {
+    // The pool is the plugin's, and the plugin's life is the host's. A
+    // profile edit that reloads the plugin would otherwise leave the old
+    // pool's sockets on the machine, pointing at an address the new
+    // configuration may no longer want.
+    const harness = context({ configured: true, entryId: 'go' })
+    apply(harness.ctx as never, { enabled: true })
+
+    // The teardown must not throw, and it must be awaitable: Cordis awaits a
+    // disposer that returns a promise, so the sockets are really closed
+    // before the next version of the plugin starts.
+    await expect(harness.teardown()).resolves.toBeUndefined()
   })
 })
