@@ -13,8 +13,11 @@ import {
   DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
   DEFAULT_KEEP_ALIVE_TIMEOUT_SECONDS,
   DEFAULT_REFRESH_MINUTES,
+  DEFAULT_REQUEST_LOG_MAX_ENTRIES,
   MAX_KEEP_ALIVE_TIMEOUT_MS,
   MAX_KEEP_ALIVE_TIMEOUT_SECONDS,
+  MAX_REQUEST_LOG_MAX_ENTRIES,
+  MIN_REQUEST_LOG_MAX_ENTRIES,
   PlainConfig,
   readConfig,
   TIMER_CEILING_MS,
@@ -94,6 +97,29 @@ describe('PlainConfig', () => {
     expect(config.modelVisibility).toEqual({ 'glm-5': false })
     expect(config.modelLimits).toEqual({ 'kimi-k3': { contextWindow: 262_144 } })
     expect(config.modelProtocols).toEqual({ 'some-new-model': 'openai-responses' })
+  })
+
+  it('keeps the request log off with a bounded retention by default', () => {
+    const config = PlainConfig({})
+    expect(config.requestLogEnabled).toBe(false)
+    expect(config.requestLogDebug).toBe(false)
+    expect(config.requestLogMaxEntries).toBe(DEFAULT_REQUEST_LOG_MAX_ENTRIES)
+    // The bound is a real interval, not an open end: the ring must always
+    // be able to drop its oldest entry.
+    expect(MIN_REQUEST_LOG_MAX_ENTRIES).toBeGreaterThan(0)
+    expect(MAX_REQUEST_LOG_MAX_ENTRIES).toBeGreaterThan(MIN_REQUEST_LOG_MAX_ENTRIES)
+    expect(PlainConfig({ requestLogMaxEntries: MIN_REQUEST_LOG_MAX_ENTRIES }).requestLogMaxEntries)
+      .toBe(MIN_REQUEST_LOG_MAX_ENTRIES)
+    expect(PlainConfig({ requestLogMaxEntries: MAX_REQUEST_LOG_MAX_ENTRIES }).requestLogMaxEntries)
+      .toBe(MAX_REQUEST_LOG_MAX_ENTRIES)
+    expect(PlainConfig({ requestLogEnabled: true, requestLogDebug: true }).requestLogEnabled).toBe(true)
+  })
+
+  it('refuses a request-log retention outside its bound', () => {
+    expect(() => PlainConfig({ requestLogMaxEntries: MIN_REQUEST_LOG_MAX_ENTRIES - 1 })).toThrow()
+    expect(() => PlainConfig({ requestLogMaxEntries: MAX_REQUEST_LOG_MAX_ENTRIES + 1 })).toThrow()
+    expect(() => PlainConfig({ requestLogMaxEntries: 0 })).toThrow()
+    expect(() => PlainConfig({ requestLogMaxEntries: 1.5 })).toThrow()
   })
 
   it('rejects an out-of-range refresh interval', () => {

@@ -1,0 +1,109 @@
+/**
+ * Request-log viewer: a fullscreen dialog over the settings page.
+ *
+ * Status is carried by text and a left border, never by background fill
+ * alone: both themes stay readable, and the meaning survives without color.
+ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.panel {
+  width: min(1100px, 94vw);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.titleValue {
+  margin-left: auto;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+}
+
+.footer {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.tableWrap {
+  overflow: auto;
+  flex: 1;
+  min-height: 120px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.group td {
+  font-weight: bold;
+}
+
+.row {
+  cursor: pointer;
+}
+
+.rowFail {
+  border-left: 3px solid #c0392b;
+}
+
+.rowFail td:first-child {
+  color: #c0392b;
+}
+
+.rowSlow {
+  border-left: 3px solid #d68910;
+}
+
+.rowSlow td:first-child {
+  color: #d68910;
+}
+
+.rowOk {
+  border-left: 3px solid transparent;
+}
+
+.detail td {
+  white-space: normal;
+  word-break: break-all;
+}
+
+.mono {
+  font-family: monospace;
+}
+
+.pager {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}

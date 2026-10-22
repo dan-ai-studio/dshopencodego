@@ -1,0 +1,140 @@
+/**
+ * Wire contract for the request-log Remote.
+ *
+ * One reading: the bounded per-request log the Host keeps while the profile
+ * enables it. The viewer opens it on demand; nothing polls, so a closed
+ * viewer costs no wire traffic at all.
+ *
+ * @module @dan-ai-studio/dshopencodego/request-log/contract
+ */
+
+import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
+import type { PoolLogEvent, RequestLogEntry, RequestLogSnapshot } from './store.ts'
+
+export type { PoolLogEvent, RequestLogEntry, RequestLogSnapshot } from './store.ts'
+
+function count(key: string, row: Record<string, unknown>): number
+function count(key: string, row: Record<string, unknown>, optional: true): number | undefined
+function count(key: string, row: Record<string, unknown>, optional?: boolean): number | undefined {
+  const entry = row[key]
+  if (entry === undefined) {
+    if (optional === true) return undefined
+    throw new Error(`invalid request-log entry "${key}"`)
+  }
+  if (typeof entry !== 'number' || !Number.isFinite(entry) || entry < 0) {
+    throw new Error(`invalid request-log entry "${key}"`)
+  }
+  return entry
+}
+
+function text(key: string, row: Record<string, unknown>): string
+function text(key: string, row: Record<string, unknown>, optional: true): string | undefined
+function text(key: string, row: Record<string, unknown>, optional?: boolean): string | undefined {
+  const entry = row[key]
+  if (entry === undefined) {
+    if (optional === true) return undefined
+    throw new Error(`invalid request-log entry "${key}"`)
+  }
+  if (typeof entry !== 'string') throw new Error(`invalid request-log entry "${key}"`)
+  return entry
+}
+
+/** Validate one entry crossing the wire. */
+function parseEntry(value: unknown): RequestLogEntry {
+  if (value === null || typeof value !== 'object') throw new Error('invalid request-log entry')
+  const row = value as Record<string, unknown>
+  const shape = row['shape']
+  const headers = row['headers']
+  return {
+    seq: count('seq', row),
+    atMs: count('atMs', row),
+    model: text('model', row),
+    session: text('session', row),
+    method: text('method', row),
+    url: text('url', row),
+    ...row['status'] === undefined ? {} : { status: count('status', row) },
+    ...row['inputTokens'] === undefined ? {} : { inputTokens: count('inputTokens', row) },
+    ...row['outputTokens'] === undefined ? {} : { outputTokens: count('outputTokens', row) },
+    ...row['cacheReadTokens'] === undefined ? {} : { cacheReadTokens: count('cacheReadTokens', row) },
+    ...row['durationMs'] === undefined ? {} : { durationMs: count('durationMs', row) },
+    ...row['firstTokenMs'] === undefined ? {} : { firstTokenMs: count('firstTokenMs', row) },
+    ok: row['ok'] === true,
+    ...typeof row['code'] === 'string' ? { code: row['code'] } : {},
+    ...typeof row['poolKey'] === 'string' ? { poolKey: row['poolKey'] } : {},
+    ...shape !== null && typeof shape === 'object' ? {
+      shape: {
+        messages: count('messages', shape as Record<string, unknown>),
+        hasImage: (shape as Record<string, unknown>)['hasImage'] === true,
+        tools: count('tools', shape as Record<string, unknown>),
+      },
+    } : {},
+    ...headers !== null && typeof headers === 'object' ? {
+      headers: {
+        ...typeof (headers as Record<string, unknown>)['session'] === 'string'
+          ? { session: (headers as Record<string, unknown>)['session'] as string }
+          : {},
+        ...typeof (headers as Record<string, unknown>)['userAgent'] === 'string'
+          ? { userAgent: (headers as Record<string, unknown>)['userAgent'] as string }
+          : {},
+      },
+    } : {},
+  }
+}
+
+/** Validate one pool event crossing the wire. */
+function parsePoolEvent(value: unknown): PoolLogEvent {
+  if (value === null || typeof value !== 'object') throw new Error('invalid request-log pool event')
+  const row = value as Record<string, unknown>
+  const type = row['type']
+  if (type !== 'create' && type !== 'close') throw new Error('invalid request-log pool event')
+  return { atMs: count('atMs', row), type, key: text('key', row) }
+}
+
+/** Validate a snapshot crossing the wire. */
+export function parseRequestLogSnapshot(value: unknown): RequestLogSnapshot {
+  if (value === null || typeof value !== 'object') throw new Error('invalid request-log snapshot')
+  const row = value as Record<string, unknown>
+  if (!Array.isArray(row['entries']) || !Array.isArray(row['poolEvents'])) {
+    throw new Error('invalid request-log snapshot')
+  }
+  return {
+    entries: (row['entries'] as unknown[]).map(parseEntry),
+    poolEvents: (row['poolEvents'] as unknown[]).map(parsePoolEvent),
+    totalRecords: count('totalRecords', row),
+    droppedRecords: count('droppedRecords', row),
+    newConnections: count('newConnections', row),
+    ...typeof row['poolKey'] === 'string' ? { poolKey: row['poolKey'] } : {},
+  }
+}
+
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface TypertRemoteNamespaceMap {
+    opencodeGoRequestLog: {
+      readLog(): Promise<RemoteResult<RequestLogSnapshot>>
+    }
+  }
+}
+
+/** Codec shape accepted by both released and source DSH builds. */
+const codec = {
+  mode: 'strict' as const,
+  typeSymbol: '@dan-ai-studio/dshopencodego#RequestLogSnapshot',
+  schema: { parse: parseRequestLogSnapshot },
+  create: () => ({ parse: parseRequestLogSnapshot }),
+}
+
+/** Remote methods this package owns, mounted together by the plugin. */
+export const requestLogRemote: TypertRemoteContribution = {
+  package: '@dan-ai-studio/dshopencodego',
+  descriptors: [
+    {
+      id: '@dan-ai-studio/dshopencodego#opencodeGoRequestLog/readLog',
+      service: 'opencodeGoRequestLog',
+      namespace: 'opencodeGoRequestLog',
+      method: 'readLog',
+      invocation: { kind: 'direct' },
+      parameters: [],
+      result: codec,
+    },
+  ],
+}

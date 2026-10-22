@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SectionController, API_KEY_REF, VISIBILITY_WRITE_DELAY_MS } from '../src/client/Section.tsx'
 import type { SectionServices, SettingsScopeLike } from '../src/client/Section.tsx'
 import { MAX_KEEP_ALIVE_TIMEOUT_MS } from '../src/config.ts'
+import { DEFAULT_REQUEST_LOG_MAX_ENTRIES, MAX_REQUEST_LOG_MAX_ENTRIES, MIN_REQUEST_LOG_MAX_ENTRIES } from '../src/config.ts'
 import type { CatalogReading } from '../src/catalog/contract.ts'
 
 const READING: CatalogReading = {
@@ -204,6 +205,41 @@ describe('settings controller', () => {
     expect(test.writes).toHaveLength(0)
     await controller.setKeepAliveTimeoutSeconds(30)
     expect(test.writes).toEqual([{ field: 'keepAliveTimeoutMs', value: 30_000 }])
+  })
+
+  it('leaves the request log off with a bounded retention unless told otherwise', async () => {
+    const test = harness()
+    const controller = new SectionController(test.services)
+    await settle()
+    // An old profile never wrote these fields, so the page must read as
+    // off with the documented retention — not as missing.
+    expect(controller.snapshot().settings).toMatchObject({
+      requestLogEnabled: false,
+      requestLogDebug: false,
+      requestLogMaxEntries: DEFAULT_REQUEST_LOG_MAX_ENTRIES,
+    })
+    await controller.setRequestLogEnabled(true)
+    await controller.setRequestLogDebug(true)
+    expect(test.writes).toEqual([
+      { field: 'requestLogEnabled', value: true },
+      { field: 'requestLogDebug', value: true },
+    ])
+    expect(controller.snapshot().settings).toMatchObject({
+      requestLogEnabled: true,
+      requestLogDebug: true,
+    })
+  })
+
+  it('writes the request-log retention in entries and refuses one out of range', async () => {
+    const test = harness()
+    const controller = new SectionController(test.services)
+    await settle()
+    await controller.setRequestLogMaxEntries(MIN_REQUEST_LOG_MAX_ENTRIES - 1)
+    await controller.setRequestLogMaxEntries(MAX_REQUEST_LOG_MAX_ENTRIES + 1)
+    await controller.setRequestLogMaxEntries(1.5)
+    expect(test.writes).toHaveLength(0)
+    await controller.setRequestLogMaxEntries(100)
+    expect(test.writes).toEqual([{ field: 'requestLogMaxEntries', value: 100 }])
   })
 
   it('stays read-only when there is no settings surface', async () => {

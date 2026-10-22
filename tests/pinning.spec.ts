@@ -14,7 +14,7 @@ import { createServer as createNetServer } from 'node:net'
 import { readFileSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
-import { closeDispatcher, gatewayFetch, isPinSpent, resetSpentAddresses, resolveGatewayPin } from '../src/network/pinning.ts'
+import { closeDispatcher, gatewayFetch, isPinSpent, observePool, resetSpentAddresses, resolveGatewayPin } from '../src/network/pinning.ts'
 import { parseNetworkReading } from '../src/network/contract.ts'
 
 /**
@@ -439,6 +439,52 @@ describe('the connection kept between requests', () => {
     expect(await response.text()).toBe('kept')
     // A new socket: the old pool was gone, so this one was built again.
     expect(connections).toBe(2)
+  })
+})
+
+describe('pool observation', () => {
+  it('reports pool creation and closure to its observer', async () => {
+    // The request log watches pool lifecycle in debug mode. The events are
+    // rare by construction — one per pool lifetime — so observing them
+    // costs nothing on the request path.
+    const events: Array<{ type: 'create' | 'close'; key: string }> = []
+    observePool({
+      create: (key) => { events.push({ type: 'create', key }) },
+      close: (key) => { events.push({ type: 'close', key }) },
+    })
+    try {
+      const server = createNetServer(socket => {
+        socket.on('data', () => {
+          socket.write('HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 4\r\n\r\nkept')
+        })
+      })
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject)
+        server.listen(0, '127.0.0.2', () => { resolve() })
+      })
+      const port = (server.address() as AddressInfo).port
+      opened.push({
+        port,
+        hits: () => 0,
+        close: () => new Promise<void>((resolve) => { server.close(() => { resolve() }) }),
+      })
+
+      const base = `http://localhost:${port}`
+      const pin = resolveGatewayPin({ localhost: '127.0.0.2' }, base)
+      const request = gatewayFetch(pin, KEEP_ALIVE_MS)
+
+      await (await request(`${base}/`)).text()
+      expect(events.map(event => event.type)).toEqual(['create'])
+      expect(events[0]?.key).toBe(`localhost@127.0.0.2@${KEEP_ALIVE_MS}`)
+
+      await closeDispatcher()
+      expect(events.map(event => event.type)).toEqual(['create', 'close'])
+      expect(events[1]?.key).toBe(events[0]?.key)
+    } finally {
+      // The module-level observer outlives the test: unset it so no later
+      // case records into a dead array.
+      observePool(undefined)
+    }
   })
 })
 

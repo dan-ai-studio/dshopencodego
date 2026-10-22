@@ -29,6 +29,9 @@ function configFor(baseURL: string, overrides: Partial<OpencodeGoConfig> = {}): 
     modelLimits: {},
     modelProtocols: {},
     pinnedAddresses: {},
+    requestLogEnabled: false,
+    requestLogDebug: false,
+    requestLogMaxEntries: 200,
     ...overrides,
   }
 }

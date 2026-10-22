@@ -115,6 +115,9 @@ Configuration lives in the profile's `cordis.patch.yml`:
       some-new-model: openai-responses        # the only legal values are anthropic-messages / openai-completions / openai-responses
     pinnedAddresses:                           # fixed IP: host -> address (only the gateway host counts)
       opencode.ai: 104.18.32.47              # IPv4 or IPv6; an invalid or absent address uses the system DNS
+    requestLogEnabled: false                 # request-log master switch, default off: off reads byte-for-byte as without the log
+    requestLogDebug: false                   # debug detail: pool events and full session ids; otherwise sessions keep 8 chars
+    requestLogMaxEntries: 200                # most entries to keep, 50 to 500; oldest are dropped first
     retryPolicy:                              # optional: this route's retry policy, executed by dsh-llm-retry
       mode: normal                            # or always (retry every failure; maxRetries is ignored)
       maxRetries: 2                           # default 5
@@ -125,7 +128,7 @@ Configuration lives in the profile's `cordis.patch.yml`:
         jitterRatio: 0.1                      # default 0.1, range 0 ~ 1
 ```
 
-**Validated on save**: those constraints are checked when the profile is **written**, not at the first request — `baseURL` must be http(s) with no query or fragment; `refreshMinutes` ranges from 1 to 10080; `keepAliveTimeoutMs` ranges from 1 to 1800000; every `modelLimits` field may be `null`, meaning "select the catalog value explicitly" (`modelLimits.<id>: null` sends both fields back); `modelProtocols` accepts only those three values, and a wrong one makes that model appear as *configuration missing* (switch off, not selectable) rather than falling back to a guess; `retryPolicy` is a union (`normal` reads `maxRetries`/`retryableCodes`/`backoff`, `always` reads only `backoff`) and unknown keys are rejected.
+**Validated on save**: those constraints are checked when the profile is **written**, not at the first request — `baseURL` must be http(s) with no query or fragment; `refreshMinutes` ranges from 1 to 10080; `keepAliveTimeoutMs` ranges from 1 to 1800000; `requestLogMaxEntries` ranges from 50 to 500; every `modelLimits` field may be `null`, meaning "select the catalog value explicitly" (`modelLimits.<id>: null` sends both fields back); `modelProtocols` accepts only those three values, and a wrong one makes that model appear as *configuration missing* (switch off, not selectable) rather than falling back to a guess; `retryPolicy` is a union (`normal` reads `maxRetries`/`retryableCodes`/`backoff`, `always` reads only `backoff`) and unknown keys are rejected.
 
 The API key comes from the Harness credential store (reference name `OPENCODE_GO_API_KEY`), or from `export OPENCODE_GO_API_KEY=...`.
 
@@ -137,6 +140,11 @@ The API key comes from the Harness credential store (reference name `OPENCODE_GO
 - This only affects deployments that **pin an address** (`pinnedAddresses`): with no pin the request goes through the system's own fetch, and this plugin adds nothing to it.
 - The settings page shows and accepts the value in **seconds** (a number of milliseconds is not readable at a glance) and stores it in milliseconds. Range: 1 to 1800000 milliseconds.
 - Once a connection has been idle that long, the pool **reclaims it** on its own — no separate mechanism is needed. The actual release comes a couple of seconds later than the setting, which is the client's own small margin beyond the deadline the server states. When the plugin is unloaded, the pool is **closed with it**: the pool belongs to the plugin and should not be left behind on the machine.
+
+**Request log**: per-request records, off by default; enabling them changes nothing about what requests do. The settings page's "Request log" group holds the master switch, the debug switch (pool events and full session ids), and the retention count (default 200). The viewer filters by model / result / slow requests / session, groups by session / model / result, pages, and expands one row into its HTTP detail (method, URL, redacted headers, timing, result and usage).
+
+- The log is a ring buffer (oldest dropped first) that dies with the process; snapshots are read on demand, never polled, so a closed viewer costs no traffic.
+- The credential never enters a record: the recorder takes no headers argument at all, only the allowlisted session id and user agent. Failed requests are recorded with their error code; a request cut off before any terminal event is not recorded — no total reported, none invented.
 
 **Images**: three fields, one layer each. An image outside a bound is refused explicitly rather than silently downscaled or dropped:
 
@@ -273,7 +281,7 @@ npm test            # contract tests against a real local HTTP mock gateway
 
 **Order matters**: `npm run build` must come before `npm test` — `tests/pack-contents.spec.ts` walks every `exports` target, and whether `lib/` exists decides whether that check runs or is silently skipped (it does not fail, it just stops protecting you). `package.json` no longer carries `prepare`, so `npm ci` will not build for you; all three CI workflows run `npm run build` explicitly.
 
-The suite covers configuration validation, the protocol ladder, gateway and online metadata, the catalog projection, the adapter on the wire (all three protocols), Remote contracts and services, session-header invariants, usage windows and the meter, the client controller and usage pill, both halves' mounting and registration, the error mapping for stream idle timeouts and aborts, the exit-code contract of the verification scripts, and several **structural invariants** (inject declarations match the source's reads, peer coverage holds both ways, the READMEs match the manifest, and the READMEs' claims about the upstream match the upstream actually installed). That is **57 test files** — a number `tests/readme-consistency.spec.ts` checks against the `tests/` directory, so it cannot drift.
+The suite covers configuration validation, the protocol ladder, gateway and online metadata, the catalog projection, the adapter on the wire (all three protocols), Remote contracts and services, session-header invariants, usage windows and the meter, the client controller and usage pill, both halves' mounting and registration, the error mapping for stream idle timeouts and aborts, the exit-code contract of the verification scripts, and several **structural invariants** (inject declarations match the source's reads, peer coverage holds both ways, the READMEs match the manifest, and the READMEs' claims about the upstream match the upstream actually installed). That is **58 test files** — a number `tests/readme-consistency.spec.ts` checks against the `tests/` directory, so it cannot drift.
 
 ## Releasing (maintainers)
 

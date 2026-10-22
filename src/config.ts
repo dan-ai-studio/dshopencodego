@@ -24,6 +24,11 @@ import {
   MAX_KEEP_ALIVE_TIMEOUT_SECONDS,
   TIMER_CEILING_MS,
 } from './network/keep-alive.ts'
+import {
+  DEFAULT_REQUEST_LOG_MAX_ENTRIES,
+  MAX_REQUEST_LOG_MAX_ENTRIES,
+  MIN_REQUEST_LOG_MAX_ENTRIES,
+} from './request-log/limits.ts'
 
 export {
   DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
@@ -31,6 +36,12 @@ export {
   MAX_KEEP_ALIVE_TIMEOUT_MS,
   MAX_KEEP_ALIVE_TIMEOUT_SECONDS,
   TIMER_CEILING_MS,
+}
+
+export {
+  DEFAULT_REQUEST_LOG_MAX_ENTRIES,
+  MAX_REQUEST_LOG_MAX_ENTRIES,
+  MIN_REQUEST_LOG_MAX_ENTRIES,
 }
 
 /** Credential reference resolving the OpenCode Go API key. */
@@ -108,6 +119,23 @@ export interface OpencodeGoConfig {
    */
   modelProtocols: Record<string, string>
   /**
+   * Whether the per-request log records anything at all. Off by default: a
+   * disabled log changes nothing on the request path — not one extra
+   * allocation — because the recorder is never constructed.
+   */
+  requestLogEnabled: boolean
+  /**
+   * Whether the request log also records pool lifecycle and full session
+   * identity. Debug only: the common log carries a truncated session and no
+   * pool events, which is enough to follow one conversation.
+   */
+  requestLogDebug: boolean
+  /**
+   * How many request-log entries the Host keeps, oldest dropped first. Bounded
+   * so the log can never grow with the session.
+   */
+  requestLogMaxEntries: number
+  /**
    * Addresses a name should be sent to instead of the one the system
    * resolves, by host name. A name that is not listed keeps the system's
    * own resolution, and so keeps its own fallback.
@@ -141,6 +169,11 @@ const fields = {
     maxTokens: z.union([z.const(null), z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER)]),
   })])).default({}),
   modelProtocols: z.dict(z.string()).default({}),
+  // Off by default: the request path must read exactly as it does without
+  // the log, so the recorder is constructed only when this is true.
+  requestLogEnabled: z.boolean().default(false),
+  requestLogDebug: z.boolean().default(false),
+  requestLogMaxEntries: z.number().step(1).min(MIN_REQUEST_LOG_MAX_ENTRIES).max(MAX_REQUEST_LOG_MAX_ENTRIES).default(DEFAULT_REQUEST_LOG_MAX_ENTRIES),
   pinnedAddresses: z.dict(z.string()).default({}),
   retryPolicy: RetryPolicySchema,
 }

@@ -15,9 +15,16 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { CatalogReading } from '../catalog/contract.ts'
 import type { NetworkReading } from '../network/contract.ts'
+import type { RequestLogSnapshot } from '../request-log/contract.ts'
 import type { UpdateStatus } from '../update/contract.ts'
+import { RequestLogDialog } from './RequestLogDialog.tsx'
 import { PACKAGE_NAME, REPOSITORY } from '../update/check.ts'
 import { DEFAULT_KEEP_ALIVE_TIMEOUT_MS, MAX_KEEP_ALIVE_TIMEOUT_SECONDS } from '../network/keep-alive.ts'
+import {
+  DEFAULT_REQUEST_LOG_MAX_ENTRIES,
+  MAX_REQUEST_LOG_MAX_ENTRIES,
+  MIN_REQUEST_LOG_MAX_ENTRIES,
+} from '../request-log/limits.ts'
 import { SEED_TRANSCRIBED } from '../go-limits.ts'
 import { isModelEnabled } from '../models.ts'
 import { isAddress } from './address.ts'
@@ -36,6 +43,12 @@ interface SectionSettings {
   readonly pinnedAddresses: Record<string, string>
   /** Idle time a gateway connection is kept, in milliseconds. */
   readonly keepAliveTimeoutMs: number
+  /** Whether the per-request log records anything at all. */
+  readonly requestLogEnabled: boolean
+  /** Whether the request log keeps debug detail. */
+  readonly requestLogDebug: boolean
+  /** How many request-log entries the Host keeps. */
+  readonly requestLogMaxEntries: number
 }
 
 /** The read/write contract of the settings scope, structurally typed. */
@@ -101,6 +114,13 @@ export interface SectionServices {
      */
     readonly opencodeGoNetwork?: {
       readNetwork(): Promise<RemoteResult<NetworkReading>>
+    }
+    /**
+     * The request-log snapshot. Optional for the same mount-ordering reason:
+     * without it the viewer button stays hidden rather than failing.
+     */
+    readonly opencodeGoRequestLog?: {
+      readLog(): Promise<RemoteResult<RequestLogSnapshot>>
     }
     readonly credentials: {
       describe(refs: string[]): Promise<RemoteResult<Record<string, { configured: boolean }>>>
@@ -170,6 +190,8 @@ interface SectionState {
   readonly filter: ModelFilter
   /** One-click update panel; `idle` renders nothing. */
   readonly update: UpdatePanel
+  /** The request-log viewer; closed renders nothing. */
+  readonly requestLogOpen: boolean
 }
 
 /** How long a burst of switch flips is coalesced before one settings write. */
@@ -190,6 +212,7 @@ const INITIAL: SectionState = {
   saving: false,
   filter: INITIAL_FILTER,
   update: { phase: 'idle', status: undefined, message: undefined },
+  requestLogOpen: false,
 }
 
 /** Read the fields this page owns out of a settings snapshot value. */
@@ -210,11 +233,21 @@ function settingsOf(value: unknown): SectionSettings | undefined {
   // schema's own default then applies — the same number an unwritten field
   // means everywhere else.
   const keepAlive = record['keepAliveTimeoutMs']
+  // The request-log switches default off: an old profile must read exactly
+  // as before, with no recording until the owner opts in.
+  const requestLogEnabled = record['requestLogEnabled']
+  const requestLogDebug = record['requestLogDebug']
+  const requestLogMaxEntries = record['requestLogMaxEntries']
   return {
     modelVisibility: Object.fromEntries(entries) as Record<string, boolean>,
     refreshMinutes: minutes,
     pinnedAddresses: Object.fromEntries(pinEntries) as Record<string, string>,
     keepAliveTimeoutMs: typeof keepAlive === 'number' ? keepAlive : DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
+    requestLogEnabled: typeof requestLogEnabled === 'boolean' ? requestLogEnabled : false,
+    requestLogDebug: typeof requestLogDebug === 'boolean' ? requestLogDebug : false,
+    requestLogMaxEntries: typeof requestLogMaxEntries === 'number'
+      ? requestLogMaxEntries
+      : DEFAULT_REQUEST_LOG_MAX_ENTRIES,
   }
 }
 
@@ -316,6 +349,19 @@ export class SectionController {
         networkFailure: error instanceof Error ? error.message : 'the gateway pin could not be read',
       })
     }
+  }
+
+  /**
+   * Read one request-log snapshot for the viewer. The viewer opens it on
+   * demand and refreshes it when asked; nothing polls, so a closed viewer
+   * costs no wire traffic at all.
+   */
+  async readRequestLog(): Promise<RequestLogSnapshot> {
+    const remote = this.services.remote.opencodeGoRequestLog
+    if (remote === undefined) throw new Error('the request-log Remote is not mounted')
+    const result = await remote.readLog()
+    if (!result.ok) throw result.error
+    return result.value
   }
 
   /**
@@ -664,6 +710,62 @@ export class SectionController {
     )
   }
 
+  /**
+   * Flip the request-log master switch. Off (the default) means no record is
+   * kept and the request path reads exactly as without the log.
+   */
+  async setRequestLogEnabled(enabled: boolean): Promise<void> {
+    const scope = this.services.scope
+    const current = this.state.settings
+    if (scope === undefined || current === undefined || !this.state.writable) return
+    if (typeof enabled !== 'boolean') return
+    await this.write(
+      () => scope.set('requestLogEnabled', enabled),
+      () => this.set({ settings: { ...current, requestLogEnabled: enabled } }),
+    )
+  }
+
+  /**
+   * Flip request-log debug detail. Only recorded while the master switch is
+   * on; the page does not enforce the pairing, the recorder does.
+   */
+  async setRequestLogDebug(debug: boolean): Promise<void> {
+    const scope = this.services.scope
+    const current = this.state.settings
+    if (scope === undefined || current === undefined || !this.state.writable) return
+    if (typeof debug !== 'boolean') return
+    await this.write(
+      () => scope.set('requestLogDebug', debug),
+      () => this.set({ settings: { ...current, requestLogDebug: debug } }),
+    )
+  }
+
+  /**
+   * Set how many request-log entries the Host keeps, clamped to the schema's
+   * own bounds. A lowered bound trims on the next read; raising it backfills
+   * nothing.
+   */
+  async setRequestLogMaxEntries(entries: number): Promise<void> {
+    const scope = this.services.scope
+    const current = this.state.settings
+    if (scope === undefined || current === undefined || !this.state.writable) return
+    if (!Number.isSafeInteger(entries) || entries < MIN_REQUEST_LOG_MAX_ENTRIES || entries > MAX_REQUEST_LOG_MAX_ENTRIES) return
+    await this.write(
+      () => scope.set('requestLogMaxEntries', entries),
+      () => this.set({ settings: { ...current, requestLogMaxEntries: entries } }),
+    )
+  }
+
+  /** Open the request-log viewer. */
+  openRequestLog(): void {
+    this.set({ requestLogOpen: true })
+  }
+
+  /** Close the request-log viewer. */
+  closeRequestLog(): void {
+    this.set({ requestLogOpen: false })
+  }
+
   private async write(operation: () => Promise<void | boolean>, onAccepted?: () => void): Promise<void> {
     this.set({ saving: true })
     try {
@@ -981,6 +1083,52 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
         />
         <span className={css.hint}>{t('keepAliveHint')}</span>
       </div>
+      <div className={css.row}>
+        <strong>{t('requestLogTitle')}</strong>
+      </div>
+      <p className={css.hint}>{t('requestLogHint')}</p>
+      <div className={css.row}>
+        <label className={css.hint}>
+          <input
+            type="checkbox"
+            checked={state.settings?.requestLogEnabled ?? false}
+            disabled={!editable || state.saving}
+            onChange={event => { void act(async () => { await controller.setRequestLogEnabled(event.target.checked) }) }}
+          />
+          {` ${t('requestLogEnabled')}`}
+        </label>
+      </div>
+      <div className={css.row}>
+        <label className={css.hint}>
+          <input
+            type="checkbox"
+            checked={state.settings?.requestLogDebug ?? false}
+            disabled={!editable || state.saving}
+            onChange={event => { void act(async () => { await controller.setRequestLogDebug(event.target.checked) }) }}
+          />
+          {` ${t('requestLogDebug')}`}
+        </label>
+        <span className={css.hint}>{t('requestLogDebugHint')}</span>
+      </div>
+      <div className={css.row}>
+        <label className={css.hint} htmlFor="dshopencodego-requestlog-max">{t('requestLogMaxEntries')}</label>
+        <input
+          id="dshopencodego-requestlog-max"
+          className={css.number}
+          type="number"
+          min={MIN_REQUEST_LOG_MAX_ENTRIES}
+          max={MAX_REQUEST_LOG_MAX_ENTRIES}
+          disabled={!editable || state.saving}
+          value={state.settings?.requestLogMaxEntries ?? ''}
+          onChange={event => { void act(async () => { await controller.setRequestLogMaxEntries(Number(event.target.value)) }) }}
+        />
+        <span className={css.hint}>{t('requestLogMaxEntriesHint')}</span>
+      </div>
+      <div className={css.row}>
+        <button type="button" className={css.button} onClick={() => { controller.openRequestLog() }}>
+          {t('requestLogOpen')}
+        </button>
+      </div>
       {state.writeFailure !== undefined && <p className={css.warn}>
         {state.writeFailure.kind === 'rejected'
           ? t('writeRejected')
@@ -1067,5 +1215,12 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
         })}
       </div>}
     </div>
+    {state.requestLogOpen && <RequestLogDialog
+      readLog={() => controller.readRequestLog()}
+      enabled={state.settings?.requestLogEnabled ?? false}
+      t={t}
+      getLocale={getLocale}
+      onClose={() => { controller.closeRequestLog() }}
+    />}
   </section>
 }

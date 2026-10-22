@@ -1,5 +1,5 @@
 /**
- * Remote registration: one package, one contribution, both namespaces.
+ * Remote registration: one package, one contribution, all namespaces.
  *
  * The settings page mounts `remote.opencodeGoCatalog` and `remote.opencodeGoUsage`;
  * a contribution missing either half leaves a live page silently incomplete, so
@@ -31,6 +31,7 @@ describe('registerRemotes', () => {
       'opencodeGoCatalog/read',
       'opencodeGoCatalog/refresh',
       'opencodeGoNetwork/readNetwork',
+      'opencodeGoRequestLog/readLog',
       'opencodeGoUpdate/readUpdate',
       'opencodeGoUpdate/refreshUpdate',
       'opencodeGoUsage/readMeter',

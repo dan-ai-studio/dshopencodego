@@ -114,6 +114,9 @@ DSH 桌面端是 Electron 壳 + 完整的 dsh Web 应用，本插件对它同样
       some-new-model: openai-responses        # 合法值只有 anthropic-messages / openai-completions / openai-responses
     pinnedAddresses:                           # 固定 IP：域名 → 地址（只对网关域名生效）
       opencode.ai: 104.18.32.47              # 可写 IPv4 或 IPv6；不合法或未设置时走系统 DNS
+    requestLogEnabled: false                 # 请求日志总开关，默认关闭：关闭时请求路径与没有该日志逐字节一致
+    requestLogDebug: false                   # 排错详情：连接池事件与完整会话 id；不开启则会话只保留前 8 位
+    requestLogMaxEntries: 200                # 最多保留条数，50 ~ 500，超限丢弃最旧的
     retryPolicy:                              # 可选：本路由的重试策略（由 dsh-llm-retry 执行）
       mode: normal                            # 也可用 always（对所有失败重试，maxRetries 被忽略）
       maxRetries: 2                           # 默认 5
@@ -124,7 +127,7 @@ DSH 桌面端是 Electron 壳 + 完整的 dsh Web 应用，本插件对它同样
         jitterRatio: 0.1                      # 默认 0.1，取值 0 ~ 1
 ```
 
-**保存即校验**：上面这些约束在**写入 profile 时**就检查，不会拖到第一次请求——`baseURL` 必须是 http(s) 且不带 query/fragment；`refreshMinutes` 取值 1 ~ 10080；`keepAliveTimeoutMs` 取值 1 ~ 1800000；`modelLimits` 的每个字段都可以写 `null`，语义是"显式选回目录值"（`modelLimits.<模型>: null` 表示两个字段一起回退）；`modelProtocols` 只接受那三个合法值，写错会让该模型以"配置缺失"出现（开关关闭、不可选），而不是回退到猜测；`retryPolicy` 是联合类型（`normal` 读 `maxRetries`/`retryableCodes`/`backoff`，`always` 只读 `backoff`），未知字段会被拒绝。
+**保存即校验**：上面这些约束在**写入 profile 时**就检查，不会拖到第一次请求——`baseURL` 必须是 http(s) 且不带 query/fragment；`refreshMinutes` 取值 1 ~ 10080；`keepAliveTimeoutMs` 取值 1 ~ 1800000；`requestLogMaxEntries` 取值 50 ~ 500；`modelLimits` 的每个字段都可以写 `null`，语义是"显式选回目录值"（`modelLimits.<模型>: null` 表示两个字段一起回退）；`modelProtocols` 只接受那三个合法值，写错会让该模型以"配置缺失"出现（开关关闭、不可选），而不是回退到猜测；`retryPolicy` 是联合类型（`normal` 读 `maxRetries`/`retryableCodes`/`backoff`，`always` 只读 `backoff`），未知字段会被拒绝。
 
 API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），也可以直接 `export OPENCODE_GO_API_KEY=...`。
 
@@ -136,6 +139,11 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 - 这条只影响**固定了地址**（`pinnedAddresses`）的部署：没有固定地址时走的是系统自己的 fetch，本插件不加任何东西。
 - 设置页里以**秒**显示与填写（毫秒的数字人读不出量级），存储时换算成毫秒。取值 1 ~ 1800000 毫秒。
 - 空闲满这个时间之后，连接由连接池**自己回收**，不需要额外的清理机制（实际释放时间比设置值多约 2 秒，那是客户端在服务端给的期限之外自留的一点缓冲）。插件被卸载时，连接池也会**一并关掉**——它是插件的，不该留在机器上。
+
+**请求日志**：默认关闭的逐请求记录，打开它不改变请求的任何行为。设置页"请求日志"分组里有总开关、排错详情开关（连接池事件与完整会话 id）、保留条数（默认 200）。查看器支持按模型／结果／慢请求／会话筛选、按会话／模型／结果分组、分页，以及点击看单条 HTTP 明细（方法、地址、脱敏后的请求头、耗时线、结果与用量）。
+
+- 记录的是环形缓冲（超限丢最旧），进程重启即清；只读快照，不轮询，关闭查看器零流量。
+- 凭据永远不进记录：记录器根本不接收请求头参数，只收白名单里的会话 id 与 UA；失败的请求同样记一条（含错误码），中断到没有终端事件的不记（网关没报总数就不编数）。
 
 **图片**：三个字段各管一层，超限的图片会被明确拒绝，而不是静默降质或丢弃：
 
@@ -272,7 +280,7 @@ npm test            # 契约测试：真实 HTTP mock 网关，断言请求头/�
 
 **顺序有讲究**：`npm run build` 要排在 `npm test` 之前——`tests/pack-contents.spec.ts` 会遍历 `exports` 的每个目标，`lib/` 存在与否决定这条检查是执行还是被跳过（不报错，但会少一层保护）。`package.json` 已移除 `prepare`，因此 `npm ci` 不会再替你隐式构建；三个 CI workflow 都显式跑了 `npm run build`。
 
-测试覆盖配置校验、协议阶梯、网关与在线元数据、目录投影、适配器（三种协议的线上请求）、Remote 契约与服务、会话头不变量、用量窗口与计量、客户端控制器与用量组件、两半的挂载与登记、流空闲超时与中止的错误映射、验证脚本的退出码契约、以及几条**结构性不变量**（inject 声明与源码读取一致、peer 覆盖双向、README 与 manifest 一致、README 对上游的断言与实装的上游一致）。共 **57 个测试文件**——这个数字由 `tests/readme-consistency.spec.ts` 对着 `tests/` 目录校验，不会漂移。
+测试覆盖配置校验、协议阶梯、网关与在线元数据、目录投影、适配器（三种协议的线上请求）、Remote 契约与服务、会话头不变量、用量窗口与计量、客户端控制器与用量组件、两半的挂载与登记、流空闲超时与中止的错误映射、验证脚本的退出码契约、以及几条**结构性不变量**（inject 声明与源码读取一致、peer 覆盖双向、README 与 manifest 一致、README 对上游的断言与实装的上游一致）。共 **58 个测试文件**——这个数字由 `tests/readme-consistency.spec.ts` 对着 `tests/` 目录校验，不会漂移。
 
 ## 发布（维护者）
 

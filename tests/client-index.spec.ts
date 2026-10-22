@@ -20,6 +20,7 @@ function scope() {
       opencodeGoUpdate: {},
       opencodeGoUsage: {},
       opencodeGoNetwork: {},
+      opencodeGoRequestLog: {},
       pluginManager: {},
       credentials: {},
     },
@@ -64,6 +65,7 @@ describe('client apply', () => {
       'opencodeGoCatalog/read',
       'opencodeGoCatalog/refresh',
       'opencodeGoNetwork/readNetwork',
+      'opencodeGoRequestLog/readLog',
       'opencodeGoUpdate/readUpdate',
       'opencodeGoUpdate/refreshUpdate',
       'opencodeGoUsage/readMeter',
@@ -90,7 +92,7 @@ describe('client apply', () => {
     // read through the lenient `ctx.get()` so a composition without a plugin
     // manager still renders this section.
     expect(injected.map(([services]) => services)).toEqual([
-      ['configForms', 'remote.opencodeGoCatalog', 'remote.opencodeGoUpdate', 'remote.opencodeGoNetwork', 'remote.credentials'],
+      ['configForms', 'remote.opencodeGoCatalog', 'remote.opencodeGoUpdate', 'remote.opencodeGoNetwork', 'remote.opencodeGoRequestLog', 'remote.credentials'],
       ['modelDirectories', 'remote.opencodeGoUsage'],
     ])
   })

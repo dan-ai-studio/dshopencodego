@@ -29,6 +29,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import dc from 'node:diagnostics_channel'
 // Type-only: pulls the loader's `ctx.fiber.entry` merge, which supplies this
 // mount's entry id — the settings namespace both discovery and the DSH Models
 // page are keyed by.
@@ -45,8 +46,9 @@ import { assertBaseURL, PlainConfig, readConfig } from './config.ts'
 import type { LiveConfig, OpencodeGoConfig } from './config.ts'
 import { registerRemotes } from './remotes.ts'
 import { OpencodeGoCatalogService } from './catalog/service.ts'
-import { closeDispatcher, gatewayFetch as fetchThroughPin, resolveGatewayPin } from './network/pinning.ts'
+import { closeDispatcher, gatewayFetch as fetchThroughPin, observePool, resolveGatewayPin } from './network/pinning.ts'
 import { OpencodeGoNetworkService } from './network/service.ts'
+import { OpencodeGoRequestLogService, RequestLog } from './request-log/index.ts'
 import { OpencodeGoUpdateService } from './update/index.ts'
 import { PLUGIN_VERSION } from './update/index.ts'
 import { OpencodeGoUsageService, UsageMeter } from './usage/index.ts'
@@ -166,6 +168,38 @@ export function apply(ctx: Context, raw?: unknown): void {
   const meter = new UsageMeter()
   const cacheDir = resolveCacheDir(ctx)
   /**
+   * The per-request log. Disabled by default, and then it costs nothing:
+   * `start` returns undefined without constructing a span, pool events are
+   * still observed (rare by construction) but dropped on the floor, and the
+   * fetch below is the pin's own.
+   *
+   * The gates read the live configuration on every call, so flipping the
+   * switches in the settings page takes effect on the next request without
+   * a restart — and turning them off returns the request path to exactly
+   * what it was.
+   */
+  const requestLog = new RequestLog({
+    enabled: () => current().requestLogEnabled,
+    debug: () => current().requestLogDebug,
+    maxEntries: () => current().requestLogMaxEntries,
+  })
+  // Pool lifecycle is rare by construction (pools live for minutes), so
+  // observing it costs nothing on the request path. The store itself drops
+  // the events unless debug mode is on.
+  observePool({
+    create: (key) => { requestLog.poolEvent('create', key) },
+    close: (key) => { requestLog.poolEvent('close', key) },
+  })
+  // New connections are counted here, not on the request path: the channel
+  // only fires when a socket is actually established, which is exactly the
+  // event keep-alive exists to avoid.
+  ctx.effect(() => {
+    const channel = dc.channel('undici:client:connected')
+    const onConnect = (): void => { requestLog.connectionOpened() }
+    channel.subscribe(onConnect)
+    return () => { channel.unsubscribe(onConnect) }
+  }, 'dshopencodego: connection counter')
+  /**
    * The fetch every gateway request is made through.
    *
    * The pin is read from the live configuration on every call, so a profile
@@ -200,6 +234,7 @@ export function apply(ctx: Context, raw?: unknown): void {
       ctx.logger.warn(`dshopencodego: unusable replay state on assistant history; sending provider-neutral content (${reason})`)
     },
     onUsage: ({ model, usage }) => { meter.record(model, usage) },
+    requestLog,
   })
 
   // The usage Remote is mounted before the route so a picker can read it even
@@ -210,6 +245,11 @@ export function apply(ctx: Context, raw?: unknown): void {
     resolveApiKey,
     meter,
     fetch: gatewayRequest,
+  })
+  // The viewer reads this on demand; a closed viewer costs no wire traffic.
+  ctx.plugin(OpencodeGoRequestLogService, {
+    log: requestLog,
+    maxEntries: () => current().requestLogMaxEntries,
   })
   ctx.plugin(OpencodeGoNetworkService, {
     baseURL: () => current().baseURL,

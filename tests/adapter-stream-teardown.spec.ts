@@ -166,6 +166,9 @@ function configFor(baseURL: string, streamIdleTimeoutMs: number): OpencodeGoConf
     modelLimits: {},
     modelProtocols: {},
     pinnedAddresses: {},
+    requestLogEnabled: false,
+    requestLogDebug: false,
+    requestLogMaxEntries: 200,
   }
 }
 

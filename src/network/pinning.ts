@@ -138,6 +138,27 @@ function pinnedLookup(address: string): LookupFunction {
 let current: { key: string; agent: Dispatcher } | undefined
 
 /**
+ * Pool lifecycle observer. Pools live for minutes, so these events are rare
+ * by construction — observing them costs nothing on the request path.
+ */
+export interface PoolObserver {
+  /** A new pool was built for this key. */
+  create(key: string): void
+  /** The pool for this key was closed. */
+  close(key: string): void
+}
+
+let observer: PoolObserver | undefined
+
+/**
+ * Watch pool lifecycle. The request log sets this when its debug mode is on;
+ * unset it (or never set it) and the pool code reads exactly as before.
+ */
+export function observePool(next: PoolObserver | undefined): void {
+  observer = next
+}
+
+/**
  * The dispatcher that sends the gateway's name to one address.
  *
  * The agent is kept while the pin is unchanged: an agent owns a connection
@@ -161,13 +182,16 @@ let current: { key: string; agent: Dispatcher } | undefined
 function dispatcherFor(host: string, address: string, keepAliveTimeoutMs: number): Dispatcher {
   const key = `${host}@${address}@${String(keepAliveTimeoutMs)}`
   if (current?.key === key) return current.agent
-  void current?.agent.close()
+  const previous = current
+  void previous?.agent.close()
+  if (previous !== undefined) observer?.close(previous.key)
   const agent = new Agent({
     connect: { lookup: pinnedLookup(address) },
     keepAliveTimeout: keepAliveTimeoutMs,
     keepAliveMaxTimeout: keepAliveTimeoutMs,
   })
   current = { key, agent }
+  observer?.create(key)
   return agent
 }
 
@@ -179,7 +203,9 @@ function dispatcherFor(host: string, address: string, keepAliveTimeoutMs: number
  */
 export async function closeDispatcher(): Promise<void> {
   const agent = current?.agent
+  const key = current?.key
   current = undefined
+  if (key !== undefined) observer?.close(key)
   if (agent !== undefined) await agent.close()
 }
 

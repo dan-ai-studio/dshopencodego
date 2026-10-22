@@ -137,6 +137,9 @@ function configFor(baseURL: string): OpencodeGoConfig {
     modelLimits: {},
     modelProtocols: {},
     pinnedAddresses: {},
+    requestLogEnabled: false,
+    requestLogDebug: false,
+    requestLogMaxEntries: 200,
   }
 }
 

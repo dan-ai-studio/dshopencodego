@@ -1,0 +1,350 @@
+/**
+ * The request log: bounded, redacted, and inert when disabled.
+ *
+ * Three properties make this log safe to keep next to the request path, and
+ * each is asserted here rather than trusted to a comment:
+ *
+ * - disabled costs nothing observable: `start` returns undefined and no
+ *   span — and no entry — is ever constructed;
+ * - the credential can never reach a record: the recorder takes no headers
+ *   argument at all, so even a caller that tried to hand one over has
+ *   nowhere to put it, and the snapshot is asserted to carry no secret;
+ * - the ring is bounded: the oldest entries are dropped past the configured
+ *   maximum, pool events are capped separately, and lowering the bound trims
+ *   immediately rather than on the next request.
+ */
+import { afterEach, describe, expect, it } from 'vitest'
+import { OpencodeGoAdapter } from '../src/adapter.ts'
+import type { OpencodeGoConfig } from '../src/config.ts'
+import { parseRequestLogSnapshot } from '../src/request-log/contract.ts'
+import { RequestLog } from '../src/request-log/store.ts'
+import type { RequestLogGates, RequestStart } from '../src/request-log/store.ts'
+import { modelsDevDocument, offlineDocument, startMockGateway, stubModelsDev } from './mock-gateway.ts'
+import type { MockGateway } from './mock-gateway.ts'
+function gates(overrides: Partial<{ enabled: boolean; debug: boolean; maxEntries: number }> = {}): RequestLogGates {
+  return {
+    enabled: () => overrides.enabled ?? true,
+    debug: () => overrides.debug ?? false,
+    maxEntries: () => overrides.maxEntries ?? 200,
+  }
+}
+
+function start(detail: Partial<RequestStart> = {}): RequestStart {
+  return {
+    model: 'glm-5.3',
+    sessionId: 'session-abcdef0123456789',
+    messageCount: 3,
+    hasImage: false,
+    toolCount: 0,
+    headers: {},
+    ...detail,
+  }
+}
+
+function record(log: RequestLog, detail: Partial<RequestStart> = {}): void {
+  const span = log.start(start(detail))
+  expect(span).toBeDefined()
+  span?.firstToken()
+  span?.status(200)
+  span?.finish(true, undefined, { inputTokens: 10, outputTokens: 5, cacheReadTokens: 3 })
+}
+
+describe('RequestLog', () => {
+  it('records nothing while disabled, not even a span', () => {
+    const log = new RequestLog(gates({ enabled: false }))
+    expect(log.start(start())).toBeUndefined()
+    expect(log.snapshot()).toEqual({
+      entries: [],
+      poolEvents: [],
+      totalRecords: 0,
+      droppedRecords: 0,
+      newConnections: 0,
+    })
+  })
+
+  it('records one entry per finished span, newest first', () => {
+    const log = new RequestLog(gates())
+    record(log)
+    record(log, { model: 'kimi-k3' })
+    const snapshot = log.snapshot()
+    expect(snapshot.entries).toHaveLength(2)
+    expect(snapshot.entries.map(entry => entry.model)).toEqual(['kimi-k3', 'glm-5.3'])
+    expect(snapshot.entries.map(entry => entry.seq)).toEqual([2, 1])
+    expect(snapshot.totalRecords).toBe(2)
+    expect(snapshot.droppedRecords).toBe(0)
+    const first = snapshot.entries[1]!
+    expect(first.ok).toBe(true)
+    expect(first.status).toBe(200)
+    expect(first.inputTokens).toBe(10)
+    expect(first.outputTokens).toBe(5)
+    expect(first.cacheReadTokens).toBe(3)
+    expect(first.durationMs).toBeGreaterThanOrEqual(0)
+    expect(first.firstTokenMs).toBeGreaterThanOrEqual(0)
+    expect(first.shape).toEqual({ messages: 3, hasImage: false, tools: 0 })
+  })
+
+  it('closes an unfinished span with the failure code, exactly once', () => {
+    const log = new RequestLog(gates())
+    const span = log.start(start())
+    span?.status(500)
+    span?.finish(false, 'TRANSPORT')
+    span?.finish(false, 'TRANSPORT')
+    const snapshot = log.snapshot()
+    expect(snapshot.entries).toHaveLength(1)
+    expect(snapshot.entries[0]).toMatchObject({ ok: false, code: 'TRANSPORT', status: 500 })
+    expect(snapshot.totalRecords).toBe(1)
+  })
+
+  it('truncates the session id unless debug mode is on', () => {
+    const plain = new RequestLog(gates())
+    record(plain)
+    expect(plain.snapshot().entries[0]?.session).toBe('session-')
+
+    const debug = new RequestLog(gates({ debug: true }))
+    record(debug)
+    expect(debug.snapshot().entries[0]?.session).toBe('session-abcdef0123456789')
+  })
+
+  it('keeps only allowlisted headers, and never the credential', () => {
+    const debug = new RequestLog(gates({ debug: true }))
+    const span = debug.start(start({
+      headers: {
+        session: 'session-abcdef0123456789',
+        userAgent: 'deepseek-harness/0.2.1',
+        // A caller that tried to smuggle a credential has nowhere to put it:
+        // the type carries no such field, so this only compiles by force.
+        authorization: 'Bearer SECRET',
+      } as RequestStart['headers'] & { authorization: string },
+    }))
+    span?.finish(true)
+    const snapshot = debug.snapshot()
+    expect(snapshot.entries).toHaveLength(1)
+    expect(snapshot.entries[0]?.headers).toEqual({
+      session: 'session-abcdef0123456789',
+      userAgent: 'deepseek-harness/0.2.1',
+    })
+    expect(JSON.stringify(snapshot)).not.toContain('SECRET')
+    expect(JSON.stringify(snapshot)).not.toContain('authorization')
+  })
+
+  it('drops the oldest entries past the bound and counts them', () => {
+    const log = new RequestLog(gates({ maxEntries: 3 }))
+    for (let index = 0; index < 5; index++) record(log, { model: `model-${index}` })
+    const snapshot = log.snapshot()
+    expect(snapshot.entries.map(entry => entry.model)).toEqual(['model-4', 'model-3', 'model-2'])
+    expect(snapshot.totalRecords).toBe(5)
+    expect(snapshot.droppedRecords).toBe(2)
+  })
+
+  it('trims immediately when the bound is lowered', () => {
+    const log = new RequestLog(gates({ maxEntries: 200 }))
+    for (let index = 0; index < 5; index++) record(log)
+    expect(log.snapshot().entries).toHaveLength(5)
+    log.setMaxEntries(2)
+    const snapshot = log.snapshot()
+    expect(snapshot.entries).toHaveLength(2)
+    expect(snapshot.droppedRecords).toBe(3)
+    // Raising it backfills nothing.
+    log.setMaxEntries(200)
+    expect(log.snapshot().entries).toHaveLength(2)
+  })
+
+  it('ignores a nonsense bound instead of emptying the log', () => {
+    const log = new RequestLog(gates())
+    record(log)
+    log.setMaxEntries(0)
+    log.setMaxEntries(Number.NaN)
+    expect(log.snapshot().entries).toHaveLength(1)
+  })
+
+  it('records pool lifecycle only in debug mode', () => {
+    const plain = new RequestLog(gates())
+    plain.poolEvent('create', 'host@addr@1')
+    plain.poolEvent('close', 'host@addr@1')
+    expect(plain.snapshot().poolEvents).toEqual([])
+
+    const debug = new RequestLog(gates({ debug: true }))
+    debug.poolEvent('create', 'host@addr@1')
+    debug.poolEvent('close', 'host@addr@1')
+    expect(debug.snapshot().poolEvents.map(event => event.type)).toEqual(['close', 'create'])
+    expect(debug.snapshot().poolKey).toBeUndefined()
+  })
+
+  it('tracks the pool in force and the reuse denominator', () => {
+    const debug = new RequestLog(gates({ debug: true }))
+    debug.poolEvent('create', 'host@addr@1')
+    debug.connectionOpened()
+    debug.connectionOpened()
+    record(debug)
+    record(debug)
+    record(debug)
+    const snapshot = debug.snapshot()
+    expect(snapshot.poolKey).toBe('host@addr@1')
+    expect(snapshot.newConnections).toBe(2)
+    expect(snapshot.totalRecords).toBe(3)
+  })
+
+  it('round-trips through the wire codec and refuses garbage', () => {
+    const log = new RequestLog(gates({ debug: true }))
+    log.poolEvent('create', 'host@addr@1')
+    record(log)
+    const snapshot = log.snapshot()
+    expect(parseRequestLogSnapshot(JSON.parse(JSON.stringify(snapshot)))).toEqual(snapshot)
+    expect(() => parseRequestLogSnapshot(null)).toThrow()
+    expect(() => parseRequestLogSnapshot({})).toThrow()
+    expect(() => parseRequestLogSnapshot({ ...snapshot, entries: [{ ...snapshot.entries[0], seq: -1 }] })).toThrow()
+  })
+})
+
+/** A full adapter config; the request-log fields ride along like any other. */
+function configFor(baseURL: string): OpencodeGoConfig {
+  return {
+    enabled: true,
+    modelVisibility: {},
+    apiKeyEnv: 'OPENCODE_GO_API_KEY',
+    baseURL,
+    refreshMinutes: 60,
+    streamIdleTimeoutMs: 30_000,
+    keepAliveTimeoutMs: 600_000,
+    maxRequestImageBytes: 6_000_000,
+    requestImagePixelBudget: 1_440_000,
+    requestImageMaxBytes: 400_000,
+    modelLimits: {},
+    modelProtocols: {},
+    pinnedAddresses: {},
+    requestLogEnabled: true,
+    requestLogDebug: false,
+    requestLogMaxEntries: 200,
+  }
+}
+
+const gateways: MockGateway[] = []
+
+afterEach(async () => {
+  await Promise.all(gateways.splice(0).map(gateway => gateway.close()))
+})
+
+async function drain(stream: AsyncIterable<unknown>): Promise<void> {
+  for await (const chunk of stream) {
+    if (chunk === undefined) break
+  }
+}
+
+describe('request log on the wire', () => {
+  it('records a completed request with the wire line and the terminal counts', async () => {
+    const server = await startMockGateway({ listing: ['glm-5.3'] })
+    gateways.push(server)
+    const stub = stubModelsDev(modelsDevDocument({
+      'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 128_000, output: 8_192 } },
+    }))
+    const log = new RequestLog({
+      enabled: () => true,
+      debug: () => false,
+      maxEntries: () => 200,
+    })
+    try {
+      const adapter = new OpencodeGoAdapter({
+        config: () => configFor(server.baseURL),
+        resolveApiKey: async () => 'test-key',
+        readDocument: offlineDocument(),
+        fetch: () => globalThis.fetch,
+        requestLog: log,
+      })
+      await drain(adapter.stream({
+        provider: 'opencode-go',
+        model: 'glm-5.3',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+        sessionId: 'session-abcdef0123456789' as never,
+      }))
+      const snapshot = log.snapshot()
+      expect(snapshot.entries).toHaveLength(1)
+      const entry = snapshot.entries[0]!
+      expect(entry.model).toBe('glm-5.3')
+      // The common log truncates the session; the full value is debug-only.
+      expect(entry.session).toBe('session-')
+      expect(entry.method).toBe('POST')
+      expect(entry.url).toContain('/chat/completions')
+      expect(entry.status).toBe(200)
+      expect(entry.ok).toBe(true)
+      expect(entry.code).toBeUndefined()
+      // The mock answers 11 prompt tokens with 5 served from cache.
+      expect(entry.inputTokens).toBe(6)
+      expect(entry.outputTokens).toBe(3)
+      expect(entry.cacheReadTokens).toBe(5)
+      expect(entry.durationMs).toEqual(expect.any(Number))
+      expect(entry.firstTokenMs).toEqual(expect.any(Number))
+      expect(entry.headers).toBeUndefined()
+    } finally {
+      stub.restore()
+    }
+  })
+
+  it('records nothing when disabled, and the request is untouched', async () => {
+    const server = await startMockGateway({ listing: ['glm-5.3'] })
+    gateways.push(server)
+    const stub = stubModelsDev(modelsDevDocument({
+      'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 128_000, output: 8_192 } },
+    }))
+    const log = new RequestLog({
+      enabled: () => false,
+      debug: () => false,
+      maxEntries: () => 200,
+    })
+    try {
+      const adapter = new OpencodeGoAdapter({
+        config: () => configFor(server.baseURL),
+        resolveApiKey: async () => 'test-key',
+        readDocument: offlineDocument(),
+        fetch: () => globalThis.fetch,
+        requestLog: log,
+      })
+      let text = false
+      for await (const chunk of adapter.stream({
+        provider: 'opencode-go',
+        model: 'glm-5.3',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      })) {
+        if (chunk.type === 'text-delta') text = true
+      }
+      expect(text).toBe(true)
+      expect(log.snapshot().totalRecords).toBe(0)
+    } finally {
+      stub.restore()
+    }
+  })
+
+  it('records a failed request with its code', async () => {
+    const server = await startMockGateway({
+      listing: ['glm-5.3'],
+      streamBody: 'data: {"error":{"message":"Streaming response failed: [internal_error] Internal server error. Please retry your request."}}\n\n',
+    })
+    gateways.push(server)
+    const stub = stubModelsDev(modelsDevDocument({
+      'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 128_000, output: 8_192 } },
+    }))
+    const log = new RequestLog({
+      enabled: () => true,
+      debug: () => false,
+      maxEntries: () => 200,
+    })
+    try {
+      const adapter = new OpencodeGoAdapter({
+        config: () => configFor(server.baseURL),
+        resolveApiKey: async () => 'test-key',
+        readDocument: offlineDocument(),
+        fetch: () => globalThis.fetch,
+        requestLog: log,
+      })
+      await drain(adapter.stream({
+        provider: 'opencode-go',
+        model: 'glm-5.3',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      }))
+      const snapshot = log.snapshot()
+      expect(snapshot.entries).toHaveLength(1)
+      expect(snapshot.entries[0]).toMatchObject({ ok: false, code: 'SERVER', status: 200 })
+    } finally {
+      stub.restore()
+    }
+  })
+})

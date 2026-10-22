@@ -21,6 +21,7 @@ import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 import {
   attributionHeaders,
   contentHasImage,
+  isTokenDelta,
   LlmAdapter,
   LlmError,
   ReasoningEffortId,
@@ -35,6 +36,7 @@ import type {
   PreparedAdapterCall,
   ResolvedRetryPolicy,
   StreamChunk,
+  TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
@@ -48,6 +50,7 @@ import { toPiContext, toStreamChunks } from './conversion/index.ts'
 import type { PiImageRequestContext } from './conversion/index.ts'
 import { isModelEnabled, recommendedIds } from './models.ts'
 import { providerHeaders } from './session-header.ts'
+import type { RequestRecorder } from './request-log/store.ts'
 import { usableRates } from './usage/meter.ts'
 import type { MeteredUsage } from './usage/meter.ts'
 
@@ -94,6 +97,15 @@ function stopSequencesFor(model: Model<Api>, stop: readonly string[] | undefined
     + ' drop GenerateOptions.stop for this model',
     'UNSUPPORTED_OPTION',
   )
+}
+
+/**
+ * Read a fetch input's URL without touching its body.
+ */
+function requestUrl(input: Parameters<typeof fetch>[0]): string {
+  if (typeof input === 'string') return input
+  if (input instanceof URL) return input.toString()
+  return input.url
 }
 
 /** Image machinery the adapter reads once per request. */
@@ -170,6 +182,12 @@ export interface OpencodeGoAdapterOptions {
    * without ever looking a rate up after the fact.
    */
   readonly onUsage?: (detail: { model: string; usage: MeteredUsage }) => void
+  /**
+   * Record one request's span. The recorder returns undefined unless the
+   * profile enabled the log, so a disabled log costs one call and one
+   * boolean read per request and constructs nothing.
+   */
+  readonly requestLog?: RequestRecorder
 }
 
 /** The catalog and the configuration facts it was built from. */
@@ -396,8 +414,44 @@ export class OpencodeGoAdapter extends LlmAdapter {
     // and the catch would read a plain cancellation instead of the timeout.
     let timedOut = false
 
+    const containsImage = options.messages.some(message => contentHasImage(message.content))
+    // The request-log span, or undefined when the profile disabled the log.
+    // Built before the try so the failure paths below can close it too:
+    // one call per request, and disabled costs that call and one boolean.
+    // `headers` is computed once here and reused below, so the allowlisted
+    // values the recorder takes are the exact ones sent on the wire.
+    const headers = providerHeaders(options.sessionId === undefined ? undefined : String(options.sessionId))
+    const span = this.options.requestLog?.start({
+      model: options.model,
+      sessionId: options.sessionId === undefined ? undefined : String(options.sessionId),
+      method: 'POST',
+      url: config.baseURL,
+      messageCount: options.messages.length,
+      hasImage: containsImage,
+      toolCount: options.tools?.length ?? 0,
+      headers: {
+        ...options.sessionId === undefined ? {} : { session: String(options.sessionId) },
+        ...typeof headers['user-agent'] === 'string' ? { userAgent: headers['user-agent'] } : {},
+      },
+    })
+    // The fetch one request goes through. Without a span this is the
+    // factory's own fetch, untouched: a disabled log reads exactly as
+    // before. With a span the wrapper records the wire request line and
+    // the response status, and nothing else — bodies are never touched.
+    const fetchFactory = this.options.fetch
+    const requestFetch = span === undefined || fetchFactory === undefined
+      ? fetchFactory
+      : () => {
+        const base = fetchFactory()
+        return (async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
+          const response = await base(input, init)
+          span.request(typeof init?.method === 'string' ? init.method : 'POST', requestUrl(input))
+          span.status(response.status)
+          return response
+        }) as typeof fetch
+      }
+
     try {
-      const containsImage = options.messages.some(message => contentHasImage(message.content))
       if (containsImage && !model.input.includes('image')) {
         throw new LlmError(`opencode-go model "${model.id}" does not support image input`, 'UNSUPPORTED_CONTENT')
       }
@@ -422,6 +476,9 @@ export class OpencodeGoAdapter extends LlmAdapter {
       // it; only the event carrying it is observed, so a turn that reports none
       // leaves this undefined rather than zero.
       let reportedReasoning: number | undefined
+      // The terminal usage the span closes with; set by the usage chunk,
+      // read by the finish chunk that always follows it.
+      let pendingUsage: TokenUsage | undefined
       const events = observingTerminalUsage(snapshot.provider.streamSimple(model, normalizeContext(context), {
         apiKey,
         ...reasoning === undefined || reasoning === 'off' ? {} : { reasoning },
@@ -434,12 +491,14 @@ export class OpencodeGoAdapter extends LlmAdapter {
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
         signal: watchdog.signal,
         // The gateway refuses a request without `x-opencode-session`; the
-        // attribution user-agent rides along on the same object.
-        headers: providerHeaders(options.sessionId === undefined ? undefined : String(options.sessionId)),
+        // attribution user-agent rides along on the same object. Computed
+        // once above so the request log can reuse the allowlisted values.
+        headers,
         // The request goes to the gateway, so it goes through the fetch that
         // honours the gateway's pin — and through the system's own resolution
-        // when the pinned address turns out to be gone.
-        ...this.options.fetch === undefined ? {} : { fetch: this.options.fetch() },
+        // when the pinned address turns out to be gone. Invoked once per
+        // request, exactly as the factory was before.
+        ...requestFetch === undefined ? {} : { fetch: requestFetch() },
         // The agent recovery layer owns visible attempts; one adapter call is
         // one SDK attempt.
         maxRetries: 0,
@@ -456,7 +515,11 @@ export class OpencodeGoAdapter extends LlmAdapter {
             exhausted = true
             return
           }
+          // The span is undefined unless the profile enabled the log, so the
+          // check short-circuits before the chunk is even classified.
+          if (span !== undefined && isTokenDelta(result.value)) span.firstToken()
           if (result.value.type === 'usage') {
+            pendingUsage = result.value.usage
             this.options.onUsage?.({
               model: options.model,
               usage: {
@@ -469,6 +532,22 @@ export class OpencodeGoAdapter extends LlmAdapter {
                 ...rates === undefined ? {} : { rates },
               },
             })
+          } else if (result.value.type === 'finish') {
+            // The usage chunk always precedes the finish chunk, so the span
+            // closes here with the terminal counts in hand.
+            const reason = result.value.reason
+            const ok = reason.kind === 'stop' || reason.kind === 'tool-calls' || reason.kind === 'max-tokens'
+            span?.finish(
+              ok,
+              ok ? undefined : (reason as { failure?: { code?: string } }).failure?.code,
+              pendingUsage === undefined ? undefined : {
+                inputTokens: pendingUsage.inputTokens,
+                outputTokens: pendingUsage.outputTokens,
+                ...pendingUsage.cacheReadTokens === undefined
+                  ? {}
+                  : { cacheReadTokens: pendingUsage.cacheReadTokens },
+              },
+            )
           }
           yield result.value
         }
@@ -492,11 +571,14 @@ export class OpencodeGoAdapter extends LlmAdapter {
       }
     } catch (error: unknown) {
       if (timedOut || timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT') !== undefined) {
+        span?.finish(false, 'TIMEOUT')
         throw new LlmError('opencode-go stream idle timeout', 'TIMEOUT', { cause: error })
       }
       if (options.signal?.aborted) {
+        span?.finish(false, 'ABORTED')
         throw new LlmError('opencode-go request aborted by caller', 'ABORTED', { cause: error })
       }
+      span?.finish(false, error instanceof LlmError ? error.code : undefined)
       throw error
     } finally {
       consumer.abort('opencode-go stream consumer stopped')

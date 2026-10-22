@@ -23,6 +23,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { catalogRemote } from '../catalog/contract.ts'
 import { networkRemote } from '../network/contract.ts'
+import { requestLogRemote } from '../request-log/contract.ts'
 import { updateRemote } from '../update/contract.ts'
 import { usageRemote } from '../usage/contract.ts'
 import type { TypertDisposer } from '@deepseek-ai/dsh-typert-protocol'
@@ -70,6 +71,7 @@ export function apply(ctx: ClientContext): void {
       ...catalogRemote.descriptors,
       ...updateRemote.descriptors,
       ...networkRemote.descriptors,
+      ...requestLogRemote.descriptors,
     ],
   })
   ctx.effect(() => {
@@ -87,7 +89,9 @@ export function apply(ctx: ClientContext): void {
   //
   // The network namespace is here for the same reason: the page reads the
   // gateway's pin through it, and reading an undeclared service throws.
-  ctx.inject(['configForms', 'remote.opencodeGoCatalog', 'remote.opencodeGoUpdate', 'remote.opencodeGoNetwork', 'remote.credentials'], (scope) => {
+  // The request-log namespace is here because the request-log viewer reads
+  // its snapshot through it.
+  ctx.inject(['configForms', 'remote.opencodeGoCatalog', 'remote.opencodeGoUpdate', 'remote.opencodeGoNetwork', 'remote.opencodeGoRequestLog', 'remote.credentials'], (scope) => {
     // Profile-entry forms live on `configForms`; the entry id is this
     // plugin's, and a composition without the form renders the page read-only.
     const forms = scope.get('configForms') as
