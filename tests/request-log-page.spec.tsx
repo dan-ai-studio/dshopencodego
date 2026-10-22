@@ -105,6 +105,46 @@ describe('request-log page', () => {
     expect(card('Mean tok/s')).toContain('31.3')
   })
 
+  it('names the session when the catalog knows it', async () => {
+    // Rows spell the conversation's title; the full id stays one hover away.
+    const useSessions = ((selector: (state: unknown) => unknown): unknown =>
+      selector({ byId: { 'session-a': { title: '排查记录' } } })) as never
+    const { container } = render(<RequestLogPage {...faceFor(snapshotOf([entry()]))} useSessions={useSessions} />)
+    const rows = await table()
+    const cell = within(rows).getByText('排查记录')
+    expect(cell.getAttribute('title')).toBe('session-a')
+    // The search box matches the title as well as the id.
+    const search = container.querySelector('input[type="search"]')
+    expect(search).not.toBeNull()
+    fireEvent.change(search!, { target: { value: '排查' } })
+    await waitFor(() => { expect(screen.getByText('排查记录')).toBeTruthy() })
+    fireEvent.change(search!, { target: { value: 'zzz-no-such-session' } })
+    await waitFor(() => { expect(screen.queryByText('排查记录')).toBeNull() })
+  })
+
+  it('falls back to the id when no catalog is injected', async () => {
+    render(<RequestLogPage {...faceFor(snapshotOf([entry()]))} />)
+    const rows = await table()
+    expect(within(rows).getByText('session-a')).toBeTruthy()
+  })
+
+  it('tells shown-apart-from-total in the footer', async () => {
+    const snapshot: RequestLogSnapshot = { ...snapshotOf([entry(), entry({ seq: 2 })]), totalRecords: 5 }
+    render(<RequestLogPage {...faceFor(snapshot)} />)
+    await table()
+    // Two rows on the page, five records on the Host: the rest fell out of
+    // the ring before this snapshot was read.
+    expect(screen.getByText(/Requests: 2 \(of 5\)/)).toBeTruthy()
+  })
+
+  it('shows no total when nothing fell out', async () => {
+    render(<RequestLogPage {...faceFor(snapshotOf([entry()]))} />)
+    await table()
+    expect(screen.getByText('Requests: 1')).toBeTruthy()
+    // The pager ("1 of 1") is not a total: only the footer's parenthetical counts.
+    expect(screen.queryByText(/\(of/)).toBeNull()
+  })
+
   it('says so when the log is off', async () => {
     render(<RequestLogPage {...faceFor(snapshotOf([]), false)} />)
     await waitFor(() => { expect(screen.getByText('The request log is off.')).toBeTruthy() })

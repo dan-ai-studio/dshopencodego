@@ -99,9 +99,9 @@ describe('PlainConfig', () => {
     expect(config.modelProtocols).toEqual({ 'some-new-model': 'openai-responses' })
   })
 
-  it('keeps the request log off with a bounded retention by default', () => {
+  it('records the request log with a bounded retention by default, debug off', () => {
     const config = PlainConfig({})
-    expect(config.requestLogEnabled).toBe(false)
+    expect(config.requestLogEnabled).toBe(true)
     expect(config.requestLogDebug).toBe(false)
     expect(config.requestLogMaxEntries).toBe(DEFAULT_REQUEST_LOG_MAX_ENTRIES)
     // The bound is a real interval, not an open end: the ring must always
@@ -112,7 +112,7 @@ describe('PlainConfig', () => {
       .toBe(MIN_REQUEST_LOG_MAX_ENTRIES)
     expect(PlainConfig({ requestLogMaxEntries: MAX_REQUEST_LOG_MAX_ENTRIES }).requestLogMaxEntries)
       .toBe(MAX_REQUEST_LOG_MAX_ENTRIES)
-    expect(PlainConfig({ requestLogEnabled: true, requestLogDebug: true }).requestLogEnabled).toBe(true)
+    expect(PlainConfig({ requestLogEnabled: false, requestLogDebug: true }).requestLogEnabled).toBe(false)
   })
 
   it('refuses a request-log retention outside its bound', () => {

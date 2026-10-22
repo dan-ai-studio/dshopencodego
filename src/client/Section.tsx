@@ -229,8 +229,9 @@ function settingsOf(value: unknown): SectionSettings | undefined {
   // schema's own default then applies — the same number an unwritten field
   // means everywhere else.
   const keepAlive = record['keepAliveTimeoutMs']
-  // The request-log switches default off: an old profile must read exactly
-  // as before, with no recording until the owner opts in.
+  // The request-log master switch defaults on; the debug switch stays
+  // off. An old profile that never wrote these fields reads the same
+  // values the schema fills in.
   const requestLogEnabled = record['requestLogEnabled']
   const requestLogDebug = record['requestLogDebug']
   const requestLogMaxEntries = record['requestLogMaxEntries']
@@ -239,7 +240,7 @@ function settingsOf(value: unknown): SectionSettings | undefined {
     refreshMinutes: minutes,
     pinnedAddresses: Object.fromEntries(pinEntries) as Record<string, string>,
     keepAliveTimeoutMs: typeof keepAlive === 'number' ? keepAlive : DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
-    requestLogEnabled: typeof requestLogEnabled === 'boolean' ? requestLogEnabled : false,
+    requestLogEnabled: typeof requestLogEnabled === 'boolean' ? requestLogEnabled : true,
     requestLogDebug: typeof requestLogDebug === 'boolean' ? requestLogDebug : false,
     requestLogMaxEntries: typeof requestLogMaxEntries === 'number'
       ? requestLogMaxEntries
@@ -1082,7 +1083,7 @@ export function Section({ controller, t, getLocale, openRequestLog }: SectionInj
         <label className={css.hint}>
           <input
             type="checkbox"
-            checked={state.settings?.requestLogEnabled ?? false}
+            checked={state.settings?.requestLogEnabled ?? true}
             disabled={!editable || state.saving}
             onChange={event => { void act(async () => { await controller.setRequestLogEnabled(event.target.checked) }) }}
           />

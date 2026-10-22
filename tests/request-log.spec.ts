@@ -44,7 +44,7 @@ function start(detail: Partial<RequestStart> = {}): RequestStart {
 function record(log: RequestLog, detail: Partial<RequestStart> = {}): void {
   const span = log.start(start(detail))
   expect(span).toBeDefined()
-  span?.firstToken()
+  span?.token()
   span?.status(200)
   span?.finish(true, undefined, { inputTokens: 10, outputTokens: 5, cacheReadTokens: 3 })
 }
@@ -190,15 +190,19 @@ describe('RequestLog', () => {
     const log = new RequestLog(gates())
     const span = log.start(start())
     expect(span).toBeDefined()
-    // The first token arrives; the request then runs for a while.
-    await new Promise(resolve => { setTimeout(resolve, 120) })
-    span?.firstToken()
-    await new Promise(resolve => { setTimeout(resolve, 120) })
+    // Tokens arrive, then more tokens arrive: an evenly streamed reply.
+    // The sleeps keep the three marks on different milliseconds, so the
+    // ordering assertions below do not depend on timer granularity.
+    await new Promise(resolve => { setTimeout(resolve, 20) })
+    span?.token()
+    await new Promise(resolve => { setTimeout(resolve, 200) })
+    span?.token()
+    await new Promise(resolve => { setTimeout(resolve, 20) })
     span?.finish(true, undefined, { inputTokens: 10, outputTokens: 30, cacheReadTokens: 3 })
     const entry = log.snapshot().entries[0]!
     // The decode window is measured from the first token to the terminal
     // event, so it is shorter than the whole request.
-    expect(entry.decodeMs).toBeGreaterThanOrEqual(100)
+    expect(entry.decodeMs).toBeGreaterThanOrEqual(200)
     expect(entry.decodeMs).toBeLessThan(entry.durationMs ?? Number.MAX_SAFE_INTEGER)
     // And the rate is the output tokens over that window.
     expect(entry.tps).toBeCloseTo(30 / ((entry.decodeMs ?? 1) / 1000), 6)
@@ -214,7 +218,26 @@ describe('RequestLog', () => {
     expect(entry.tps).toBeUndefined()
   })
 
-  it('round-trips through the wire codec and refuses garbage', () => {    const log = new RequestLog(gates({ debug: true }))
+  it('reports no rate when the whole output arrived in one burst', () => {
+    // The gateway held a reasoning turn and flushed it at the end: the
+    // first and last token share a millisecond, while a generation-speed
+    // reading would need a window the output actually streamed in.
+    const log = new RequestLog(gates())
+    const span = log.start(start())
+    expect(span).toBeDefined()
+    span?.token()
+    span?.token()
+    span?.finish(true, undefined, { inputTokens: 10, outputTokens: 130 })
+    const entry = log.snapshot().entries[0]!
+    // The wait itself is still recorded — only the rate is withheld.
+    expect(entry.durationMs).toEqual(expect.any(Number))
+    expect(entry.firstTokenMs).toEqual(expect.any(Number))
+    expect(entry.outputTokens).toBe(130)
+    expect(entry.tps).toBeUndefined()
+  })
+
+  it('round-trips through the wire codec and refuses garbage', () => {
+    const log = new RequestLog(gates({ debug: true }))
     log.poolEvent('create', 'host@addr@1')
     record(log)
     const snapshot = log.snapshot()

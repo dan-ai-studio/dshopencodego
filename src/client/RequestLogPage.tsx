@@ -13,7 +13,8 @@
  * @module @dan-ai-studio/dshopencodego/client/RequestLogPage
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RequestLogEntry, RequestLogSnapshot } from '../request-log/contract.ts'
@@ -39,12 +40,29 @@ export type RequestLogPageProps = PropsRuntime<'main'> & InjectFace<RequestLogFa
  *
  * `sessionId` is present only in the in-conversation window, where the page
  * shows one session's requests by default. The sidebar page has no session
- * and shows everything.
+ * and shows everything. `useSessions` arrives through the framework's own
+ * standard props in both seats (they are global); absent in a composition
+ * without a session list, and then every row falls back to its session id.
  */
 export type RequestLogProps = RequestLogFace & {
   /** The session this window belongs to, when it belongs to one. */
   readonly sessionId?: string
+  readonly useSessions?: UseSessionsHook
 }
+
+/** The session catalog, reduced to what a label needs. */
+interface SessionCatalog {
+  readonly byId: Readonly<Record<string, { readonly title?: string }>>
+}
+
+/**
+ * The framework's session-list hook, reduced to the label's needs.
+ *
+ * Structural on purpose: the full session-controller types live in a
+ * package this plugin does not depend on, and a label needs one optional
+ * field. A real session list satisfies this shape.
+ */
+type UseSessionsHook = <V>(selector: (state: SessionCatalog) => V) => V
 
 type ResultFilter = 'all' | 'ok' | 'fail'
 type GroupBy = 'none' | 'session' | 'model' | 'result'
@@ -157,7 +175,7 @@ function groupKey(entry: RequestLogEntry, groupBy: GroupBy): string | undefined 
  * @param props - the page's own face, and the session it is scoped to.
  * @returns the page.
  */
-export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: RequestLogProps): React.JSX.Element {
+export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId, useSessions }: RequestLogProps): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<RequestLogSnapshot | undefined>(undefined)
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [refreshing, setRefreshing] = useState(false)
@@ -176,6 +194,31 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: Re
   // stored whole, so this is an exact match — no prefix that could also
   // catch a different conversation.
   const [onlySession, setOnlySession] = useState(sessionId !== undefined)
+  // How tall the stuck control block is, so the sticky table head can sit
+  // exactly beneath it in the in-conversation window (whose height is
+  // unbounded). Measured live: the block wraps on narrow columns.
+  const stuckRef = useRef<HTMLDivElement>(null)
+  const [stuckTop, setStuckTop] = useState(0)
+  useEffect(() => {
+    const element = stuckRef.current
+    if (element === null) return
+    const measure = (): void => { setStuckTop(element.getBoundingClientRect().height) }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => { observer.disconnect() }
+  }, [])
+  // Session titles from the catalog, so rows name the conversation instead
+  // of spelling its id. Absent while the composition has no session list,
+  // and then every row falls back to its id.
+  const catalog = useSessions?.(state => state)
+  const sessionLabel = useCallback((id: string): { readonly text: string; readonly titled: boolean } => {
+    const title = catalog?.byId[id]?.title?.trim()
+    return title === undefined || title === ''
+      ? { text: id === '' ? '—' : id, titled: false }
+      : { text: title, titled: true }
+  }, [catalog])
 
   /** Order by a column: a new column starts in its reading direction. */
   const toggleSort = (key: SortKey): void => {
@@ -218,10 +261,14 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: Re
       if (result === 'fail' && entry.ok) return false
       if (slowOnly && (entry.durationMs ?? 0) < Math.max(0, slowSeconds) * 1000) return false
       if (onlySession && sessionId !== undefined && entry.session !== sessionId) return false
-      if (query !== '' && !entry.session.includes(query)) return false
+      if (query !== '') {
+        const label = sessionLabel(entry.session)
+        // The search matches the id and, when the catalog knows it, the title.
+        if (!entry.session.includes(query) && !(label.titled && label.text.includes(query))) return false
+      }
       return true
     })
-  }, [snapshot, model, result, slowOnly, slowSeconds, sessionQuery, onlySession, sessionId])
+  }, [snapshot, model, result, slowOnly, slowSeconds, sessionQuery, onlySession, sessionId, sessionLabel])
 
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, pages - 1)
@@ -275,11 +322,13 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: Re
         lastGroup = group
         out.push(
           <tr key={`group-${group}-${entry.seq}`} className={css.group}>
-            <td colSpan={11}>{group}</td>
+            {/* A session group names the conversation when the catalog knows it. */}
+            <td colSpan={11}>{groupBy === 'session' ? sessionLabel(group).text : group}</td>
           </tr>,
         )
       }
       const state = !entry.ok ? 'rowFail' : (entry.tps !== undefined && entry.tps < 5 ? 'rowSlow' : 'rowOk')
+      const session = sessionLabel(entry.session)
       out.push(
         <tr
           key={entry.seq}
@@ -288,7 +337,9 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: Re
         >
           <td>{new Date(entry.atMs).toLocaleTimeString(getLocale(), { hour12: false })}</td>
           <td className={css.mono}>{entry.model}</td>
-          <td className={css.mono}>{entry.session === '' ? '—' : entry.session}</td>
+          <td title={session.titled ? entry.session : undefined} className={session.titled ? undefined : css.mono}>
+            {session.text}
+          </td>
           <td>{count(entry.inputTokens)}</td>
           <td>{count(entry.outputTokens)}</td>
           <td>{count(entry.cacheReadTokens)}</td>
@@ -314,7 +365,12 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: Re
                 </div>
                 <div className={css.detailItem}>
                   <span className={css.detailLabel}>{t('requestLogDetailSession')}</span>
-                  <span className={`${css.detailValue} ${css.mono}`}>{entry.session === '' ? '—' : entry.session}</span>
+                  <span
+                    className={`${css.detailValue} ${session.titled ? '' : css.mono}`}
+                    title={session.titled ? entry.session : undefined}
+                  >
+                    {session.titled ? `${session.text} · ${entry.session}` : session.text}
+                  </span>
                 </div>
                 {entry.poolKey !== undefined && (
                   <div className={css.detailItem}>
@@ -368,131 +424,136 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: Re
   }
 
   return (
-    <div className={sessionId === undefined ? css.page : `${css.page} ${css.pageLoose}`}>
-      <div className={css.head}>
-        <div className={css.headText}>
-          <h1 className={css.title}>{t('requestLogTitle')}</h1>
-          <p className={css.subtitle}>{t('requestLogPageHint')}</p>
+    <div
+      className={sessionId === undefined ? css.page : `${css.page} ${css.pageLoose}`}
+      style={{ '--request-log-stuck': `${stuckTop}px` } as CSSProperties}
+    >
+      <div className={css.stuck} ref={stuckRef}>
+        <div className={css.head}>
+          <div className={css.headText}>
+            <h1 className={css.title}>{t('requestLogTitle')}</h1>
+            <p className={css.subtitle}>{t('requestLogPageHint')}</p>
+          </div>
+          <div className={css.headActions}>
+            <button type="button" className={css.button} onClick={() => { void load() }} disabled={refreshing}>
+              <IconRefreshOutlineRegular size={13} />
+              {t('requestLogRefresh')}
+            </button>
+          </div>
         </div>
-        <div className={css.headActions}>
-          <button type="button" className={css.button} onClick={() => { void load() }} disabled={refreshing}>
-            <IconRefreshOutlineRegular size={13} />
-            {t('requestLogRefresh')}
-          </button>
-        </div>
-      </div>
 
-      {!enabled() && <p className={css.notice}>{t('requestLogDisabled')}</p>}
-      {failure !== undefined && <p className={`${css.notice} ${css.noticeError}`}>{failure}</p>}
+        {!enabled() && <p className={css.notice}>{t('requestLogDisabled')}</p>}
+        {failure !== undefined && <p className={`${css.notice} ${css.noticeError}`}>{failure}</p>}
 
-      <div className={css.summary}>
-        <div className={css.card}>
-          <span className={css.cardLabel}>{t('requestLogStatRequests')}</span>
-          <span className={css.cardValue}>{filtered.length.toLocaleString(getLocale())}</span>
+        <div className={css.summary}>
+          <div className={css.card}>
+            <span className={css.cardLabel}>{t('requestLogStatRequests')}</span>
+            <span className={css.cardValue}>{filtered.length.toLocaleString(getLocale())}</span>
+          </div>
+          <div className={`${css.card} ${failures > 0 ? css.cardError : ''}`}>
+            <span className={css.cardLabel}>{t('requestLogStatFailures')}</span>
+            <span className={css.cardValue}>{failures.toLocaleString(getLocale())}</span>
+          </div>
+          <div className={css.card}>
+            <span className={css.cardLabel}>{t('requestLogStatLatency')}</span>
+            <span className={css.cardValue}>{duration(meanLatency)}</span>
+          </div>
+          <div className={css.card}>
+            <span className={css.cardLabel}>{t('requestLogStatFirstToken')}</span>
+            <span className={css.cardValue}>{duration(meanFirstToken)}</span>
+          </div>
+          <div className={css.card}>
+            <span className={css.cardLabel}>{t('requestLogStatTps')}</span>
+            <span className={css.cardValue}>{rate(meanTps)}</span>
+          </div>
+          <div className={css.card}>
+            <span className={css.cardLabel}>{t('requestLogStatCacheRate')}</span>
+            <span className={css.cardValue}>{percent(meanCacheRate)}</span>
+          </div>
+          <div className={css.card}>
+            <span className={css.cardLabel}>{t('requestLogReuse')}</span>
+            <span className={css.cardValue}>{reuse === undefined ? '—' : `${(reuse * 100).toFixed(0)}%`}</span>
+          </div>
         </div>
-        <div className={`${css.card} ${failures > 0 ? css.cardError : ''}`}>
-          <span className={css.cardLabel}>{t('requestLogStatFailures')}</span>
-          <span className={css.cardValue}>{failures.toLocaleString(getLocale())}</span>
-        </div>
-        <div className={css.card}>
-          <span className={css.cardLabel}>{t('requestLogStatLatency')}</span>
-          <span className={css.cardValue}>{duration(meanLatency)}</span>
-        </div>
-        <div className={css.card}>
-          <span className={css.cardLabel}>{t('requestLogStatFirstToken')}</span>
-          <span className={css.cardValue}>{duration(meanFirstToken)}</span>
-        </div>
-        <div className={css.card}>
-          <span className={css.cardLabel}>{t('requestLogStatTps')}</span>
-          <span className={css.cardValue}>{rate(meanTps)}</span>
-        </div>
-        <div className={css.card}>
-          <span className={css.cardLabel}>{t('requestLogStatCacheRate')}</span>
-          <span className={css.cardValue}>{percent(meanCacheRate)}</span>
-        </div>
-        <div className={css.card}>
-          <span className={css.cardLabel}>{t('requestLogReuse')}</span>
-          <span className={css.cardValue}>{reuse === undefined ? '—' : `${(reuse * 100).toFixed(0)}%`}</span>
-        </div>
-      </div>
 
-      <div className={css.toolbar}>
-        <label className={css.field}>
-          {t('requestLogFilterModel')}
-          <select
-            className={css.select}
-            value={model}
-            onChange={event => { setModel(event.target.value); setPage(0) }}
-          >
-            <option value="all">{t('requestLogFilterModelAll')}</option>
-            {models.map(id => <option key={id} value={id}>{id}</option>)}
-          </select>
-        </label>
-        <label className={css.field}>
-          {t('requestLogFilterResult')}
-          <select
-            className={css.select}
-            value={result}
-            onChange={event => { setResult(event.target.value as ResultFilter); setPage(0) }}
-          >
-            <option value="all">{t('requestLogResultAll')}</option>
-            <option value="ok">{t('requestLogResultOk')}</option>
-            <option value="fail">{t('requestLogResultFail')}</option>
-          </select>
-        </label>
-        <label className={css.field}>
-          <input
-            className={css.checkbox}
-            type="checkbox"
-            checked={slowOnly}
-            onChange={event => { setSlowOnly(event.target.checked); setPage(0) }}
-          />
-          {t('requestLogSlowOnly')}
-          <input
-            className={`${css.input} ${css.inputNumber}`}
-            type="number"
-            min={1}
-            value={slowSeconds}
-            disabled={!slowOnly}
-            aria-label={t('requestLogSlowSeconds')}
-            onChange={event => { setSlowSeconds(Number(event.target.value)); setPage(0) }}
-          />
-          {t('requestLogSlowSeconds')}
-        </label>
-        <label className={css.field}>
-          {t('requestLogFilterSession')}
-          {sessionId !== undefined && (
-            <>
-              <input
-                className={css.checkbox}
-                type="checkbox"
-                checked={onlySession}
-                onChange={event => { setOnlySession(event.target.checked); setPage(0) }}
-              />
-              {t('requestLogOnlySession')}
-            </>
-          )}
-          <input
-            className={css.input}
-            type="search"
-            value={sessionQuery}
-            disabled={onlySession}
-            onChange={event => { setSessionQuery(event.target.value); setPage(0) }}
-          />
-        </label>
-        <label className={css.field}>
-          {t('requestLogGroupBy')}
-          <select
-            className={css.select}
-            value={groupBy}
-            onChange={event => { setGroupBy(event.target.value as GroupBy); setPage(0) }}
-          >
-            <option value="none">{t('requestLogGroupNone')}</option>
-            <option value="session">{t('requestLogGroupSession')}</option>
-            <option value="model">{t('requestLogGroupModel')}</option>
-            <option value="result">{t('requestLogGroupResult')}</option>
-          </select>
-        </label>
+        <div className={css.toolbar}>
+          <label className={css.field}>
+            {t('requestLogFilterModel')}
+            <select
+              className={css.select}
+              value={model}
+              onChange={event => { setModel(event.target.value); setPage(0) }}
+            >
+              <option value="all">{t('requestLogFilterModelAll')}</option>
+              {models.map(id => <option key={id} value={id}>{id}</option>)}
+            </select>
+          </label>
+          <label className={css.field}>
+            {t('requestLogFilterResult')}
+            <select
+              className={css.select}
+              value={result}
+              onChange={event => { setResult(event.target.value as ResultFilter); setPage(0) }}
+            >
+              <option value="all">{t('requestLogResultAll')}</option>
+              <option value="ok">{t('requestLogResultOk')}</option>
+              <option value="fail">{t('requestLogResultFail')}</option>
+            </select>
+          </label>
+          <label className={css.field}>
+            <input
+              className={css.checkbox}
+              type="checkbox"
+              checked={slowOnly}
+              onChange={event => { setSlowOnly(event.target.checked); setPage(0) }}
+            />
+            {t('requestLogSlowOnly')}
+            <input
+              className={`${css.input} ${css.inputNumber}`}
+              type="number"
+              min={1}
+              value={slowSeconds}
+              disabled={!slowOnly}
+              aria-label={t('requestLogSlowSeconds')}
+              onChange={event => { setSlowSeconds(Number(event.target.value)); setPage(0) }}
+            />
+            {t('requestLogSlowSeconds')}
+          </label>
+          <label className={css.field}>
+            {t('requestLogFilterSession')}
+            {sessionId !== undefined && (
+              <>
+                <input
+                  className={css.checkbox}
+                  type="checkbox"
+                  checked={onlySession}
+                  onChange={event => { setOnlySession(event.target.checked); setPage(0) }}
+                />
+                {t('requestLogOnlySession')}
+              </>
+            )}
+            <input
+              className={css.input}
+              type="search"
+              value={sessionQuery}
+              disabled={onlySession}
+              onChange={event => { setSessionQuery(event.target.value); setPage(0) }}
+            />
+          </label>
+          <label className={css.field}>
+            {t('requestLogGroupBy')}
+            <select
+              className={css.select}
+              value={groupBy}
+              onChange={event => { setGroupBy(event.target.value as GroupBy); setPage(0) }}
+            >
+              <option value="none">{t('requestLogGroupNone')}</option>
+              <option value="session">{t('requestLogGroupSession')}</option>
+              <option value="model">{t('requestLogGroupModel')}</option>
+              <option value="result">{t('requestLogGroupResult')}</option>
+            </select>
+          </label>
+        </div>
       </div>
 
       <div className={css.tableWrap}>
@@ -521,7 +582,12 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: Re
       </div>
 
       <div className={css.foot}>
-        <span>{`${filtered.length.toLocaleString(getLocale())} / ${(snapshot?.totalRecords ?? 0).toLocaleString(getLocale())} ${t('requestLogStatRequests')}`}</span>
+        <span>
+          {`${t('requestLogStatRequests')}: ${filtered.length.toLocaleString(getLocale())}`}
+          {filtered.length !== (snapshot?.totalRecords ?? 0)
+            ? ` (${t('requestLogOfTotal')} ${(snapshot?.totalRecords ?? 0).toLocaleString(getLocale())})`
+            : ''}
+        </span>
         <div className={css.pager}>
           <button type="button" className={css.button} disabled={safePage <= 0} onClick={() => { setPage(safePage - 1) }}>
             {t('requestLogPagePrev')}

@@ -33,6 +33,13 @@
  * scrollport scrolls instead of the table. Internal scroll containers would
  * trap the sticky head inside a content-sized box where it can never move,
  * so there are none here — the head sticks to the session scrollport.
+ *
+ * The loose page still wants its controls fixed: the head, the summary and
+ * the filters ride one sticky block at the scrollport's top, and the table
+ * head sticks just beneath it (its offset is measured live, because the
+ * block wraps on narrow columns). The pager sticks to the bottom the same
+ * way. The sidebar page keeps its own inner scrollbar; none of this applies
+ * there.
  */
 .pageLoose {
   height: auto;
@@ -40,6 +47,24 @@
 
 .pageLoose .tableWrap {
   overflow: visible;
+}
+
+.pageLoose .stuck {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--dsw-alias-bg-base);
+}
+
+.pageLoose .table th {
+  top: var(--request-log-stuck, 0px);
+}
+
+.pageLoose .foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--dsw-alias-bg-base);
 }
 
 .head {

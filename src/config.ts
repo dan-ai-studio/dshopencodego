@@ -119,9 +119,10 @@ export interface OpencodeGoConfig {
    */
   modelProtocols: Record<string, string>
   /**
-   * Whether the per-request log records anything at all. Off by default: a
-   * disabled log changes nothing on the request path — not one extra
-   * allocation — because the recorder is never constructed.
+   * Whether the request log records anything at all. On by default: one
+   * call and one boolean per request, plus a bounded ring. Off returns the
+   * request path to exactly as without the log — the recorder is never
+   * constructed.
    */
   requestLogEnabled: boolean
   /**
@@ -169,9 +170,11 @@ const fields = {
     maxTokens: z.union([z.const(null), z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER)]),
   })])).default({}),
   modelProtocols: z.dict(z.string()).default({}),
-  // Off by default: the request path must read exactly as it does without
-  // the log, so the recorder is constructed only when this is true.
-  requestLogEnabled: z.boolean().default(false),
+  // On by default: recording costs one call and one boolean per request
+  // plus a bounded ring, and buys a per-request trail whenever something
+  // looks wrong. Off returns the request path to exactly as without the
+  // log, because the recorder is never constructed then.
+  requestLogEnabled: z.boolean().default(true),
   requestLogDebug: z.boolean().default(false),
   requestLogMaxEntries: z.number().step(1).min(MIN_REQUEST_LOG_MAX_ENTRIES).max(MAX_REQUEST_LOG_MAX_ENTRIES).default(DEFAULT_REQUEST_LOG_MAX_ENTRIES),
   pinnedAddresses: z.dict(z.string()).default({}),

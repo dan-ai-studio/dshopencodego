@@ -55,9 +55,11 @@ export interface RequestLogEntry {
   /**
    * Output tokens per second over the decode window.
    *
-   * Absent when the request produced no token, or when the decode window
-   * rounds to zero milliseconds: a rate divided by zero is not a rate, and
-   * inventing one would misreport a fast reply as infinitely quick.
+   * Absent when the request produced no token, when the decode window
+   * rounds to zero milliseconds, or when the whole output arrived in one
+   * burst (see `MIN_STREAM_MS_FOR_RATE`): a rate divided by zero is not a
+   * rate, and a rate over a burst is not a generation speed. Either would
+   * misreport a buffered reply as infinitely quick.
    */
   readonly tps?: number
   /** Whether the request completed. */
@@ -125,16 +127,36 @@ export interface RequestLogGates {
 const MAX_POOL_EVENTS = 20
 
 /**
+ * Minimum content span for a meaningful rate, in milliseconds.
+ *
+ * A rate needs a window, and a sub-100ms arrival spread is delivery shape,
+ * not generation speed: wall-clock timers resolve to a millisecond, one
+ * network flush fans its events out across several event-loop turns, and no
+ * served LLM sustains thousands of tokens per second. Below this line the
+ * tokens arrived in one burst — the reply's speed on the wire is unknown,
+ * so no rate is reported rather than a fabricated one.
+ */
+const MIN_STREAM_MS_FOR_RATE = 100
+
+/**
  * An in-flight request, handed back only when the log is enabled.
  *
- * Every method is cheap by construction: two `Date.now` reads and small
- * integer arithmetic across the whole span. No serialization, no hashing,
- * no body handling — the counts ride the usage chunk the adapter already
- * holds, and the timings bracket work that already happened.
+ * Every method is cheap by construction: one `Date.now` read per content
+ * delta and small integer arithmetic across the whole span. No
+ * serialization, no hashing, no body handling — the counts ride the usage
+ * chunk the adapter already holds, and the timings bracket work that
+ * already happened.
  */
 export interface RequestSpan {
-  /** Mark the first token delta's arrival. Idempotent: only the first call counts. */
-  firstToken(): void
+  /**
+   * Mark one content token's arrival.
+   *
+   * The first call opens the decode window; every call moves the last-token
+   * mark, so the span between them is the window the output actually
+   * streamed in. The adapter calls this for every chunk its own first-token
+   * definition accepts — the same definition the Harness uses.
+   */
+  token(): void
   /**
    * Record the wire request line, from the fetch wrapper. Called at most
    * once per span; a second call keeps the first, so retries never rewrite
@@ -226,13 +248,16 @@ export class RequestLog {
     // credential, and a truncated one cannot tell two conversations apart.
     const session = detail.sessionId ?? ''
     let firstTokenAt: number | undefined
+    let lastTokenAt: number | undefined
     let method: string | undefined
     let url: string | undefined
     let status: number | undefined
     let finished = false
     return {
-      firstToken: (): void => {
-        if (firstTokenAt === undefined) firstTokenAt = Date.now()
+      token: (): void => {
+        const now = Date.now()
+        if (firstTokenAt === undefined) firstTokenAt = now
+        lastTokenAt = now
       },
       request: (nextMethod: string, nextUrl: string): void => {
         if (method === undefined) {
@@ -251,10 +276,20 @@ export class RequestLog {
         // event follows the last token by a few milliseconds, so this is the
         // same scale as the Harness's own per-turn decode reading.
         const decodeMs = firstTokenAt === undefined ? undefined : Math.max(0, endedAt - firstTokenAt)
+        // The content span: first token to last token. On an evenly streamed
+        // reply this covers the decode window; on a buffered one the whole
+        // output lands in one flush and the span collapses to ~zero.
+        const streamMs = firstTokenAt === undefined || lastTokenAt === undefined
+          ? undefined
+          : Math.max(0, lastTokenAt - firstTokenAt)
         // Output tokens per second. The provider's output count includes
         // reasoning tokens, exactly as the Harness's own decode rate counts
-        // them, so the two numbers mean the same thing.
+        // them, so the two numbers mean the same thing. A burst delivery has
+        // no meaningful rate — its span says how the network flushed, not how
+        // the model generated — so it reports none instead of a fabricated
+        // thousands-per-second.
         const tps = decodeMs === undefined || decodeMs <= 0 || usage === undefined
+          || streamMs === undefined || streamMs < MIN_STREAM_MS_FOR_RATE
           ? undefined
           : usage.outputTokens / (decodeMs / 1000)
         const entry: RequestLogEntry = {

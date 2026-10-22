@@ -517,7 +517,7 @@ export class OpencodeGoAdapter extends LlmAdapter {
           }
           // The span is undefined unless the profile enabled the log, so the
           // check short-circuits before the chunk is even classified.
-          if (span !== undefined && isTokenDelta(result.value)) span.firstToken()
+          if (span !== undefined && isTokenDelta(result.value)) span.token()
           if (result.value.type === 'usage') {
             pendingUsage = result.value.usage
             this.options.onUsage?.({
