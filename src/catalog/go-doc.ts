@@ -58,9 +58,24 @@ const ENDPOINT_PROTOCOLS: Readonly<Record<string, WireProtocol>> = {
   '/responses': 'openai-responses',
 }
 
-/** Strip markdown decoration (`**bold**`, `` `code` ``) from one cell. */
+/**
+ * Strip markdown decoration (`**bold**`, `` `code` ``) from one cell.
+ *
+ * Provider annotations ride in the same cell: `<br />` line breaks,
+ * `<small>…</small>` notes ("limited time", "2x · Limited time"), and
+ * `~~struck~~` superseded values. The small print is dropped whole — it
+ * never names the model or the number — a struck value is dropped in favour
+ * of its replacement, and any remaining tag becomes a space so neighbours
+ * never fuse (`Unlimited<br />…` must not become `Unlimited…`).
+ */
 function cell(value: string | undefined): string {
-  return (value ?? '').replace(/[*`]/g, '').trim()
+  return (value ?? '')
+    .replace(/<small>.*?<\/small>/gi, ' ')
+    .replace(/~~.*?~~/g, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/[*`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 /**
@@ -113,12 +128,16 @@ function protocolOfEndpoint(endpoint: string): WireProtocol | undefined {
  * that table whole — and the allowance table is the one that says what a
  * month of usage is worth, so the page would show a hand-transcribed
  * snapshot instead of the provider's own numbers.
+ *
+ * The header match is case-insensitive: the provider capitalises its own
+ * headers (`Requests per month`), while the match key is written lowercase.
  * @param lines - the document, split into lines.
- * @param required - a header cell that table alone carries.
+ * @param required - a header cell that table alone carries (any capitalisation).
  * @returns one array of trimmed cells per data row.
  */
 function tableRows(lines: readonly string[], required: string): readonly (readonly string[])[] {
-  const start = lines.findIndex(line => line.trimStart().startsWith('|') && line.includes(required))
+  const want = required.toLowerCase()
+  const start = lines.findIndex(line => line.trimStart().startsWith('|') && line.toLowerCase().includes(want))
   if (start < 0) return []
   const rows: string[][] = []
   for (let index = start + 2; index < lines.length; index++) {

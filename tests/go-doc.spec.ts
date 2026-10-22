@@ -74,6 +74,41 @@ describe('parseGoDocument', () => {
     expect(empty.protocols.size).toBe(0)
   })
 
+  it('reads the provider\'s current format: capitalised headers, struck values, and small print', () => {
+    // The live document capitalises its estimate headers (`Requests per
+    // month`), strikes superseded values (`~~$30~~ **$60**`), and annotates
+    // cells with `<br />` and `<small>`. A parser that only understands the
+    // lowercase test format drops every monthly request estimate on the live
+    // page — and the page then shows dollars without counts.
+    const current = [
+      '## Usage limits',
+      '',
+      '| Model | Input | Output | Cached Read | Cached Write | Monthly limit |',
+      '| --- | --- | --- | --- | --- | --- |',
+      '| Gemini 4 Argon Contributor<br /><small>2x · Limited time</small> | $4.00 | $20.00 | $0.20 | - | ~~$30~~ **$60**<br /><small>2x · Limited time</small> |',
+      '| LongCat 2.5 Preview Free | Free | Free | Free | - | **Unlimited**<br /><small>limited time</small> |',
+      '',
+      '### Estimated requests',
+      '',
+      '| Model | Requests per 5 hours | Requests per week | Requests per month |',
+      '| --- | --- | --- | --- |',
+      '| Gemini 4 Argon Contributor<br /><small>2x · Limited time</small> | ~~220~~<br />**440** | ~~540~~<br />**1,080** | ~~1,060~~<br />**2,120** |',
+      '| LongCat 2.5 Preview Free | Unlimited | Unlimited | Unlimited |',
+      '',
+      '## Endpoints',
+      '',
+      '| Model | Model ID | Endpoint | AI SDK Package |',
+      '| --- | --- | --- | --- |',
+      '| Gemini 4 Argon Contributor | gemini-4-argon-contributor | `https://opencode.ai/inference/go/google/v1beta/models/gemini-4-argon-contributor` | `@ai-sdk/google` |',
+      '| LongCat 2.5 Preview Free | longcat-2.5-preview-free | `https://opencode.ai/inference/go/openai/v1/chat/completions` | `@ai-sdk/openai-compatible` |',
+    ].join('\n')
+    const doc = parseGoDocument(current)
+    // The struck $30 is the superseded price; the live one is $60.
+    expect(doc.quotas.get('gemini-4-argon-contributor')).toEqual({ monthlyUsd: 60, monthlyRequests: 2_120 })
+    expect(doc.quotas.get('longcat-2.5-preview-free')).toEqual({ monthlyUsd: 'unlimited', monthlyRequests: 'unlimited' })
+    expect(doc.protocols.get('longcat-2.5-preview-free')).toBe('openai-completions')
+  })
+
   it('reads an allowance table the provider nested inside a component', () => {
     // The provider puts the allowance table in a component's slot, and every
     // line of it arrives indented. A parser that requires the row to start
