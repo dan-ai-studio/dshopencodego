@@ -100,8 +100,9 @@ describe('client apply', () => {
     // read through the lenient `ctx.get()` so a composition without a plugin
     // manager still renders this section.
     expect(injected.map(([services]) => services)).toEqual([
+      ['layout'],
       ['configForms', 'remote.opencodeGoCatalog', 'remote.opencodeGoUpdate', 'remote.opencodeGoNetwork', 'remote.opencodeGoRequestLog', 'remote.credentials'],
-      ['modelDirectories', 'remote.opencodeGoUsage'],
+      ['modelDirectories', 'remote.opencodeGoUsage', 'remote.session'],
     ])
   })
 

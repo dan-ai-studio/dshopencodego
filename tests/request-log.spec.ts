@@ -95,10 +95,12 @@ describe('RequestLog', () => {
     expect(snapshot.totalRecords).toBe(1)
   })
 
-  it('truncates the session id unless debug mode is on', () => {
+  it('keeps the session id whole, in both modes', () => {
+    // A truncated session cannot tell two conversations apart: it is a
+    // conversation identity, not a credential, so it is stored whole.
     const plain = new RequestLog(gates())
     record(plain)
-    expect(plain.snapshot().entries[0]?.session).toBe('session-')
+    expect(plain.snapshot().entries[0]?.session).toBe('session-abcdef0123456789')
 
     const debug = new RequestLog(gates({ debug: true }))
     record(debug)
@@ -287,8 +289,9 @@ describe('request log on the wire', () => {
       expect(snapshot.entries).toHaveLength(1)
       const entry = snapshot.entries[0]!
       expect(entry.model).toBe('glm-5.3')
-      // The common log truncates the session; the full value is debug-only.
-      expect(entry.session).toBe('session-')
+      // The whole conversation identity, so the log can group one turn's
+      // requests without guessing.
+      expect(entry.session).toBe('session-abcdef0123456789')
       expect(entry.method).toBe('POST')
       expect(entry.url).toContain('/chat/completions')
       expect(entry.status).toBe(200)

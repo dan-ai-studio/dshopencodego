@@ -13,15 +13,12 @@
  * - Authorization never enters a record. The recorder takes no headers
  *   argument at all; the only header-derived value it stores is the session
  *   id it is handed, already separated from the credential by the caller.
- * - The session id is stored truncated (first 8 characters) unless debug
- *   mode is on at record time. A truncated id groups one conversation's
- *   requests without writing the full identity to the log.
+ * - The session id is stored whole. It is a conversation identity, not a
+ *   secret, and a truncated one cannot group a conversation's requests —
+ *   two conversations sharing an eight-character prefix would read as one.
  *
  * @module @dan-ai-studio/dshopencodego/request-log/store
  */
-
-/** How many session-id characters the common (non-debug) log keeps. */
-export const SESSION_PREFIX_LENGTH = 8
 
 /** One recorded request. Counts are provider-reported; timings are Host-measured. */
 export interface RequestLogEntry {
@@ -31,7 +28,7 @@ export interface RequestLogEntry {
   readonly atMs: number
   /** The model id the request was made with. */
   readonly model: string
-  /** The session id, full in debug mode, truncated to {@link SESSION_PREFIX_LENGTH} otherwise. */
+  /** The session id the request belonged to, whole. */
   readonly session: string
   /** HTTP method used. */
   readonly method: string
@@ -225,10 +222,9 @@ export class RequestLog {
     if (!this.gates.enabled()) return undefined
     const debug = this.gates.debug()
     const startedAt = Date.now()
-    const full = detail.sessionId ?? ''
-    const session = debug || full.length === 0
-      ? full
-      : full.slice(0, SESSION_PREFIX_LENGTH)
+    // The session id is kept whole: it is the conversation's identity, not a
+    // credential, and a truncated one cannot tell two conversations apart.
+    const session = detail.sessionId ?? ''
     let firstTokenAt: number | undefined
     let method: string | undefined
     let url: string | undefined

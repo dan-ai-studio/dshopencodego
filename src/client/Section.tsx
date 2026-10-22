@@ -771,7 +771,7 @@ interface SectionInjected {
   readonly t: (key: string) => string
   readonly getLocale?: () => string
   /** Open the request-log page in the main column; absent when there is none. */
-  readonly openRequestLog?: () => void
+  readonly openRequestLog?: () => boolean
 }
 
 /** How a protocol decision is labelled for a human. */
@@ -909,6 +909,9 @@ export function Section({ controller, t, getLocale, openRequestLog }: SectionInj
   const [keyDraft, setKeyDraft] = useState('')
   const [pinDraft, setPinDraft] = useState('')
   const [busy, setBusy] = useState(false)
+  // Whether the last attempt to open the request-log page failed. A button
+  // that silently does nothing is worse than one that says it could not.
+  const [logOpenFailed, setLogOpenFailed] = useState(false)
 
   const act = useCallback(async (operation: () => Promise<void>): Promise<void> => {
     setBusy(true)
@@ -1113,9 +1116,10 @@ export function Section({ controller, t, getLocale, openRequestLog }: SectionInj
         <span className={css.hint}>{t('requestLogMaxEntriesHint')}</span>
       </div>
       <div className={css.row}>
-        <button type="button" className={css.button} onClick={() => { openRequestLog?.() }}>
+        <button type="button" className={css.button} onClick={() => { setLogOpenFailed(!(openRequestLog?.() ?? false)) }}>
           {t('requestLogOpen')}
         </button>
+        {logOpenFailed && <span className={css.warn}>{t('requestLogOpenFailed')}</span>}
       </div>
       {state.writeFailure !== undefined && <p className={css.warn}>
         {state.writeFailure.kind === 'rejected'

@@ -33,6 +33,9 @@ describe('the provider document sources', () => {
     // authoritative evidence the plugin has, and the one that disappears
     // silently when the path moves.
     expect(document.protocols.size).toBeGreaterThan(0)
-    expect(document.protocols.get('minimax-m3.1-flash-free')).toBe('openai-completions')
+    // The provider renames models (MiniMax M3.1 Flash lost its `-free`
+    // suffix when the free tier moved to Beam/LongCat), so this pins a
+    // model that exists today rather than one that existed once.
+    expect(document.protocols.get('minimax-m3.1-flash')).toBe('openai-completions')
   }, NETWORK_TIMEOUT_MS)
 })

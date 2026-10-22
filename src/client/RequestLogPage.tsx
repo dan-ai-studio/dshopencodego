@@ -49,6 +49,53 @@ export type RequestLogProps = RequestLogFace & {
 type ResultFilter = 'all' | 'ok' | 'fail'
 type GroupBy = 'none' | 'session' | 'model' | 'result'
 
+/** Every column a click on its head can order by. */
+type SortKey =
+  | 'atMs' | 'model' | 'session'
+  | 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheRate'
+  | 'tps' | 'firstTokenMs' | 'durationMs' | 'status'
+
+type SortDir = 'asc' | 'desc'
+
+/**
+ * The direction a column starts in: time and magnitudes read largest-first,
+ * names read A-first. A second click on the same head flips it.
+ */
+const SORT_DEFAULT_DIR: Record<SortKey, SortDir> = {
+  atMs: 'desc',
+  model: 'asc',
+  session: 'asc',
+  inputTokens: 'desc',
+  outputTokens: 'desc',
+  cacheReadTokens: 'desc',
+  cacheRate: 'desc',
+  tps: 'desc',
+  firstTokenMs: 'desc',
+  durationMs: 'desc',
+  status: 'asc',
+}
+
+/**
+ * The value a column orders by. Unreported counts sort as -1 — below zero,
+ * so they never outrank a reported one in either direction's spirit — and
+ * the status orders by outcome first, then by its code or number.
+ */
+function sortValue(entry: RequestLogEntry, key: SortKey): string | number {
+  switch (key) {
+    case 'atMs': return entry.atMs
+    case 'model': return entry.model
+    case 'session': return entry.session
+    case 'inputTokens': return entry.inputTokens ?? -1
+    case 'outputTokens': return entry.outputTokens ?? -1
+    case 'cacheReadTokens': return entry.cacheReadTokens ?? -1
+    case 'cacheRate': return cacheRate(entry) ?? -1
+    case 'tps': return entry.tps ?? -1
+    case 'firstTokenMs': return entry.firstTokenMs ?? -1
+    case 'durationMs': return entry.durationMs ?? -1
+    case 'status': return entry.ok ? `ok-${entry.status ?? ''}` : `fail-${entry.code ?? ''}`
+  }
+}
+
 /** Rows per page; the snapshot's own bound caps the whole table. */
 const PAGE_SIZE = 50
 
@@ -66,6 +113,25 @@ function duration(value: number | undefined): string {
 /** A rate, to one decimal. */
 function rate(value: number | undefined): string {
   return value === undefined ? '—' : value.toFixed(1)
+}
+
+/**
+ * The share of input tokens the provider served from cache.
+ *
+ * The adapter reports uncached input and cache reads separately, so the
+ * total input is their sum. Undefined when the provider reported no input
+ * at all: a share of nothing is not a share.
+ */
+function cacheRate(entry: RequestLogEntry): number | undefined {
+  if (entry.inputTokens === undefined) return undefined
+  const cached = entry.cacheReadTokens ?? 0
+  const total = entry.inputTokens + cached
+  return total > 0 ? cached / total : undefined
+}
+
+/** A share as whole percent, or a dash when it is unknown. */
+function percent(value: number | undefined): string {
+  return value === undefined ? '—' : `${(value * 100).toFixed(0)}%`
 }
 
 /** The mean of a set, or undefined when the set is empty. */
@@ -103,11 +169,25 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: Re
   const [groupBy, setGroupBy] = useState<GroupBy>('none')
   const [page, setPage] = useState(0)
   const [expanded, setExpanded] = useState<number | null>(null)
-  // The in-conversation window shows one session by default. The common log
-  // keeps only the first eight characters of a session id, and the debug log
-  // keeps all of it, so a prefix matches either.
-  const sessionPrefix = sessionId === undefined ? '' : sessionId.slice(0, 8)
-  const [onlySession, setOnlySession] = useState(sessionPrefix !== '')
+  // Newest first: the snapshot already arrives in that order.
+  const [sortKey, setSortKey] = useState<SortKey>('atMs')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  // The in-conversation window shows one session by default. Sessions are
+  // stored whole, so this is an exact match — no prefix that could also
+  // catch a different conversation.
+  const [onlySession, setOnlySession] = useState(sessionId !== undefined)
+
+  /** Order by a column: a new column starts in its reading direction. */
+  const toggleSort = (key: SortKey): void => {
+    if (key === sortKey) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey(key)
+      setSortDir(SORT_DEFAULT_DIR[key])
+    }
+    setPage(0)
+    setExpanded(null)
+  }
 
   const load = useCallback(async (): Promise<void> => {
     setRefreshing(true)
@@ -137,25 +217,54 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: Re
       if (result === 'ok' && !entry.ok) return false
       if (result === 'fail' && entry.ok) return false
       if (slowOnly && (entry.durationMs ?? 0) < Math.max(0, slowSeconds) * 1000) return false
-      if (onlySession && sessionPrefix !== '' && !entry.session.startsWith(sessionPrefix)) return false
+      if (onlySession && sessionId !== undefined && entry.session !== sessionId) return false
       if (query !== '' && !entry.session.includes(query)) return false
       return true
     })
-  }, [snapshot, model, result, slowOnly, slowSeconds, sessionQuery, onlySession, sessionPrefix])
+  }, [snapshot, model, result, slowOnly, slowSeconds, sessionQuery, onlySession, sessionId])
 
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, pages - 1)
-  const pageEntries = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
+  // The sort is stable, so ties keep the snapshot's newest-first order.
+  const sorted = useMemo(() => {
+    const next = [...filtered]
+    next.sort((a, b) => {
+      const first = sortValue(a, sortKey)
+      const second = sortValue(b, sortKey)
+      const compared = typeof first === 'number' && typeof second === 'number'
+        ? first - second
+        : String(first) < String(second) ? -1 : String(first) > String(second) ? 1 : 0
+      return sortDir === 'asc' ? compared : -compared
+    })
+    return next
+  }, [filtered, sortKey, sortDir])
+  const pageEntries = sorted.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
 
   const failures = filtered.filter(entry => !entry.ok).length
   const meanLatency = average(filtered.flatMap(entry => entry.durationMs === undefined ? [] : [entry.durationMs]))
   const meanFirstToken = average(filtered.flatMap(entry => entry.firstTokenMs === undefined ? [] : [entry.firstTokenMs]))
   const meanTps = average(filtered.flatMap(entry => entry.tps === undefined ? [] : [entry.tps]))
+  const meanCacheRate = average(filtered.flatMap(entry => {
+    const value = cacheRate(entry)
+    return value === undefined ? [] : [value]
+  }))
   // The reuse share is a property of the process, not of the filter: it counts
   // sockets against every request the Host has served.
   const reuse = snapshot !== undefined && snapshot.totalRecords > 0
     ? Math.max(0, Math.min(1, 1 - snapshot.newConnections / snapshot.totalRecords))
     : undefined
+
+  /**
+   * One sortable head cell: the arrow names the direction, a click flips it.
+   * @param key - the column this head orders by.
+   * @param label - the translated column name.
+   * @returns the head cell.
+   */
+  const head = (key: SortKey, label: string): React.JSX.Element => (
+    <th className={css.thSortable} onClick={() => { toggleSort(key) }}>
+      {label}{sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
+    </th>
+  )
 
   const rows = (): React.JSX.Element[] => {
     const out: React.JSX.Element[] = []
@@ -166,7 +275,7 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: Re
         lastGroup = group
         out.push(
           <tr key={`group-${group}-${entry.seq}`} className={css.group}>
-            <td colSpan={10}>{group}</td>
+            <td colSpan={11}>{group}</td>
           </tr>,
         )
       }
@@ -183,6 +292,7 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: Re
           <td>{count(entry.inputTokens)}</td>
           <td>{count(entry.outputTokens)}</td>
           <td>{count(entry.cacheReadTokens)}</td>
+          <td>{percent(cacheRate(entry))}</td>
           <td>{rate(entry.tps)}</td>
           <td>{duration(entry.firstTokenMs)}</td>
           <td>{duration(entry.durationMs)}</td>
@@ -192,7 +302,7 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: Re
       if (expanded === entry.seq) {
         out.push(
           <tr key={`detail-${entry.seq}`} className={css.detail}>
-            <td colSpan={10}>
+            <td colSpan={11}>
               <div className={css.detailGrid}>
                 <div className={css.detailItem}>
                   <span className={css.detailLabel}>{t('requestLogDetailMethod')}</span>
@@ -235,6 +345,10 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: Re
                   </span>
                 </div>
                 <div className={css.detailItem}>
+                  <span className={css.detailLabel}>{t('requestLogColCacheRate')}</span>
+                  <span className={css.detailValue}>{percent(cacheRate(entry))}</span>
+                </div>
+                <div className={css.detailItem}>
                   <span className={css.detailLabel}>{t('requestLogColTps')}</span>
                   <span className={css.detailValue}>{rate(entry.tps)}</span>
                 </div>
@@ -254,7 +368,7 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: Re
   }
 
   return (
-    <div className={css.page}>
+    <div className={sessionId === undefined ? css.page : `${css.page} ${css.pageLoose}`}>
       <div className={css.head}>
         <div className={css.headText}>
           <h1 className={css.title}>{t('requestLogTitle')}</h1>
@@ -291,6 +405,10 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: Re
         <div className={css.card}>
           <span className={css.cardLabel}>{t('requestLogStatTps')}</span>
           <span className={css.cardValue}>{rate(meanTps)}</span>
+        </div>
+        <div className={css.card}>
+          <span className={css.cardLabel}>{t('requestLogStatCacheRate')}</span>
+          <span className={css.cardValue}>{percent(meanCacheRate)}</span>
         </div>
         <div className={css.card}>
           <span className={css.cardLabel}>{t('requestLogReuse')}</span>
@@ -343,7 +461,7 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: Re
         </label>
         <label className={css.field}>
           {t('requestLogFilterSession')}
-          {sessionPrefix !== '' && (
+          {sessionId !== undefined && (
             <>
               <input
                 className={css.checkbox}
@@ -384,16 +502,17 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId }: Re
             <table className={css.table}>
               <thead>
                 <tr>
-                  <th>{t('requestLogColTime')}</th>
-                  <th>{t('requestLogColModel')}</th>
-                  <th>{t('requestLogColSession')}</th>
-                  <th>{t('requestLogColIn')}</th>
-                  <th>{t('requestLogColOut')}</th>
-                  <th>{t('requestLogColCache')}</th>
-                  <th>{t('requestLogColTps')}</th>
-                  <th>{t('requestLogColFirstToken')}</th>
-                  <th>{t('requestLogColLatency')}</th>
-                  <th>{t('requestLogColStatus')}</th>
+                  {head('atMs', t('requestLogColTime'))}
+                  {head('model', t('requestLogColModel'))}
+                  {head('session', t('requestLogColSession'))}
+                  {head('inputTokens', t('requestLogColIn'))}
+                  {head('outputTokens', t('requestLogColOut'))}
+                  {head('cacheReadTokens', t('requestLogColCache'))}
+                  {head('cacheRate', t('requestLogColCacheRate'))}
+                  {head('tps', t('requestLogColTps'))}
+                  {head('firstTokenMs', t('requestLogColFirstToken'))}
+                  {head('durationMs', t('requestLogColLatency'))}
+                  {head('status', t('requestLogColStatus'))}
                 </tr>
               </thead>
               <tbody>{rows()}</tbody>

@@ -133,16 +133,16 @@ describe('request-log page', () => {
   })
 
   it('shows one session when it is scoped to one', async () => {
-    // Session ids are UUIDs; the common log keeps the first eight characters,
-    // and that prefix is what a scoped window matches on.
+    // Sessions are stored whole, so the scoped window matches exactly — a
+    // prefix could also catch a different conversation.
     render(<RequestLogPage {...faceFor(snapshotOf([
-      entry({ session: 'aaaaaaaa-1111' }),
-      entry({ seq: 2, session: 'bbbbbbbb-2222' }),
+      entry({ session: 'aaaaaaaa-1111-2222-3333' }),
+      entry({ seq: 2, session: 'bbbbbbbb-2222-3333-4444' }),
     ]))} sessionId="aaaaaaaa-1111-2222-3333" />)
     const rows = await table()
     // The other session's row is filtered away by default.
-    expect(within(rows).queryByText('bbbbbbbb-2222')).toBeNull()
-    expect(within(rows).getByText('aaaaaaaa-1111')).toBeTruthy()
+    expect(within(rows).queryByText('bbbbbbbb-2222-3333-4444')).toBeNull()
+    expect(within(rows).getByText('aaaaaaaa-1111-2222-3333')).toBeTruthy()
     expect(screen.getByText(/this session only/)).toBeTruthy()
   })
 
@@ -154,5 +154,46 @@ describe('request-log page', () => {
       expect(within(rows).getByText('https://opencode.ai/inference/go/v1/chat/completions')).toBeTruthy()
     })
     expect(within(rows).getByText(/2 messages/)).toBeTruthy()
+  })
+
+  it('orders rows when a column head is clicked', async () => {
+    // Newest first is the default; a click on Latency reorders slowest
+    // first, and a second click flips it.
+    const first = Date.UTC(2026, 0, 1, 12, 0, 0)
+    render(<RequestLogPage {...faceFor(snapshotOf([
+      entry({ seq: 1, model: 'slow-model', atMs: first, durationMs: 2_000 }),
+      entry({ seq: 2, model: 'fast-model', atMs: first + 1_000, durationMs: 500 }),
+    ]))} />)
+    const rows = await table()
+    const order = (): string[] => within(rows).getAllByRole('row').slice(1, 3)
+      .map(row => within(row).getAllByRole('cell')[1]?.textContent ?? '')
+    expect(order()).toEqual(['fast-model', 'slow-model'])
+    fireEvent.click(screen.getByText(/Latency/))
+    await waitFor(() => { expect(order()).toEqual(['slow-model', 'fast-model']) })
+    // The flipped direction is marked on the head.
+    expect(screen.getByText(/Latency ▼/)).toBeTruthy()
+    fireEvent.click(screen.getByText(/Latency/))
+    await waitFor(() => { expect(order()).toEqual(['fast-model', 'slow-model']) })
+    expect(screen.getByText(/Latency ▲/)).toBeTruthy()
+  })
+
+  it('shows the cache-hit share of each request', async () => {
+    // 20 cached of 120 input reads as 17%; a request that reported no
+    // input has no share to show.
+    const withoutInput = { ...entry({ seq: 2 }) }
+    // The store omits unreported counts rather than writing them as
+    // undefined; the deletion below reproduces that shape.
+    delete (withoutInput as Partial<Record<'inputTokens' | 'cacheReadTokens', unknown>>).inputTokens
+    delete (withoutInput as Partial<Record<'inputTokens' | 'cacheReadTokens', unknown>>).cacheReadTokens
+    render(<RequestLogPage {...faceFor(snapshotOf([
+      entry({ inputTokens: 100, cacheReadTokens: 20 }),
+      withoutInput,
+    ]))} />)
+    const rows = await table()
+    expect(within(rows).getByText('17%')).toBeTruthy()
+    // The request that reported no input shows dashes instead of shares.
+    expect(within(rows).getAllByText('—').length).toBeGreaterThan(0)
+    // And the summary averages the ones that reported one.
+    expect(card('Mean cache hit')).toContain('17%')
   })
 })

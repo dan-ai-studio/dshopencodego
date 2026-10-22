@@ -116,7 +116,7 @@ Configuration lives in the profile's `cordis.patch.yml`:
     pinnedAddresses:                           # fixed IP: host -> address (only the gateway host counts)
       opencode.ai: 104.18.32.47              # IPv4 or IPv6; an invalid or absent address uses the system DNS
     requestLogEnabled: false                 # request-log master switch, default off: off reads byte-for-byte as without the log
-    requestLogDebug: false                   # debug detail: pool events and full session ids; otherwise sessions keep 8 chars
+    requestLogDebug: false                   # debug detail: pool events and the request user agent; session ids are always whole
     requestLogMaxEntries: 200                # most entries to keep, 50 to 500; oldest are dropped first
     retryPolicy:                              # optional: this route's retry policy, executed by dsh-llm-retry
       mode: normal                            # or always (retry every failure; maxRetries is ignored)
@@ -141,13 +141,15 @@ The API key comes from the Harness credential store (reference name `OPENCODE_GO
 - The settings page shows and accepts the value in **seconds** (a number of milliseconds is not readable at a glance) and stores it in milliseconds. Range: 1 to 1800000 milliseconds.
 - Once a connection has been idle that long, the pool **reclaims it** on its own — no separate mechanism is needed. The actual release comes a couple of seconds later than the setting, which is the client's own small margin beyond the deadline the server states. When the plugin is unloaded, the pool is **closed with it**: the pool belongs to the plugin and should not be left behind on the machine.
 
-**Request log**: per-request records, off by default; enabling them changes nothing about what requests do. The settings page's "Request log" group holds the master switch, the debug switch (pool events and full session ids), and the retention count (default 200).
+**Request log**: per-request records, off by default; enabling them changes nothing about what requests do. The settings page's "Request log" group holds the master switch, the debug switch (pool events and the request user agent), and the retention count (default 200).
 
 - **Two entries, one page**:
   - **A sidebar icon → a full page in the main column**: every request across sessions. The log is a process-wide thing, so the sidebar is where it belongs — a fixed, always-visible spot, and the same pattern the Harness's own plugin manager uses.
   - **A "Request log" View inside the conversation**: this session's requests, in place — answering "why was that turn slow" without leaving the chat.
-- It is a page, not a floating card: the head, the summary (requests / failures / mean latency / mean first token / mean tok/s / connection reuse) and the filters stay put while the table scrolls. Each row carries time, model, session, input/output/cache, **tok/s**, first token, latency and status; clicking one expands its HTTP detail (method, URL, redacted headers, request shape, result and usage). Filters: model, result, slow requests, session; groups: session, model, result.
+- It is a page, not a floating card: the head, the summary (requests / failures / mean latency / mean first token / mean tok/s / mean cache hit / connection reuse) and the filters stay put while the table scrolls. Each row carries time, model, session, input/output/cache, **cache hit**, **tok/s**, first token, latency and status; clicking one expands its HTTP detail (method, URL, redacted headers, request shape, result and usage). Filters: model, result, slow requests, session; groups: session, model, result; **click a column head to sort by it**, click again to flip.
 - **tok/s** is the output rate over the decode window (first token to the end), on the same scale as the Harness's own per-turn reading (reasoning tokens included). A request that produced no token has no rate — none is invented.
+- **Cache hit** is the share of input tokens served from cache (cache reads over uncached input plus cache reads). No reported input means no share — none is invented either.
+- Session ids are **always stored whole**: an id is a conversation identity, not a credential, and a truncated one reads two conversations as one.
 - The log is a ring buffer (oldest dropped first) that dies with the process; snapshots are read on demand, never polled, so a page nobody opens costs no traffic.
 - The credential never enters a record: the recorder takes no headers argument at all, only the allowlisted session id and user agent. Failed requests are recorded with their error code; a request cut off before any terminal event is not recorded — no total reported, none invented.
 

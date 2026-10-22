@@ -125,9 +125,9 @@ export interface OpencodeGoConfig {
    */
   requestLogEnabled: boolean
   /**
-   * Whether the request log also records pool lifecycle and full session
-   * identity. Debug only: the common log carries a truncated session and no
-   * pool events, which is enough to follow one conversation.
+   * Whether the request log also records pool lifecycle and request headers.
+   * Debug only: the common log carries no pool events and no header detail,
+   * which is enough to follow one conversation.
    */
   requestLogDebug: boolean
   /**

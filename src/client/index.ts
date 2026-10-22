@@ -14,7 +14,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: the root `main` keyed slot the request-log page registers into,
 // declared by ui-layout with the panel-id brand.
-import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
+import type { ILayout, MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: the `sidebar.panellist` list the entry registers into.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 // Type-only: pulls the slot registry Context merge (ctx.slots).
@@ -76,6 +76,18 @@ export const inject = ['slots', 'locale', 'remote']
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dshopencodego: copy dictionaries')
+  // The layout service, held live: the settings page's button selects the
+  // request-log panel through it. It is read through `inject` rather than
+  // off the context directly, because a service read through a scope that
+  // never declared it throws — and a thrown read there would look like a
+  // button that does nothing.
+  const layout: { current: ILayout | undefined } = { current: undefined }
+  ctx.inject(['layout'], (layoutScope) => {
+    layout.current = layoutScope.layout
+    // Drop the reference when the provider goes away, so a stale service is
+    // never called after its owner is disposed.
+    return () => { layout.current = undefined }
+  })
   // One registry owns one contribution per package, so the catalog methods ride
   // the same mount as usage: a separate `$mount` would leave
   // `remote.opencodeGoCatalog` unregistered, and the settings section's inject
@@ -202,19 +214,22 @@ export function apply(ctx: ClientContext): void {
         t: (key: string) => translate(key as OpencodeGoKey),
         getLocale: () => scope.locale.getLocale().active,
         // The settings page opens the log in the main column, beside this
-        // page rather than over it. A composition without the layout service
-        // has no main column to select, so the button does nothing there.
+        // page rather than over it. It reports whether it worked: a button
+        // that silently does nothing is worse than one that says why.
         openRequestLog: () => {
-          try {
-            ctx.layout.selectPanel(REQUEST_LOG_PANEL)
-          } catch {
-            // No layout service: no panel to open. The page still renders.
-          }
+          const service = layout.current
+          if (service === undefined) return false
+          service.selectPanel(REQUEST_LOG_PANEL)
+          return true
         },
       }),
     }, Section))
   })
-  ctx.inject(['modelDirectories', 'remote.opencodeGoUsage'], (scope) => {
+  // `modelDirectories.directoryFor` reads the session's remote namespace, so
+  // the scope that calls it has to declare that namespace: a service read
+  // through a scope that never declared it throws, and the throw lands in
+  // the composer's render — a broken input bar rather than a broken page.
+  ctx.inject(['modelDirectories', 'remote.opencodeGoUsage', 'remote.session'], (scope) => {
     const translate = scope.locale.bind(NS)
     scope.slots.inject('conversation.input.right', () => scope.slots.register({
       name: 'conversation.input.right',
