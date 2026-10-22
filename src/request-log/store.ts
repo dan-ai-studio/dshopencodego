@@ -49,6 +49,20 @@ export interface RequestLogEntry {
   readonly durationMs?: number
   /** Wall time from request start to the first token delta, in milliseconds. */
   readonly firstTokenMs?: number
+  /**
+   * Wall time from the first token delta to the terminal event, in
+   * milliseconds — the decode window, on the same scale as the Harness's own
+   * per-turn reading.
+   */
+  readonly decodeMs?: number
+  /**
+   * Output tokens per second over the decode window.
+   *
+   * Absent when the request produced no token, or when the decode window
+   * rounds to zero milliseconds: a rate divided by zero is not a rate, and
+   * inventing one would misreport a fast reply as infinitely quick.
+   */
+  readonly tps?: number
   /** Whether the request completed. */
   readonly ok: boolean
   /** Failure code (`TIMEOUT`, `TRANSPORT`, …) for a request that did not complete. */
@@ -237,6 +251,16 @@ export class RequestLog {
         if (finished) return
         finished = true
         const endedAt = Date.now()
+        // The decode window: first token to the terminal event. The terminal
+        // event follows the last token by a few milliseconds, so this is the
+        // same scale as the Harness's own per-turn decode reading.
+        const decodeMs = firstTokenAt === undefined ? undefined : Math.max(0, endedAt - firstTokenAt)
+        // Output tokens per second. The provider's output count includes
+        // reasoning tokens, exactly as the Harness's own decode rate counts
+        // them, so the two numbers mean the same thing.
+        const tps = decodeMs === undefined || decodeMs <= 0 || usage === undefined
+          ? undefined
+          : usage.outputTokens / (decodeMs / 1000)
         const entry: RequestLogEntry = {
           seq: ++this.seq,
           atMs: startedAt,
@@ -254,6 +278,8 @@ export class RequestLog {
           },
           durationMs: Math.max(0, endedAt - startedAt),
           ...firstTokenAt === undefined ? {} : { firstTokenMs: Math.max(0, firstTokenAt - startedAt) },
+          ...decodeMs === undefined ? {} : { decodeMs },
+          ...tps === undefined ? {} : { tps },
           ok,
           ...code === undefined ? {} : { code },
           // The pool in force when the request finished. Pool switches are

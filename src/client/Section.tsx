@@ -17,7 +17,6 @@ import type { CatalogReading } from '../catalog/contract.ts'
 import type { NetworkReading } from '../network/contract.ts'
 import type { RequestLogSnapshot } from '../request-log/contract.ts'
 import type { UpdateStatus } from '../update/contract.ts'
-import { RequestLogDialog } from './RequestLogDialog.tsx'
 import { PACKAGE_NAME, REPOSITORY } from '../update/check.ts'
 import { DEFAULT_KEEP_ALIVE_TIMEOUT_MS, MAX_KEEP_ALIVE_TIMEOUT_SECONDS } from '../network/keep-alive.ts'
 import {
@@ -190,8 +189,6 @@ interface SectionState {
   readonly filter: ModelFilter
   /** One-click update panel; `idle` renders nothing. */
   readonly update: UpdatePanel
-  /** The request-log viewer; closed renders nothing. */
-  readonly requestLogOpen: boolean
 }
 
 /** How long a burst of switch flips is coalesced before one settings write. */
@@ -212,7 +209,6 @@ const INITIAL: SectionState = {
   saving: false,
   filter: INITIAL_FILTER,
   update: { phase: 'idle', status: undefined, message: undefined },
-  requestLogOpen: false,
 }
 
 /** Read the fields this page owns out of a settings snapshot value. */
@@ -756,16 +752,6 @@ export class SectionController {
     )
   }
 
-  /** Open the request-log viewer. */
-  openRequestLog(): void {
-    this.set({ requestLogOpen: true })
-  }
-
-  /** Close the request-log viewer. */
-  closeRequestLog(): void {
-    this.set({ requestLogOpen: false })
-  }
-
   private async write(operation: () => Promise<void | boolean>, onAccepted?: () => void): Promise<void> {
     this.set({ saving: true })
     try {
@@ -784,6 +770,8 @@ interface SectionInjected {
   readonly controller: SectionController
   readonly t: (key: string) => string
   readonly getLocale?: () => string
+  /** Open the request-log page in the main column; absent when there is none. */
+  readonly openRequestLog?: () => void
 }
 
 /** How a protocol decision is labelled for a human. */
@@ -916,7 +904,7 @@ function updateFailureText(message: string | undefined, t: (key: string) => stri
 }
 
 /** The settings page. */
-export function Section({ controller, t, getLocale }: SectionInjected): React.JSX.Element {
+export function Section({ controller, t, getLocale, openRequestLog }: SectionInjected): React.JSX.Element {
   const state = useSyncExternalStore(controller.subscribe, controller.snapshot, controller.snapshot)
   const [keyDraft, setKeyDraft] = useState('')
   const [pinDraft, setPinDraft] = useState('')
@@ -1125,7 +1113,7 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
         <span className={css.hint}>{t('requestLogMaxEntriesHint')}</span>
       </div>
       <div className={css.row}>
-        <button type="button" className={css.button} onClick={() => { controller.openRequestLog() }}>
+        <button type="button" className={css.button} onClick={() => { openRequestLog?.() }}>
           {t('requestLogOpen')}
         </button>
       </div>
@@ -1215,12 +1203,5 @@ export function Section({ controller, t, getLocale }: SectionInjected): React.JS
         })}
       </div>}
     </div>
-    {state.requestLogOpen && <RequestLogDialog
-      readLog={() => controller.readRequestLog()}
-      enabled={state.settings?.requestLogEnabled ?? false}
-      t={t}
-      getLocale={getLocale}
-      onClose={() => { controller.closeRequestLog() }}
-    />}
   </section>
 }

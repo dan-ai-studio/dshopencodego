@@ -140,9 +140,14 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 - 设置页里以**秒**显示与填写（毫秒的数字人读不出量级），存储时换算成毫秒。取值 1 ~ 1800000 毫秒。
 - 空闲满这个时间之后，连接由连接池**自己回收**，不需要额外的清理机制（实际释放时间比设置值多约 2 秒，那是客户端在服务端给的期限之外自留的一点缓冲）。插件被卸载时，连接池也会**一并关掉**——它是插件的，不该留在机器上。
 
-**请求日志**：默认关闭的逐请求记录，打开它不改变请求的任何行为。设置页"请求日志"分组里有总开关、排错详情开关（连接池事件与完整会话 id）、保留条数（默认 200）。查看器支持按模型／结果／慢请求／会话筛选、按会话／模型／结果分组、分页，以及点击看单条 HTTP 明细（方法、地址、脱敏后的请求头、耗时线、结果与用量）。
+**请求日志**：默认关闭的逐请求记录，打开它不改变请求的任何行为。设置页"请求日志"分组里有总开关、排错详情开关（连接池事件与完整会话 id）、保留条数（默认 200）。
 
-- 记录的是环形缓冲（超限丢最旧），进程重启即清；只读快照，不轮询，关闭查看器零流量。
+- **两个入口，同一个页面**：
+  - **侧边栏图标 → 主区域整页**：跨会话看全部请求。日志是进程级的数据，放在侧边栏最合理——位置固定、常驻可见，和 DSH 自己的插件管理器同一个范式。
+  - **会话里的「请求日志」标签页**：就地看**本会话**的请求，回答"刚才那轮为什么慢"不用离开对话。
+- 页面是一整页而不是浮层：标题、统计（请求数／失败数／平均耗时／平均首字／平均 tok/s／连接复用率）、筛选栏固定在上方，只有表格自己滚动。每行含时间、模型、会话、输入／输出／缓存、**tok/s**、首字、耗时与状态；点一行展开 HTTP 明细（方法、地址、脱敏后的请求头、请求构成、结果与用量）。筛选有模型／结果／慢请求／会话，分组有会话／模型／结果。
+- **tok/s** 是**首字到结束**这段解码窗口上的输出速率，口径与 Harness 自己的每轮读数一致（含推理 token）。没有 token 的请求没有速率——不编数。
+- 记录的是环形缓冲（超限丢最旧），进程重启即清；只读快照，不轮询，没人打开的页面零流量。
 - 凭据永远不进记录：记录器根本不接收请求头参数，只收白名单里的会话 id 与 UA；失败的请求同样记一条（含错误码），中断到没有终端事件的不记（网关没报总数就不编数）。
 
 **图片**：三个字段各管一层，超限的图片会被明确拒绝，而不是静默降质或丢弃：
@@ -239,7 +244,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 | 绑定层 | 声明 | 谁在把关 |
 | --- | --- | --- |
 | `engines.dsh` | `>=0.2.0-rc.1 <0.3.0-0` | **DSH 加载时的真门禁；声明了它，peer 判定被整体跳过** |
-| `peerDependencies`（17 个 `@deepseek-ai/dsh-*`） | 均为 `>=0.2.0-rc.1 <0.3.0-0` | 仅当 `engines.dsh` 缺席时才接管；本插件声明了它，故当前不参与判定 |
+| `peerDependencies`（20 个 `@deepseek-ai/dsh-*`） | 均为 `>=0.2.0-rc.1 <0.3.0-0` | 仅当 `engines.dsh` 缺席时才接管；本插件声明了它，故当前不参与判定 |
 | `@deepseek-ai/cordis` | `4.0.4 \|\| 4.0.5-alpha.1 \|\| 4.0.5-alpha.2 \|\| 4.0.5` | 同上（peer 通道） |
 | `engines.node` | `^22.19.0 \|\| >=24.0.0` | 包管理器 |
 | 已打包依赖 `@earendil-works/pi-ai` | `~1.3.0`（1.3.x 内），**打进产物**（devDependency） | 独立耦合：pi-ai 改请求构造即影响本插件的线上行为；其 opencode-go 内置目录同时是本插件的打底数据。打包后本插件**没有任何运行时依赖**，安装者不必再解析它 |
@@ -247,7 +252,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 
 维护时需要注意：
 
-- **必选与可选之分**：18 个 peer（17 个 `dsh-*` 加框架 `cordis`）中 6 个标了 `optional`（`dsh-api-remotes`、`dsh-client-locale`、`dsh-client-store`、`dsh-client-ui-model-selection`、`dsh-client-ui-settings`、`dsh-client-ui-slots`）；其余 12 个是运行时必需的——`cordis`、`dsh-attachment`、`dsh-brand`、`dsh-client-ui-conversation`、`dsh-client-ui-renderer`、`dsh-credentials`、`dsh-fs`、`dsh-launch-environment`、`dsh-llm`、`dsh-timeout`、`dsh-typert-protocol`、`dsh-typert-registry`。这 18 个当前都**不参与加载判定**（见上：`engines.dsh` 单独决定），它们的价值在于声明依赖并供包管理器与读者使用。其中 `dsh-llm` 是最重的一处耦合（源码 import 二十余处）。
+- **必选与可选之分**：21 个 peer（20 个 `dsh-*` 加框架 `cordis`）中 9 个标了 `optional`（`dsh-api-remotes`、`dsh-client-locale`、`dsh-client-store`、`dsh-client-ui-layout`、`dsh-client-ui-model-selection`、`dsh-client-ui-primitives`、`dsh-client-ui-settings`、`dsh-client-ui-sidebar`、`dsh-client-ui-slots`）；其余 12 个是运行时必需的——`cordis`、`dsh-attachment`、`dsh-brand`、`dsh-client-ui-conversation`、`dsh-client-ui-renderer`、`dsh-credentials`、`dsh-fs`、`dsh-launch-environment`、`dsh-llm`、`dsh-timeout`、`dsh-typert-protocol`、`dsh-typert-registry`。这 21 个当前都**不参与加载判定**（见上：`engines.dsh` 单独决定），它们的价值在于声明依赖并供包管理器与读者使用。其中 `dsh-llm` 是最重的一处耦合（源码 import 二十余处）。
 - **名义范围 ≠ 实测范围**：声明范围是 `>=0.2.0-rc.1 <0.3.0-0`，本项目实际验证过的基线依次是 `0.2.0-rc.1`（开发依赖基线：门禁判定 + typecheck + 全量用例）、`0.2.0-rc.2`（同上 + `prepareCall` 代次冻结）、`0.2.1-alpha.3`（首个目标版本）、`0.2.1-alpha.4`（T-24）、`0.2.1-alpha.5`（T-26）与 `0.2.1-rc.2`（T-31，运行时升到 cordis `4.0.5`；上游契约层源码零变更）。范围内的其他版本没有逐个验证过。
 - **上界就是跟版线**：`<0.3.0-0` 意味着 DSH 一旦发布 `0.3.0-0`（`0.3.0` 线的第一个预发布版），本插件必须同批发新版，否则所有用户加载失败。`tests/peer-coverage.spec.ts` 会同时断言下界接受已安装版本、上界拒绝 `0.3.0-0`，所以这条线漂移会在本地测试里先失败，而不是等用户加载失败。调整范围后用 `npm test` 验证即可（本地 mock 网关，零网络零 token）——范围以接口声明为准，不要用线上探测来"测"出一个范围。
 - **peer 覆盖已双向守住**：`dsh-typert-registry`、`dsh-client-ui-conversation`、`dsh-client-ui-renderer` 曾被源码 import 却未声明、门禁管不到，现已补进 `peerDependencies`；`tests/peer-coverage.spec.ts` 双向断言——源码用到的必须声明，声明了却没人用的必须删（`dsh-settings` 就这样被移除：设置表单实际由 `dsh-client-ui-settings` 提供）。
@@ -280,7 +285,7 @@ npm test            # 契约测试：真实 HTTP mock 网关，断言请求头/�
 
 **顺序有讲究**：`npm run build` 要排在 `npm test` 之前——`tests/pack-contents.spec.ts` 会遍历 `exports` 的每个目标，`lib/` 存在与否决定这条检查是执行还是被跳过（不报错，但会少一层保护）。`package.json` 已移除 `prepare`，因此 `npm ci` 不会再替你隐式构建；三个 CI workflow 都显式跑了 `npm run build`。
 
-测试覆盖配置校验、协议阶梯、网关与在线元数据、目录投影、适配器（三种协议的线上请求）、Remote 契约与服务、会话头不变量、用量窗口与计量、客户端控制器与用量组件、两半的挂载与登记、流空闲超时与中止的错误映射、验证脚本的退出码契约、以及几条**结构性不变量**（inject 声明与源码读取一致、peer 覆盖双向、README 与 manifest 一致、README 对上游的断言与实装的上游一致）。共 **58 个测试文件**——这个数字由 `tests/readme-consistency.spec.ts` 对着 `tests/` 目录校验，不会漂移。
+测试覆盖配置校验、协议阶梯、网关与在线元数据、目录投影、适配器（三种协议的线上请求）、Remote 契约与服务、会话头不变量、用量窗口与计量、客户端控制器与用量组件、两半的挂载与登记、流空闲超时与中止的错误映射、验证脚本的退出码契约、以及几条**结构性不变量**（inject 声明与源码读取一致、peer 覆盖双向、README 与 manifest 一致、README 对上游的断言与实装的上游一致）。共 **59 个测试文件**——这个数字由 `tests/readme-consistency.spec.ts` 对着 `tests/` 目录校验，不会漂移。
 
 ## 发布（维护者）
 

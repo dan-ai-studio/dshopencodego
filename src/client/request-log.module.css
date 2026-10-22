@@ -1,109 +1,314 @@
 /**
- * Request-log viewer: a fullscreen dialog over the settings page.
+ * The request-log page: a full-height column in the main panel.
  *
- * Status is carried by text and a left border, never by background fill
- * alone: both themes stay readable, and the meaning survives without color.
+ * The page owns its own scroll: the head, the summary and the filters stay
+ * put while the table scrolls, so a hundred rows never push the controls off
+ * screen. Nothing here is translucent — the page paints its own background,
+ * because a log that shows the conversation through it reads as a ghost.
+ *
+ * Status is carried by text and a left rule, never by fill alone: both
+ * themes stay readable, and the meaning survives without color.
  */
-.overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.55);
-}
 
-.panel {
-  width: min(1100px, 94vw);
-  max-height: 92vh;
+.page {
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
-  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+}
+
+.head {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 20px clamp(16px, 3vw, 32px) 12px;
+}
+
+.headText {
+  min-width: 0;
 }
 
 .title {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 28px;
 }
 
-.titleValue {
+.subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.headActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
   margin-left: auto;
 }
 
-.controls {
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* The summary strip: one card per reading, wrapping on a narrow column. */
+.summary {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
-  gap: 8px 16px;
-  align-items: center;
+  gap: 8px;
+  padding: 0 clamp(16px, 3vw, 32px) 12px;
 }
 
-.footer {
+.card {
   display: flex;
-  gap: 16px;
-  align-items: center;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 104px;
+  padding: 8px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
 }
 
+.cardLabel {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.cardValue {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cardError .cardValue {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.cardWarn .cardValue {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+/* The filter row; it wraps rather than scroll, so every control stays hit. */
+.toolbar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 0 clamp(16px, 3vw, 32px) 12px;
+}
+
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.select,
+.input {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.input {
+  width: 160px;
+}
+
+.inputNumber {
+  width: 72px;
+}
+
+.checkbox {
+  accent-color: var(--dsw-alias-brand-primary);
+}
+
+/* The table's own scroll area: the one place that scrolls vertically. */
 .tableWrap {
-  overflow: auto;
   flex: 1;
-  min-height: 120px;
+  min-height: 0;
+  overflow: auto;
+  margin: 0 clamp(16px, 3vw, 32px);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
 }
 
 .table {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
+  min-width: 940px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  line-height: 20px;
 }
 
-.table th,
-.table td {
+.table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  font-weight: 500;
   text-align: left;
-  padding: 4px 8px;
   white-space: nowrap;
 }
 
-.group td {
-  font-weight: bold;
+.table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .row {
   cursor: pointer;
 }
 
-.rowFail {
-  border-left: 3px solid #c0392b;
+.row:hover td {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
-.rowFail td:first-child {
-  color: #c0392b;
-}
-
-.rowSlow {
-  border-left: 3px solid #d68910;
+.rowOk td:first-child {
+  box-shadow: inset 3px 0 0 var(--dsw-alias-border-l3);
 }
 
 .rowSlow td:first-child {
-  color: #d68910;
+  box-shadow: inset 3px 0 0 var(--dsw-alias-state-warn-primary);
 }
 
-.rowOk {
-  border-left: 3px solid transparent;
+.rowFail td:first-child {
+  box-shadow: inset 3px 0 0 var(--dsw-alias-state-error-primary);
+}
+
+.rowFail td:last-child,
+.rowSlow td:last-child {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.group td {
+  padding-top: 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-secondary);
+  font-weight: 500;
 }
 
 .detail td {
+  padding: 12px 10px 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
   white-space: normal;
-  word-break: break-all;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 6px 24px;
+}
+
+.detailItem {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.detailLabel {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.detailValue {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-primary);
 }
 
 .mono {
-  font-family: monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.empty {
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.foot {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px clamp(16px, 3vw, 32px) 20px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
 }
 
 .pager {
   display: flex;
-  gap: 12px;
   align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.notice {
+  padding: 0 clamp(16px, 3vw, 32px) 12px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.noticeError {
+  color: var(--dsw-alias-state-error-primary);
 }

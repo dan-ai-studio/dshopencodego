@@ -1,6 +1,14 @@
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      // The real primitives package pulls a markdown and highlighting
+      // toolchain into the module graph. The suite measures this plugin's
+      // own logic, and the glyphs are decoration — see the stub's header.
+      '@deepseek-ai/dsh-client-ui-primitives': new URL('./tests/stubs/ui-primitives.tsx', import.meta.url).pathname,
+    },
+  },
   test: {
     environment: 'node',
     include: ['tests/**/*.spec.ts', 'tests/**/*.spec.tsx'],

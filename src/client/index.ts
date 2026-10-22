@@ -12,6 +12,11 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only: pulls the shell's SlotMap merge (the composer slot).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+// Type-only: the root `main` keyed slot the request-log page registers into,
+// declared by ui-layout with the panel-id brand.
+import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
+// Type-only: the `sidebar.panellist` list the entry registers into.
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 // Type-only: pulls the slot registry Context merge (ctx.slots).
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
@@ -31,6 +36,9 @@ import { en, zh } from './locales.ts'
 import type { OpencodeGoKey } from './locales.ts'
 import { Section, SectionController } from './Section.tsx'
 import type { PluginManagerHolder, SettingsScopeLike } from './Section.tsx'
+import { RequestLogPage } from './RequestLogPage.tsx'
+import type { RequestLogFace } from './RequestLogPage.tsx'
+import { RequestLogPanelIcon } from './RequestLogPanelIcon.tsx'
 import { UsagePill } from './UsagePill.tsx'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -42,6 +50,15 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Dictionary namespace owned by this plugin. */
 const NS = 'settings.dshopencodego'
+
+/**
+ * The main panel the request log occupies.
+ *
+ * The same identity is the sidebar entry's id: the sidebar resolves a row's
+ * label from the list registration and selects the panel with the matching
+ * key, so the two must be one string.
+ */
+const REQUEST_LOG_PANEL = 'dshopencodego-request-log' as MainPanelId
 
 export type { UsagePillInjected } from './UsagePill.tsx'
 export type { OpencodeGoKey } from './locales.ts'
@@ -97,10 +114,11 @@ export function apply(ctx: ClientContext): void {
     const forms = scope.get('configForms') as
       { get(id: string): SettingsScopeLike | undefined } | undefined
     const pluginManager: PluginManagerHolder = {}
+    const profile = forms?.get('dshopencodego')
     const controller = new SectionController({
       remote: scope.remote,
       pluginManager,
-      scope: forms?.get('dshopencodego'),
+      scope: profile,
     })
     // The package manager is filled separately and reactively.
     //
@@ -119,6 +137,57 @@ export function apply(ctx: ClientContext): void {
     })
     const translate = scope.locale.bind(NS)
     scope.effect(() => () => { controller.dispose() })
+    // The request-log page: a panel in the main column, with a sidebar entry
+    // that selects it. A page rather than a dialog because a log of a hundred
+    // rows needs the whole column — a card floating over the conversation
+    // would be both smaller and less readable.
+    //
+    // The page reads its snapshot on demand and never polls, so a page nobody
+    // opens costs nothing at all.
+    const requestLog: RequestLogFace = {
+      readLog: async () => {
+        const result = await scope.remote.opencodeGoRequestLog.readLog()
+        if (!result.ok) throw result.error
+        return result.value
+      },
+      // Read live: the switch on the settings page can change while the log
+      // page sits open, and the page says so rather than pretending.
+      enabled: () => {
+        const value = profile?.getSnapshot().value
+        if (value === null || typeof value !== 'object') return false
+        return (value as { requestLogEnabled?: unknown }).requestLogEnabled === true
+      },
+      t: (key: string) => translate(key as OpencodeGoKey),
+      getLocale: () => scope.locale.getLocale().active,
+    }
+    scope.slots.inject('main', function* () {
+      yield scope.slots.register({
+        name: 'main',
+        key: REQUEST_LOG_PANEL,
+        locale: NS,
+        inject: () => requestLog,
+      }, RequestLogPage)
+    })
+    scope.slots.inject('sidebar.panellist', () => scope.slots.register({
+      name: 'sidebar.panellist',
+      id: REQUEST_LOG_PANEL,
+      // After the Host's own panels, which run from 0.
+      order: 100,
+      label: () => translate('requestLogTitle'),
+      locale: NS,
+    }, RequestLogPanelIcon))
+    // The same page, in the conversation: a View beside the chat, scoped to
+    // one session. It is the in-place way to answer "why was that turn
+    // slow" — the rows are already this session's.
+    scope.slots.inject('conversation.view', () => scope.slots.register({
+      name: 'conversation.view',
+      id: 'dshopencodego-request-log',
+      // After the Host's own View (the chat itself), which runs at 0.
+      order: 100,
+      label: () => translate('requestLogTitle'),
+      locale: NS,
+      inject: (sessionId: SessionId) => ({ ...requestLog, sessionId: String(sessionId) }),
+    }, RequestLogPage))
     scope.slots.inject('settings.section', () => scope.slots.register({
       name: 'settings.section',
       id: 'dshopencodego',
@@ -132,6 +201,16 @@ export function apply(ctx: ClientContext): void {
         controller,
         t: (key: string) => translate(key as OpencodeGoKey),
         getLocale: () => scope.locale.getLocale().active,
+        // The settings page opens the log in the main column, beside this
+        // page rather than over it. A composition without the layout service
+        // has no main column to select, so the button does nothing there.
+        openRequestLog: () => {
+          try {
+            ctx.layout.selectPanel(REQUEST_LOG_PANEL)
+          } catch {
+            // No layout service: no panel to open. The page still renders.
+          }
+        },
       }),
     }, Section))
   })

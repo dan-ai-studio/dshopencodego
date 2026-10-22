@@ -10,7 +10,16 @@ import { describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/client/index.ts'
 
 function scope() {
-  const slotsInject = vi.fn((_name: string, run: () => unknown) => run())
+  const slotsInject = vi.fn((_name: string, run: () => unknown) => {
+    const result = run()
+    // A generator registration yields its disposers; the real registry
+    // consumes them, so the fake does too — otherwise a `function*`
+    // registration never happens and the assertion below sees nothing.
+    if (result !== null && typeof result === 'object' && typeof (result as { next?: unknown }).next === 'function') {
+      (result as Generator).next()
+    }
+    return result
+  })
   const slotsRegister = vi.fn((_options: unknown, component: unknown) => component)
   const base = {
     get: (name: string) => (name === 'configForms' ? { get: () => undefined } : undefined),
@@ -73,8 +82,7 @@ describe('client apply', () => {
     ])
   })
 
-  it('places the settings section and the usage pill', () => {
-    const { ctx } = context()
+  it('places the settings section and the usage pill', () => {    const { ctx } = context()
     const injected: unknown[][] = []
     const mockInject = (ctx as unknown as { inject: ReturnType<typeof vi.fn> }).inject
     mockInject.mockImplementation(
@@ -95,5 +103,38 @@ describe('client apply', () => {
       ['configForms', 'remote.opencodeGoCatalog', 'remote.opencodeGoUpdate', 'remote.opencodeGoNetwork', 'remote.opencodeGoRequestLog', 'remote.credentials'],
       ['modelDirectories', 'remote.opencodeGoUsage'],
     ])
+  })
+
+  it('registers the request log in the sidebar and in the conversation', () => {
+    const { ctx } = context()
+    const registered: Array<Record<string, unknown>> = []
+    const mockInject = (ctx as unknown as { inject: ReturnType<typeof vi.fn> }).inject
+    mockInject.mockImplementation(
+      (services: string[], run: (scope: unknown) => unknown) => {
+        void services
+        const current = scope()
+        const original = current.slots.register
+        current.slots.register = ((options: unknown, component: unknown) => {
+          registered.push(options as Record<string, unknown>)
+          return original(options, component)
+        }) as typeof current.slots.register
+        run(current)
+      },
+    )
+    apply(ctx)
+    const names = registered.map(options => options['name'])
+    // Three seats for the log: the settings section, the sidebar's panel
+    // entry, and the conversation's own View.
+    expect(names).toContain('settings.section')
+    expect(names).toContain('sidebar.panellist')
+    expect(names).toContain('conversation.view')
+    expect(names).toContain('main')
+    // The sidebar entry and the main panel must be one identity: the sidebar
+    // resolves a row's label from the list and selects the panel with the
+    // matching key.
+    const panel = registered.find(options => options['name'] === 'main')
+    const entry = registered.find(options => options['name'] === 'sidebar.panellist')
+    expect(panel?.['key']).toBe(entry?.['id'])
+    expect(panel?.['key']).toBe('dshopencodego-request-log')
   })
 })

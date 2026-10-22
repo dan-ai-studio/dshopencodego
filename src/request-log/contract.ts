@@ -58,6 +58,8 @@ function parseEntry(value: unknown): RequestLogEntry {
     ...row['cacheReadTokens'] === undefined ? {} : { cacheReadTokens: count('cacheReadTokens', row) },
     ...row['durationMs'] === undefined ? {} : { durationMs: count('durationMs', row) },
     ...row['firstTokenMs'] === undefined ? {} : { firstTokenMs: count('firstTokenMs', row) },
+    ...row['decodeMs'] === undefined ? {} : { decodeMs: count('decodeMs', row) },
+    ...row['tps'] === undefined ? {} : { tps: rate('tps', row) },
     ok: row['ok'] === true,
     ...typeof row['code'] === 'string' ? { code: row['code'] } : {},
     ...typeof row['poolKey'] === 'string' ? { poolKey: row['poolKey'] } : {},
@@ -79,6 +81,15 @@ function parseEntry(value: unknown): RequestLogEntry {
       },
     } : {},
   }
+}
+
+/** A non-negative finite rate (tokens per second); decimals are meaningful here. */
+function rate(key: string, row: Record<string, unknown>): number {
+  const entry = row[key]
+  if (typeof entry !== 'number' || !Number.isFinite(entry) || entry < 0) {
+    throw new Error(`invalid request-log entry "${key}"`)
+  }
+  return entry
 }
 
 /** Validate one pool event crossing the wire. */

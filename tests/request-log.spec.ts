@@ -184,8 +184,35 @@ describe('RequestLog', () => {
     expect(snapshot.totalRecords).toBe(3)
   })
 
-  it('round-trips through the wire codec and refuses garbage', () => {
-    const log = new RequestLog(gates({ debug: true }))
+  it('reports the decode window and the rate it implies', async () => {
+    const log = new RequestLog(gates())
+    const span = log.start(start())
+    expect(span).toBeDefined()
+    // The first token arrives; the request then runs for a while.
+    await new Promise(resolve => { setTimeout(resolve, 120) })
+    span?.firstToken()
+    await new Promise(resolve => { setTimeout(resolve, 120) })
+    span?.finish(true, undefined, { inputTokens: 10, outputTokens: 30, cacheReadTokens: 3 })
+    const entry = log.snapshot().entries[0]!
+    // The decode window is measured from the first token to the terminal
+    // event, so it is shorter than the whole request.
+    expect(entry.decodeMs).toBeGreaterThanOrEqual(100)
+    expect(entry.decodeMs).toBeLessThan(entry.durationMs ?? Number.MAX_SAFE_INTEGER)
+    // And the rate is the output tokens over that window.
+    expect(entry.tps).toBeCloseTo(30 / ((entry.decodeMs ?? 1) / 1000), 6)
+  })
+
+  it('reports no rate when the request produced no token', () => {
+    const log = new RequestLog(gates())
+    const span = log.start(start())
+    span?.finish(true, undefined, { inputTokens: 10, outputTokens: 30 })
+    const entry = log.snapshot().entries[0]!
+    // A rate over a window that never opened is not a rate.
+    expect(entry.decodeMs).toBeUndefined()
+    expect(entry.tps).toBeUndefined()
+  })
+
+  it('round-trips through the wire codec and refuses garbage', () => {    const log = new RequestLog(gates({ debug: true }))
     log.poolEvent('create', 'host@addr@1')
     record(log)
     const snapshot = log.snapshot()
