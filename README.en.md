@@ -101,7 +101,7 @@ Configuration lives in the profile's `cordis.patch.yml`:
                                                # the timer restarts on every answer, so a connection in
                                                # frequent use is never dropped; a long pause in a
                                                # conversation costs one handshake (about 200ms)
-    requestGzip: true                         # gzip JSON request bodies of 1 KB or more; turn off if the gateway rejects them
+    requestGzip: false                     # default off: the gateway currently rejects gzipped bodies (400); turn on if it ever accepts them
     maxRequestImageBytes: 6291456             # whole-request image payload cap (after base64, bytes)
     requestImagePixelBudget: 1440000          # total-pixel budget for one image
     requestImageMaxBytes: 400000              # encoded-byte target for one image (before base64)
@@ -142,7 +142,7 @@ The API key comes from the Harness credential store (reference name `OPENCODE_GO
 - The settings page shows and accepts the value in **seconds** (a number of milliseconds is not readable at a glance) and stores it in milliseconds. Range: 1 to 1800000 milliseconds.
 - Once a connection has been idle that long, the pool **reclaims it** on its own — no separate mechanism is needed. The actual release comes a couple of seconds later than the setting, which is the client's own small margin beyond the deadline the server states. When the plugin is unloaded, the pool is **closed with it**: the pool belongs to the plugin and should not be left behind on the machine.
 
-**Request body gzip**: `requestGzip` is on by default; JSON bodies of 1 KB or more are gzipped (fastest level, off the event loop) with a `Content-Encoding: gzip` header, smaller bodies travel plain. The log's body size is the **actual wire bytes** — compare the same large request with the switch on and off to see what it saved. **If the gateway does not accept gzip it fails requests outright; turn the switch off** (one setting, no other coupling).
+**Request body gzip** (keep it off for now): with `requestGzip` on, JSON bodies of 1 KB or more are gzipped (fastest level, off the event loop) with a `Content-Encoding: gzip` header, smaller bodies travel plain. The log's body size is the **actual wire bytes**. **Measured: the gateway currently does not accept gzip bodies** — turning it on fails requests with a bare 400, so the default is off. Should the gateway ever accept them, flip the switch, no release needed (code and tests are in place).
 
 **Request log**: per-request records, on by default; turning them off returns the request path to exactly as without the log. The settings page's "Request log" group holds the master switch, the debug switch (pool events and the request user agent, default off), and the retention count (default 200).
 

@@ -212,25 +212,26 @@ describe('settings controller', () => {
     const controller = new SectionController(test.services)
     await settle()
     // An old profile never wrote these fields, so the page must read as
-    // recording with the documented retention — not as missing.
+    // recording with the documented retention — not as missing. Gzip stays
+    // off unless told otherwise: the gateway answers it with a bare 400.
     expect(controller.snapshot().settings).toMatchObject({
       requestLogEnabled: true,
       requestLogDebug: false,
       requestLogMaxEntries: DEFAULT_REQUEST_LOG_MAX_ENTRIES,
-      requestGzip: true,
+      requestGzip: false,
     })
     await controller.setRequestLogEnabled(false)
     await controller.setRequestLogDebug(true)
-    await controller.setRequestGzip(false)
+    await controller.setRequestGzip(true)
     expect(test.writes).toEqual([
       { field: 'requestLogEnabled', value: false },
       { field: 'requestLogDebug', value: true },
-      { field: 'requestGzip', value: false },
+      { field: 'requestGzip', value: true },
     ])
     expect(controller.snapshot().settings).toMatchObject({
       requestLogEnabled: false,
       requestLogDebug: true,
-      requestGzip: false,
+      requestGzip: true,
     })
   })
 

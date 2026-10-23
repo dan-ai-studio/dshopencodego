@@ -243,7 +243,7 @@ function settingsOf(value: unknown): SectionSettings | undefined {
     refreshMinutes: minutes,
     pinnedAddresses: Object.fromEntries(pinEntries) as Record<string, string>,
     keepAliveTimeoutMs: typeof keepAlive === 'number' ? keepAlive : DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
-    requestGzip: typeof requestGzip === 'boolean' ? requestGzip : true,
+    requestGzip: typeof requestGzip === 'boolean' ? requestGzip : false,
     requestLogEnabled: typeof requestLogEnabled === 'boolean' ? requestLogEnabled : true,
     requestLogDebug: typeof requestLogDebug === 'boolean' ? requestLogDebug : false,
     requestLogMaxEntries: typeof requestLogMaxEntries === 'number'
@@ -1098,7 +1098,7 @@ export function Section({ controller, t, getLocale, openRequestLog }: SectionInj
         <label className={css.hint}>
           <input
             type="checkbox"
-            checked={state.settings?.requestGzip ?? true}
+            checked={state.settings?.requestGzip ?? false}
             disabled={!editable || state.saving}
             onChange={event => { void act(async () => { await controller.setRequestGzip(event.target.checked) }) }}
           />
