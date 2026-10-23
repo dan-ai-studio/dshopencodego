@@ -210,6 +210,23 @@
   accent-color: var(--dsw-alias-brand-primary);
 }
 
+/* A session title that opens its conversation. Plain text where there is
+   no navigation to open it with. */
+.sessionLink {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--dsw-alias-link);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sessionLink:hover {
+  text-decoration: underline;
+}
+
 /* The table's own scroll area: the one place that scrolls vertically. */
 .tableWrap {
   flex: 1;

@@ -58,6 +58,8 @@ function faceFor(snapshot: RequestLogSnapshot, enabled = true): RequestLogFace {
   return {
     readLog: async () => snapshot,
     enabled: () => enabled,
+    canOpenSession: () => false,
+    openSession: () => true,
     t,
     getLocale: () => 'en',
   }
@@ -120,6 +122,36 @@ describe('request-log page', () => {
     await waitFor(() => { expect(screen.getByText('排查记录')).toBeTruthy() })
     fireEvent.change(search!, { target: { value: 'zzz-no-such-session' } })
     await waitFor(() => { expect(screen.queryByText('排查记录')).toBeNull() })
+  })
+
+  it('opens the conversation when its title is clicked', async () => {
+    const useSessions = ((selector: (state: unknown) => unknown): unknown =>
+      selector({ byId: { 'session-a': { title: '排查记录' } } })) as never
+    const opened: string[] = []
+    render(<RequestLogPage
+      {...faceFor(snapshotOf([entry()]))}
+      useSessions={useSessions}
+      canOpenSession={() => true}
+      openSession={(id) => { opened.push(id); return true }}
+    />)
+    const rows = await table()
+    fireEvent.click(within(rows).getByText('排查记录'))
+    expect(opened).toEqual(['session-a'])
+    expect(screen.queryByText(/archived/)).toBeNull()
+  })
+
+  it('says why when the session cannot be opened', async () => {
+    const useSessions = ((selector: (state: unknown) => unknown): unknown =>
+      selector({ byId: { 'session-a': { title: '排查记录' } } })) as never
+    render(<RequestLogPage
+      {...faceFor(snapshotOf([entry()]))}
+      useSessions={useSessions}
+      canOpenSession={() => true}
+      openSession={() => false}
+    />)
+    const rows = await table()
+    fireEvent.click(within(rows).getByText('排查记录'))
+    await waitFor(() => { expect(screen.getByText('That session is archived and cannot be opened.')).toBeTruthy() })
   })
 
   it('falls back to the id when no catalog is injected', async () => {

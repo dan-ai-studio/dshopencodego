@@ -101,6 +101,8 @@ describe('client apply', () => {
     // manager still renders this section.
     expect(injected.map(([services]) => services)).toEqual([
       ['layout'],
+      ['uiWorkspace'],
+      ['workspaces'],
       ['configForms', 'remote.opencodeGoCatalog', 'remote.opencodeGoUpdate', 'remote.opencodeGoNetwork', 'remote.opencodeGoRequestLog', 'remote.credentials'],
       ['modelDirectories', 'remote.opencodeGoUsage', 'remote.session'],
     ])

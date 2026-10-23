@@ -26,6 +26,14 @@ export interface RequestLogFace {
   readonly readLog: () => Promise<RequestLogSnapshot>
   /** Whether the profile records at all. */
   readonly enabled: () => boolean
+  /** Whether a title click can open its session. */
+  readonly canOpenSession: () => boolean
+  /**
+   * Select a session and show its conversation; false when there is no
+   * navigation to open it with (or the session is archived), and then the
+   * title stays text.
+   */
+  readonly openSession: (sessionId: string) => boolean
   /** The page's translator. */
   readonly t: (key: string) => string
   /** The active locale, for number and time formatting. */
@@ -189,7 +197,7 @@ function groupKey(entry: RequestLogEntry, groupBy: GroupBy): string | undefined 
  * @param props - the page's own face, and the session it is scoped to.
  * @returns the page.
  */
-export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId, useSessions }: RequestLogProps): React.JSX.Element {
+export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, t, getLocale, sessionId, useSessions }: RequestLogProps): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<RequestLogSnapshot | undefined>(undefined)
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [refreshing, setRefreshing] = useState(false)
@@ -201,6 +209,9 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId, useS
   const [groupBy, setGroupBy] = useState<GroupBy>('none')
   const [page, setPage] = useState(0)
   const [expanded, setExpanded] = useState<number | null>(null)
+  // A title click that lands nowhere would read as a dead button, so the
+  // failure says why instead of staying silent.
+  const [sessionOpenFailed, setSessionOpenFailed] = useState(false)
   // Newest first: the snapshot already arrives in that order.
   const [sortKey, setSortKey] = useState<SortKey>('atMs')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
@@ -352,8 +363,22 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId, useS
         >
           <td>{new Date(entry.atMs).toLocaleTimeString(getLocale(), { hour12: false })}</td>
           <td className={css.mono}>{entry.model}</td>
-          <td title={session.titled ? entry.session : undefined} className={session.titled ? undefined : css.mono}>
-            {session.text}
+          <td
+            title={session.titled ? entry.session : undefined}
+            className={session.titled ? undefined : css.mono}
+          >
+            {session.titled && canOpenSession()
+              ? (
+                <button
+                  type="button"
+                  className={css.sessionLink}
+                  title={`${session.text} · ${entry.session}`}
+                  onClick={() => { setSessionOpenFailed(!openSession(entry.session)) }}
+                >
+                  {session.text}
+                </button>
+              )
+              : session.text}
           </td>
           <td>{count(entry.inputTokens)}</td>
           <td>{count(entry.outputTokens)}</td>
@@ -485,6 +510,7 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId, useS
 
         {!enabled() && <p className={css.notice}>{t('requestLogDisabled')}</p>}
         {failure !== undefined && <p className={`${css.notice} ${css.noticeError}`}>{failure}</p>}
+        {sessionOpenFailed && <p className={`${css.notice} ${css.noticeError}`}>{t('requestLogOpenSessionFailed')}</p>}
 
         <div className={css.summary}>
           <div className={css.card}>

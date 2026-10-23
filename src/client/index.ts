@@ -88,6 +88,25 @@ export function apply(ctx: ClientContext): void {
     // never called after its owner is disposed.
     return () => { layout.current = undefined }
   })
+  // Session navigation, held live for the same reason: a session title in the
+  // request log opens that session's conversation. Archived sessions cannot
+  // be opened, so the archived list rides along for the guard.
+  const sessionOpener: { current: { openSession(sessionId: SessionId): void } | undefined } = { current: undefined }
+  ctx.inject(['uiWorkspace'], (workspaceScope) => {
+    sessionOpener.current = (workspaceScope as unknown as {
+      uiWorkspace: { openSession(sessionId: SessionId): void }
+    }).uiWorkspace
+    return () => { sessionOpener.current = undefined }
+  })
+  const sessionArchive: {
+    current: { readonly list: { getSnapshot(): { readonly archivedSessionIds: readonly string[] } } } | undefined
+  } = { current: undefined }
+  ctx.inject(['workspaces'], (archiveScope) => {
+    sessionArchive.current = (archiveScope as unknown as {
+      workspaces: { readonly list: { getSnapshot(): { readonly archivedSessionIds: readonly string[] } } }
+    }).workspaces
+    return () => { sessionArchive.current = undefined }
+  })
   // One registry owns one contribution per package, so the catalog methods ride
   // the same mount as usage: a separate `$mount` would leave
   // `remote.opencodeGoCatalog` unregistered, and the settings section's inject
@@ -168,6 +187,23 @@ export function apply(ctx: ClientContext): void {
         const value = profile?.getSnapshot().value
         if (value === null || typeof value !== 'object') return false
         return (value as { requestLogEnabled?: unknown }).requestLogEnabled === true
+      },
+      // Whether a title click can open its session. The navigation service
+      // is a separate composition member; without it titles stay text.
+      canOpenSession: () => sessionOpener.current !== undefined,
+      // Select a session and show its conversation: the same call the
+      // sidebar's own rows make. Archived sessions refuse, and a throw
+      // leaves the selection where it was — both read as false.
+      openSession: (sessionId) => {
+        const opener = sessionOpener.current
+        if (opener === undefined) return false
+        if (sessionArchive.current?.list.getSnapshot().archivedSessionIds.includes(sessionId) === true) return false
+        try {
+          opener.openSession(sessionId as SessionId)
+          return true
+        } catch {
+          return false
+        }
       },
       t: (key: string) => translate(key as OpencodeGoKey),
       getLocale: () => scope.locale.getLocale().active,
