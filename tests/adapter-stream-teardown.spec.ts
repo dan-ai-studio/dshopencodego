@@ -169,6 +169,7 @@ function configFor(baseURL: string, streamIdleTimeoutMs: number): OpencodeGoConf
     requestLogEnabled: false,
     requestLogDebug: false,
     requestLogMaxEntries: 200,
+    requestGzip: true,
   }
 }
 

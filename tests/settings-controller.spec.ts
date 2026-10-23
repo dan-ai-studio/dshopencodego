@@ -217,16 +217,20 @@ describe('settings controller', () => {
       requestLogEnabled: true,
       requestLogDebug: false,
       requestLogMaxEntries: DEFAULT_REQUEST_LOG_MAX_ENTRIES,
+      requestGzip: true,
     })
     await controller.setRequestLogEnabled(false)
     await controller.setRequestLogDebug(true)
+    await controller.setRequestGzip(false)
     expect(test.writes).toEqual([
       { field: 'requestLogEnabled', value: false },
       { field: 'requestLogDebug', value: true },
+      { field: 'requestGzip', value: false },
     ])
     expect(controller.snapshot().settings).toMatchObject({
       requestLogEnabled: false,
       requestLogDebug: true,
+      requestGzip: false,
     })
   })
 

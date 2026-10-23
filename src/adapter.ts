@@ -40,6 +40,8 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import { promisify } from 'node:util'
+import { constants as zlibConstants, gzip as gzipCallback } from 'node:zlib'
 import { DISPLAY_NAME, PROVIDER_ID, OpencodeGoCatalog } from './catalog/index.ts'
 import type { CatalogSnapshot } from './catalog/index.ts'
 import type { GoDoc } from './catalog/go-doc.ts'
@@ -121,6 +123,70 @@ function bodyBytes(body: unknown): number | undefined {
   if (body instanceof ArrayBuffer) return body.byteLength
   if (ArrayBuffer.isView(body)) return body.byteLength
   return undefined
+}
+
+/**
+ * Bodies below this size travel as-is: gzip headers and framing cost more
+ * than they save, and a sub-kilobyte body cannot hide a meaningful upload
+ * anyway.
+ */
+const MIN_GZIP_BODY_BYTES = 1024
+
+/**
+ * The request as the fetch wrapper will send it: the same method, URL, and
+ * body unless gzip is armed and worthwhile, in which case the compressed
+ * bytes and a marking header instead.
+ */
+interface OutgoingBody {
+  /** What to send; the caller's original object when no compression applies. */
+  readonly body: RequestInit['body']
+  /** Its wire size, when the body was an in-memory value with a knowable size. */
+  readonly bytes: number | undefined
+  /** Headers to send with it, or undefined to send the caller's as-is. */
+  readonly headers: RequestInit['headers']
+}
+
+/**
+ * Gzip, off the event loop: the wrapper awaits it, so the loop never blocks
+ * inside a request, and the fastest level keeps the wait itself minimal.
+ */
+const gzipAsync = promisify(gzipCallback)
+
+/**
+ * Compress one request body when armed and worthwhile, else pass it through.
+ *
+ * Gzip runs off-thread and at the fastest level: the win being chased is
+ * upload time on slow links, not ratio, and nothing here may add CPU wait
+ * to a request's critical path. A stale explicit content-length is dropped
+ * when the body is replaced so undici measures the bytes actually sent;
+ * untouched requests keep their headers byte-identical.
+ */
+async function gzipBody(
+  armed: boolean,
+  input: Parameters<typeof fetch>[0],
+  init: RequestInit | undefined,
+): Promise<OutgoingBody> {
+  const original = init?.body
+  const originalBytes = bodyBytes(original ?? undefined)
+  if (!armed
+    || (typeof input !== 'string' && !(input instanceof URL))
+    || originalBytes === undefined
+    || originalBytes < MIN_GZIP_BODY_BYTES
+    || (typeof original !== 'string' && !(original instanceof ArrayBuffer) && !ArrayBuffer.isView(original))
+  ) {
+    return { body: original ?? null, bytes: originalBytes, headers: undefined }
+  }
+  const bytes = typeof original === 'string'
+    ? Buffer.from(original)
+    : original instanceof ArrayBuffer
+      ? Buffer.from(original)
+      // A view over someone else's buffer: copy just the window.
+      : Buffer.from(original.buffer as ArrayBuffer, original.byteOffset, original.byteLength)
+  const compressed = await gzipAsync(bytes, { level: zlibConstants.Z_BEST_SPEED })
+  const headers = new Headers(init?.headers)
+  headers.delete('content-length')
+  headers.set('content-encoding', 'gzip')
+  return { body: compressed, bytes: compressed.byteLength, headers }
 }
 
 /** Image machinery the adapter reads once per request. */
@@ -450,20 +516,26 @@ export class OpencodeGoAdapter extends LlmAdapter {
         ...typeof headers['user-agent'] === 'string' ? { userAgent: headers['user-agent'] } : {},
       },
     })
-    // The fetch one request goes through. Without a span this is the
-    // factory's own fetch, untouched: a disabled log reads exactly as
-    // before. With a span the wrapper records the wire request line, the
-    // response status, and the request body size — and nothing else. Bodies
-    // are measured, never read: only a byte length travels back.
+    // The fetch one request goes through. With neither a span nor gzip
+    // armed this is the factory's own fetch, untouched: a disabled log
+    // with gzip off reads exactly as before. Otherwise the wrapper records
+    // the wire request line, the response status, and the request body size —
+    // and nothing else. Bodies are measured, never read: only a byte length
+    // travels back to the recorder.
     const fetchFactory = this.options.fetch
-    const requestFetch = span === undefined || fetchFactory === undefined
+    const requestFetch = fetchFactory === undefined || (span === undefined && !config.requestGzip)
       ? fetchFactory
       : () => {
         const base = fetchFactory()
         return (async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
-          const response = await base(input, init)
-          span.request(typeof init?.method === 'string' ? init.method : 'POST', requestUrl(input), bodyBytes(init?.body))
-          span.status(response.status)
+          const outgoing = await gzipBody(config.requestGzip, input, init)
+          const response = await base(input, {
+            ...init,
+            ...outgoing.body === undefined ? {} : { body: outgoing.body },
+            ...outgoing.headers === undefined ? {} : { headers: outgoing.headers },
+          })
+          span?.request(typeof init?.method === 'string' ? init.method : 'POST', requestUrl(input), outgoing.bytes)
+          span?.status(response.status)
           return response
         }) as typeof fetch
       }

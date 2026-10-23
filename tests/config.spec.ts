@@ -104,6 +104,10 @@ describe('PlainConfig', () => {
     expect(config.requestLogEnabled).toBe(true)
     expect(config.requestLogDebug).toBe(false)
     expect(config.requestLogMaxEntries).toBe(DEFAULT_REQUEST_LOG_MAX_ENTRIES)
+    // Gzip is on unless told otherwise: the off switch is the whole
+    // fallback plan if a gateway ever rejects a compressed body.
+    expect(config.requestGzip).toBe(true)
+    expect(PlainConfig({ requestGzip: false }).requestGzip).toBe(false)
     // The bound is a real interval, not an open end: the ring must always
     // be able to drop its oldest entry.
     expect(MIN_REQUEST_LOG_MAX_ENTRIES).toBeGreaterThan(0)

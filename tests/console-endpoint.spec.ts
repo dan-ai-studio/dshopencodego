@@ -236,6 +236,7 @@ describe('Console streaming on the wire', () => {
           requestLogEnabled: false,
           requestLogDebug: false,
           requestLogMaxEntries: 200,
+          requestGzip: true,
         }),
         resolveApiKey: () => Promise.resolve('test-key'),
         readDocument: offlineDocument(),

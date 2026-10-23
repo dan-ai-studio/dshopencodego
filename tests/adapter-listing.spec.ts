@@ -32,6 +32,7 @@ function configFor(baseURL: string, overrides: Partial<OpencodeGoConfig> = {}): 
     requestLogEnabled: false,
     requestLogDebug: false,
     requestLogMaxEntries: 200,
+    requestGzip: true,
     ...overrides,
   }
 }

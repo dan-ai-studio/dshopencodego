@@ -11,6 +11,7 @@
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { gunzipSync } from 'node:zlib'
 import { vi } from 'vitest'
 import type { GoDoc } from '../src/catalog/go-doc.ts'
 import type { WireProtocol } from '../src/catalog/protocol.ts'
@@ -149,7 +150,17 @@ function responsesStream(text: string): string {
 async function readBody(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = []
   for await (const chunk of request) chunks.push(chunk as Buffer)
-  const text = Buffer.concat(chunks).toString('utf8')
+  let raw = Buffer.concat(chunks)
+  // A client that gzips its bodies says so on the wire; decode before
+  // parsing so a compressed request reads exactly like a plain one.
+  if (request.headers['content-encoding'] === 'gzip' && raw.length > 0) {
+    try {
+      raw = gunzipSync(raw)
+    } catch {
+      return undefined
+    }
+  }
+  const text = raw.toString('utf8')
   if (text.length === 0) return undefined
   try {
     return JSON.parse(text)
