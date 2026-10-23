@@ -119,13 +119,6 @@ export interface OpencodeGoConfig {
    */
   modelProtocols: Record<string, string>
   /**
-   * Whether JSON request bodies of 1 KB or more are gzip-compressed.
-   * Off by default: the gateway rejects compressed bodies with a bare 400,
-   * so this stays an explicit opt-in until the gateway says otherwise. When
-   * it is on and a body qualifies, `Content-Encoding: gzip` rides along.
-   */
-  requestGzip: boolean
-  /**
    * Whether the request log records anything at all. On by default: one
    * call and one boolean per request, plus a bounded ring. Off returns the
    * request path to exactly as without the log — the recorder is never
@@ -177,9 +170,6 @@ const fields = {
     maxTokens: z.union([z.const(null), z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER)]),
   })])).default({}),
   modelProtocols: z.dict(z.string()).default({}),
-  // Off until the gateway accepts Content-Encoding: gzip on requests (it
-  // answers those with a bare 400 today). One switch, no other coupling.
-  requestGzip: z.boolean().default(false),
   // On by default: recording costs one call and one boolean per request
   // plus a bounded ring, and buys a per-request trail whenever something
   // looks wrong. Off returns the request path to exactly as without the

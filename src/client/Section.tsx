@@ -42,8 +42,6 @@ interface SectionSettings {
   readonly pinnedAddresses: Record<string, string>
   /** Idle time a gateway connection is kept, in milliseconds. */
   readonly keepAliveTimeoutMs: number
-  /** Whether JSON request bodies of 1 KB or more are gzip-compressed. */
-  readonly requestGzip: boolean
   /** Whether the per-request log records anything at all. */
   readonly requestLogEnabled: boolean
   /** Whether the request log keeps debug detail. */
@@ -237,13 +235,11 @@ function settingsOf(value: unknown): SectionSettings | undefined {
   const requestLogEnabled = record['requestLogEnabled']
   const requestLogDebug = record['requestLogDebug']
   const requestLogMaxEntries = record['requestLogMaxEntries']
-  const requestGzip = record['requestGzip']
   return {
     modelVisibility: Object.fromEntries(entries) as Record<string, boolean>,
     refreshMinutes: minutes,
     pinnedAddresses: Object.fromEntries(pinEntries) as Record<string, string>,
     keepAliveTimeoutMs: typeof keepAlive === 'number' ? keepAlive : DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
-    requestGzip: typeof requestGzip === 'boolean' ? requestGzip : false,
     requestLogEnabled: typeof requestLogEnabled === 'boolean' ? requestLogEnabled : true,
     requestLogDebug: typeof requestLogDebug === 'boolean' ? requestLogDebug : false,
     requestLogMaxEntries: typeof requestLogMaxEntries === 'number'
@@ -712,21 +708,6 @@ export class SectionController {
   }
 
   /**
-   * Flip request-body gzip. Off returns every request to plain JSON; it is
-   * the whole fallback plan if the gateway ever rejects a compressed body.
-   */
-  async setRequestGzip(enabled: boolean): Promise<void> {
-    const scope = this.services.scope
-    const current = this.state.settings
-    if (scope === undefined || current === undefined || !this.state.writable) return
-    if (typeof enabled !== 'boolean') return
-    await this.write(
-      () => scope.set('requestGzip', enabled),
-      () => this.set({ settings: { ...current, requestGzip: enabled } }),
-    )
-  }
-
-  /**
    * Flip the request-log master switch. Off (the default) means no record is
    * kept and the request path reads exactly as without the log.
    */
@@ -1093,18 +1074,6 @@ export function Section({ controller, t, getLocale, openRequestLog }: SectionInj
           onChange={event => { void controller.setKeepAliveTimeoutSeconds(Number(event.target.value)) }}
         />
         <span className={css.hint}>{t('keepAliveHint')}</span>
-      </div>
-      <div className={css.row}>
-        <label className={css.hint}>
-          <input
-            type="checkbox"
-            checked={state.settings?.requestGzip ?? false}
-            disabled={!editable || state.saving}
-            onChange={event => { void act(async () => { await controller.setRequestGzip(event.target.checked) }) }}
-          />
-          {` ${t('requestGzipLabel')}`}
-        </label>
-        <span className={css.hint}>{t('requestGzipHint')}</span>
       </div>
       <div className={css.row}>
         <strong>{t('requestLogTitle')}</strong>

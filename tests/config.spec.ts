@@ -104,10 +104,6 @@ describe('PlainConfig', () => {
     expect(config.requestLogEnabled).toBe(true)
     expect(config.requestLogDebug).toBe(false)
     expect(config.requestLogMaxEntries).toBe(DEFAULT_REQUEST_LOG_MAX_ENTRIES)
-    // Off until the gateway accepts gzip: a body it rejects fails loud,
-    // so the default must not opt anyone in.
-    expect(config.requestGzip).toBe(false)
-    expect(PlainConfig({ requestGzip: true }).requestGzip).toBe(true)
     // The bound is a real interval, not an open end: the ring must always
     // be able to drop its oldest entry.
     expect(MIN_REQUEST_LOG_MAX_ENTRIES).toBeGreaterThan(0)
@@ -117,6 +113,9 @@ describe('PlainConfig', () => {
     expect(PlainConfig({ requestLogMaxEntries: MAX_REQUEST_LOG_MAX_ENTRIES }).requestLogMaxEntries)
       .toBe(MAX_REQUEST_LOG_MAX_ENTRIES)
     expect(PlainConfig({ requestLogEnabled: false, requestLogDebug: true }).requestLogEnabled).toBe(false)
+    // A stale key from a removed feature (e.g. requestGzip after the gzip
+    // revert) must be ignored, not fatal: profiles outlive features.
+    expect(() => PlainConfig({ requestGzip: false } as never)).not.toThrow()
   })
 
   it('refuses a request-log retention outside its bound', () => {

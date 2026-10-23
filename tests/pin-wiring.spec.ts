@@ -48,7 +48,6 @@ function configFor(baseURL: string): OpencodeGoConfig {
     requestLogEnabled: false,
     requestLogDebug: false,
     requestLogMaxEntries: 200,
-    requestGzip: true,
   }
 }
 

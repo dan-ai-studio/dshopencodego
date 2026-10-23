@@ -284,7 +284,7 @@ describe('RequestLog', () => {
 })
 
 /** A full adapter config; the request-log fields ride along like any other. */
-function configFor(baseURL: string, overrides: Partial<OpencodeGoConfig> = {}): OpencodeGoConfig {
+function configFor(baseURL: string): OpencodeGoConfig {
   return {
     enabled: true,
     modelVisibility: {},
@@ -302,8 +302,6 @@ function configFor(baseURL: string, overrides: Partial<OpencodeGoConfig> = {}): 
     requestLogEnabled: true,
     requestLogDebug: false,
     requestLogMaxEntries: 200,
-    requestGzip: true,
-    ...overrides,
   }
 }
 
@@ -369,81 +367,8 @@ describe('request log on the wire', () => {
     }
   })
 
-  it('gzips a large body and records the wire size', async () => {
+  it('records nothing when disabled, and the request is untouched', async () => {
     const server = await startMockGateway({ listing: ['glm-5.3'] })
-    gateways.push(server)
-    const stub = stubModelsDev(modelsDevDocument({
-      'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 128_000, output: 8_192 } },
-    }))
-    const log = new RequestLog({
-      enabled: () => true,
-      debug: () => false,
-      maxEntries: () => 200,
-    })
-    try {
-      const adapter = new OpencodeGoAdapter({
-        config: () => configFor(server.baseURL),
-        resolveApiKey: async () => 'test-key',
-        readDocument: offlineDocument(),
-        fetch: () => globalThis.fetch,
-        requestLog: log,
-      })
-      // Large enough to clear the gzip threshold several times over;
-      // repetitive text stands in for a long shared prefix.
-      const big = 'the quick brown fox jumps over the lazy dog '.repeat(200)
-      await drain(adapter.stream({
-        provider: 'opencode-go',
-        model: 'glm-5.3',
-        messages: [{ role: 'user', content: [{ type: 'text', text: big }] }],
-      }))
-      const [request] = server.requests.filter(entry => entry.path.endsWith('/chat/completions'))
-      expect(request).toBeDefined()
-      // The mock gunzips: what it parsed is the original JSON, which proves
-      // the bytes on the wire were a valid gzip member, not just any bytes
-      // with the right header.
-      expect(request!.headers['content-encoding']).toBe('gzip')
-      expect((request!.body as { model?: string }).model).toBe('glm-5.3')
-      const entry = log.snapshot().entries[0]!
-      expect(entry.requestBytes).toBeDefined()
-      expect(entry.requestBytes!).toBeLessThan(big.length)
-    } finally {
-      stub.restore()
-    }
-  })
-
-  it('sends a small body plain even with gzip on', async () => {
-    const server = await startMockGateway({ listing: ['glm-5.3'] })
-    gateways.push(server)
-    const stub = stubModelsDev(modelsDevDocument({
-      'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 128_000, output: 8_192 } },
-    }))
-    const log = new RequestLog({
-      enabled: () => true,
-      debug: () => false,
-      maxEntries: () => 200,
-    })
-    try {
-      const adapter = new OpencodeGoAdapter({
-        config: () => configFor(server.baseURL),
-        resolveApiKey: async () => 'test-key',
-        readDocument: offlineDocument(),
-        fetch: () => globalThis.fetch,
-        requestLog: log,
-      })
-      await drain(adapter.stream({
-        provider: 'opencode-go',
-        model: 'glm-5.3',
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
-      }))
-      const [request] = server.requests.filter(entry => entry.path.endsWith('/chat/completions'))
-      expect(request).toBeDefined()
-      expect(request!.headers['content-encoding']).toBeUndefined()
-    } finally {
-      stub.restore()
-    }
-  })
-
-  it('records nothing when disabled, and the request is untouched', async () => {    const server = await startMockGateway({ listing: ['glm-5.3'] })
     gateways.push(server)
     const stub = stubModelsDev(modelsDevDocument({
       'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 128_000, output: 8_192 } },
