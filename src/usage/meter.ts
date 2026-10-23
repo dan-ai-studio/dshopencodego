@@ -174,6 +174,29 @@ function spendOf(usage: TokenUsage, rates: MeterRates): number {
   ) / 1_000_000
 }
 
+/**
+ * What one call's tokens cost at the rates in force for it, without touching
+ * any accumulator.
+ *
+ * The request log prices one row through this while the meter keeps the
+ * since-boot totals: same function, same rates, so the two can never
+ * disagree. Unpriced calls have no estimate rather than a zero one.
+ * @param usage - the call's counts; reasoning tokens ride inside `output`
+ *   and are never billed twice.
+ * @param rates - the rates published for the model at call time.
+ * @returns estimated USD, or undefined when the model published no rates.
+ */
+export function costOf(
+  usage: Pick<TokenUsage, 'inputTokens' | 'outputTokens'> & {
+    readonly cacheReadTokens?: number
+    readonly cacheWriteTokens?: number
+  },
+  rates: MeterRates | undefined,
+): number | undefined {
+  if (rates === undefined) return undefined
+  return spendOf(usage, rates)
+}
+
 function add(totals: MeterTotals, usage: MeteredUsage): MeterTotals {
   const inputTokens = totals.inputTokens + usage.inputTokens
   const outputTokens = totals.outputTokens + usage.outputTokens

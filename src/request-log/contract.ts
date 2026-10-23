@@ -45,10 +45,16 @@ function parseEntry(value: unknown): RequestLogEntry {
   const row = value as Record<string, unknown>
   const shape = row['shape']
   const headers = row['headers']
+  const protocol = row['protocol']
   return {
     seq: count('seq', row),
     atMs: count('atMs', row),
     model: text('model', row),
+    // Older rows predate the protocol recording; they read without one
+    // rather than failing the whole snapshot.
+    ...protocol === 'anthropic-messages' || protocol === 'openai-completions' || protocol === 'openai-responses'
+      ? { protocol }
+      : {},
     session: text('session', row),
     method: text('method', row),
     url: text('url', row),
@@ -56,9 +62,14 @@ function parseEntry(value: unknown): RequestLogEntry {
     ...row['inputTokens'] === undefined ? {} : { inputTokens: count('inputTokens', row) },
     ...row['outputTokens'] === undefined ? {} : { outputTokens: count('outputTokens', row) },
     ...row['cacheReadTokens'] === undefined ? {} : { cacheReadTokens: count('cacheReadTokens', row) },
+    ...row['cacheWriteTokens'] === undefined ? {} : { cacheWriteTokens: count('cacheWriteTokens', row) },
+    ...row['reasoningTokens'] === undefined ? {} : { reasoningTokens: count('reasoningTokens', row) },
+    ...row['costUsd'] === undefined ? {} : { costUsd: rate('costUsd', row) },
+    ...row['requestBytes'] === undefined ? {} : { requestBytes: count('requestBytes', row) },
     ...row['durationMs'] === undefined ? {} : { durationMs: count('durationMs', row) },
     ...row['firstTokenMs'] === undefined ? {} : { firstTokenMs: count('firstTokenMs', row) },
     ...row['decodeMs'] === undefined ? {} : { decodeMs: count('decodeMs', row) },
+    ...row['streamMs'] === undefined ? {} : { streamMs: count('streamMs', row) },
     ...row['tps'] === undefined ? {} : { tps: rate('tps', row) },
     ok: row['ok'] === true,
     ...typeof row['code'] === 'string' ? { code: row['code'] } : {},

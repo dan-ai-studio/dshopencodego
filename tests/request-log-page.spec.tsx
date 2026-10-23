@@ -196,6 +196,26 @@ describe('request-log page', () => {
     expect(within(rows).getByText(/2 messages/)).toBeTruthy()
   })
 
+  it('shows the protocol, price, and reasoning split in the detail', async () => {
+    render(<RequestLogPage {...faceFor(snapshotOf([entry({
+      protocol: 'openai-responses',
+      reasoningTokens: 120,
+      cacheWriteTokens: 7,
+      costUsd: 0.00130654,
+      requestBytes: 3_621_468,
+      streamMs: 120,
+    })]))} />)
+    const rows = await table()
+    fireEvent.click(within(rows).getByText('glm-5.3'))
+    await waitFor(() => {
+      expect(within(rows).getByText('openai-responses')).toBeTruthy()
+    })
+    expect(within(rows).getByText(/Reasoning 120/)).toBeTruthy()
+    expect(within(rows).getByText(/Cache write 7/)).toBeTruthy()
+    expect(within(rows).getByText('$0.001307')).toBeTruthy()
+    expect(within(rows).getByText('3.45 MB')).toBeTruthy()
+  })
+
   it('orders rows when a column head is clicked', async () => {
     // Newest first is the default; a click on Latency reorders slowest
     // first, and a second click flips it.

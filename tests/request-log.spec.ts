@@ -246,6 +246,41 @@ describe('RequestLog', () => {
     expect(() => parseRequestLogSnapshot({})).toThrow()
     expect(() => parseRequestLogSnapshot({ ...snapshot, entries: [{ ...snapshot.entries[0], seq: -1 }] })).toThrow()
   })
+
+  it('records the protocol, the reasoning split, and the price', () => {
+    const log = new RequestLog(gates())
+    const span = log.start(start({ protocol: 'openai-responses' }))
+    expect(span).toBeDefined()
+    span?.token()
+    span?.request('POST', 'https://opencode.ai/inference/go/v1/responses', 3_621_468)
+    span?.status(200)
+    span?.finish(
+      true,
+      undefined,
+      { inputTokens: 950, outputTokens: 390, cacheReadTokens: 566_769, reasoningTokens: 120 },
+      0.00130654,
+    )
+    const entry = log.snapshot().entries[0]!
+    expect(entry.protocol).toBe('openai-responses')
+    expect(entry.reasoningTokens).toBe(120)
+    expect(entry.costUsd).toBeCloseTo(0.00130654, 8)
+    expect(entry.requestBytes).toBe(3_621_468)
+    // The second request call never rewrites the first line.
+    span?.request('POST', 'https://example.invalid/other', 1)
+    expect(log.snapshot().entries[0]?.url).toContain('/responses')
+    expect(log.snapshot().entries[0]?.requestBytes).toBe(3_621_468)
+  })
+
+  it('drops a protocol it does not know instead of the snapshot', () => {
+    const log = new RequestLog(gates())
+    record(log)
+    const snapshot = log.snapshot()
+    const tampered = {
+      ...snapshot,
+      entries: [{ ...snapshot.entries[0], protocol: 'carrier-pigeon' }],
+    }
+    expect(parseRequestLogSnapshot(JSON.parse(JSON.stringify(tampered))).entries[0]).not.toHaveProperty('protocol')
+  })
 })
 
 /** A full adapter config; the request-log fields ride along like any other. */

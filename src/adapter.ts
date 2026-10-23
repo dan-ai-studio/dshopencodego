@@ -51,7 +51,7 @@ import type { PiImageRequestContext } from './conversion/index.ts'
 import { isModelEnabled, recommendedIds } from './models.ts'
 import { providerHeaders } from './session-header.ts'
 import type { RequestRecorder } from './request-log/store.ts'
-import { usableRates } from './usage/meter.ts'
+import { costOf, usableRates } from './usage/meter.ts'
 import type { MeteredUsage } from './usage/meter.ts'
 
 /**
@@ -106,6 +106,21 @@ function requestUrl(input: Parameters<typeof fetch>[0]): string {
   if (typeof input === 'string') return input
   if (input instanceof URL) return input.toString()
   return input.url
+}
+
+/**
+ * Measure a fetch body without reading it.
+ *
+ * Only in-memory bodies have a knowable size: strings, byte arrays, and
+ * views over them. Anything else (streams, form data, blobs) travels without
+ * being measured — the record omits the size rather than consuming the body
+ * to learn it.
+ */
+function bodyBytes(body: unknown): number | undefined {
+  if (typeof body === 'string') return Buffer.byteLength(body)
+  if (body instanceof ArrayBuffer) return body.byteLength
+  if (ArrayBuffer.isView(body)) return body.byteLength
+  return undefined
 }
 
 /** Image machinery the adapter reads once per request. */
@@ -424,6 +439,7 @@ export class OpencodeGoAdapter extends LlmAdapter {
     const span = this.options.requestLog?.start({
       model: options.model,
       sessionId: options.sessionId === undefined ? undefined : String(options.sessionId),
+      protocol: facts.api,
       method: 'POST',
       url: config.baseURL,
       messageCount: options.messages.length,
@@ -436,8 +452,9 @@ export class OpencodeGoAdapter extends LlmAdapter {
     })
     // The fetch one request goes through. Without a span this is the
     // factory's own fetch, untouched: a disabled log reads exactly as
-    // before. With a span the wrapper records the wire request line and
-    // the response status, and nothing else — bodies are never touched.
+    // before. With a span the wrapper records the wire request line, the
+    // response status, and the request body size — and nothing else. Bodies
+    // are measured, never read: only a byte length travels back.
     const fetchFactory = this.options.fetch
     const requestFetch = span === undefined || fetchFactory === undefined
       ? fetchFactory
@@ -445,7 +462,7 @@ export class OpencodeGoAdapter extends LlmAdapter {
         const base = fetchFactory()
         return (async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
           const response = await base(input, init)
-          span.request(typeof init?.method === 'string' ? init.method : 'POST', requestUrl(input))
+          span.request(typeof init?.method === 'string' ? init.method : 'POST', requestUrl(input), bodyBytes(init?.body))
           span.status(response.status)
           return response
         }) as typeof fetch
@@ -534,19 +551,29 @@ export class OpencodeGoAdapter extends LlmAdapter {
             })
           } else if (result.value.type === 'finish') {
             // The usage chunk always precedes the finish chunk, so the span
-            // closes here with the terminal counts in hand.
+            // closes here with the terminal counts in hand. The cost rides
+            // the same rates the meter priced with, computed by the same
+            // function — one row and the since-boot meter can never disagree.
             const reason = result.value.reason
             const ok = reason.kind === 'stop' || reason.kind === 'tool-calls' || reason.kind === 'max-tokens'
+            const usage = pendingUsage === undefined ? undefined : {
+              inputTokens: pendingUsage.inputTokens,
+              outputTokens: pendingUsage.outputTokens,
+              ...pendingUsage.cacheReadTokens === undefined
+                ? {}
+                : { cacheReadTokens: pendingUsage.cacheReadTokens },
+              ...pendingUsage.cacheWriteTokens === undefined
+                ? {}
+                : { cacheWriteTokens: pendingUsage.cacheWriteTokens },
+              ...reportedReasoning === undefined || reportedReasoning <= 0
+                ? {}
+                : { reasoningTokens: reportedReasoning },
+            }
             span?.finish(
               ok,
               ok ? undefined : (reason as { failure?: { code?: string } }).failure?.code,
-              pendingUsage === undefined ? undefined : {
-                inputTokens: pendingUsage.inputTokens,
-                outputTokens: pendingUsage.outputTokens,
-                ...pendingUsage.cacheReadTokens === undefined
-                  ? {}
-                  : { cacheReadTokens: pendingUsage.cacheReadTokens },
-              },
+              usage,
+              usage === undefined ? undefined : costOf(usage, rates),
             )
           }
           yield result.value

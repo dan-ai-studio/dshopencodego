@@ -20,6 +20,8 @@
  * @module @dan-ai-studio/dshopencodego/request-log/store
  */
 
+import type { WireProtocol } from '../catalog/protocol.ts'
+
 /** One recorded request. Counts are provider-reported; timings are Host-measured. */
 export interface RequestLogEntry {
   /** Monotonic sequence within this process; gaps mean nothing was recorded. */
@@ -28,6 +30,11 @@ export interface RequestLogEntry {
   readonly atMs: number
   /** The model id the request was made with. */
   readonly model: string
+  /**
+   * The wire protocol the request ran on, as the catalog resolved it.
+   * Present from the build that records it; older rows simply lack it.
+   */
+  readonly protocol?: WireProtocol
   /** The session id the request belonged to, whole. */
   readonly session: string
   /** HTTP method used. */
@@ -42,6 +49,32 @@ export interface RequestLogEntry {
   readonly outputTokens?: number
   /** Provider-reported cache-read tokens, when positive. */
   readonly cacheReadTokens?: number
+  /** Provider-reported cache-write tokens, when positive. */
+  readonly cacheWriteTokens?: number
+  /**
+   * Provider-reported reasoning tokens, when positive. A subset of
+   * `outputTokens` — never added to a total — recorded so a thinking turn's
+   * shape stays visible.
+   */
+  readonly reasoningTokens?: number
+  /**
+   * Estimated USD for this request at the rates in force when it ran, by the
+   * same function that prices the since-boot meter. Absent for unpriced
+   * models: no zero standing in for "unknown".
+   */
+  readonly costUsd?: number
+  /**
+   * Request body size in bytes, as handed to fetch. Explanatory, not
+   * sensitive: a multi-megabyte turn uploads slowly no matter the model.
+   */
+  readonly requestBytes?: number
+  /**
+   * Wall time from the first to the last content token, in milliseconds —
+   * the window the output actually streamed in. Absent when fewer than two
+   * content tokens arrived; a burst delivery reads here as ~zero while the
+   * whole reply still counts in the totals above.
+   */
+  readonly streamMs?: number
   /** Wall time from request start to terminal event, in milliseconds. */
   readonly durationMs?: number
   /** Wall time from request start to the first token delta, in milliseconds. */
@@ -161,8 +194,10 @@ export interface RequestSpan {
    * Record the wire request line, from the fetch wrapper. Called at most
    * once per span; a second call keeps the first, so retries never rewrite
    * the original line.
+   * @param requestBytes - request body size in bytes, when the body was a
+   *   measurable in-memory value rather than a stream.
    */
-  request(method: string, url: string): void
+  request(method: string, url: string, requestBytes?: number): void
   /** Mark the response status line's arrival. */
   status(status: number): void
   /**
@@ -170,18 +205,23 @@ export interface RequestSpan {
    * @param ok - whether the request completed.
    * @param code - failure code for a request that did not complete.
    * @param usage - provider-reported counts, when the terminal usage arrived.
+   * @param costUsd - estimated USD at the call's rates, when priced.
    */
   finish(ok: boolean, code?: string, usage?: {
     readonly inputTokens: number
     readonly outputTokens: number
     readonly cacheReadTokens?: number
-  }): void
+    readonly cacheWriteTokens?: number
+    readonly reasoningTokens?: number
+  }, costUsd?: number): void
 }
 
 /** Detail the adapter hands the recorder for one request. */
 export interface RequestStart {
   readonly model: string
   readonly sessionId: string | undefined
+  /** The wire protocol, as the catalog resolved it for this model. */
+  readonly protocol?: WireProtocol
   /** Fallback line, used only when the fetch wrapper never reported the real one. */
   readonly method?: string
   readonly url?: string
@@ -251,6 +291,7 @@ export class RequestLog {
     let lastTokenAt: number | undefined
     let method: string | undefined
     let url: string | undefined
+    let requestBytes: number | undefined
     let status: number | undefined
     let finished = false
     return {
@@ -259,16 +300,17 @@ export class RequestLog {
         if (firstTokenAt === undefined) firstTokenAt = now
         lastTokenAt = now
       },
-      request: (nextMethod: string, nextUrl: string): void => {
+      request: (nextMethod: string, nextUrl: string, nextRequestBytes?: number): void => {
         if (method === undefined) {
           method = nextMethod
           url = nextUrl
+          requestBytes = nextRequestBytes
         }
       },
       status: (value: number): void => {
         status = value
       },
-      finish: (ok, code, usage): void => {
+      finish: (ok, code, usage, costUsd): void => {
         if (finished) return
         finished = true
         const endedAt = Date.now()
@@ -296,6 +338,7 @@ export class RequestLog {
           seq: ++this.seq,
           atMs: startedAt,
           model: detail.model,
+          ...detail.protocol === undefined ? {} : { protocol: detail.protocol },
           session,
           method: method ?? detail.method ?? 'POST',
           url: url ?? detail.url ?? '',
@@ -306,10 +349,19 @@ export class RequestLog {
             ...usage.cacheReadTokens === undefined || usage.cacheReadTokens <= 0
               ? {}
               : { cacheReadTokens: usage.cacheReadTokens },
+            ...usage.cacheWriteTokens === undefined || usage.cacheWriteTokens <= 0
+              ? {}
+              : { cacheWriteTokens: usage.cacheWriteTokens },
+            ...usage.reasoningTokens === undefined || usage.reasoningTokens <= 0
+              ? {}
+              : { reasoningTokens: usage.reasoningTokens },
           },
+          ...costUsd === undefined ? {} : { costUsd },
+          ...requestBytes === undefined ? {} : { requestBytes },
           durationMs: Math.max(0, endedAt - startedAt),
           ...firstTokenAt === undefined ? {} : { firstTokenMs: Math.max(0, firstTokenAt - startedAt) },
           ...decodeMs === undefined ? {} : { decodeMs },
+          ...streamMs === undefined ? {} : { streamMs },
           ...tps === undefined ? {} : { tps },
           ok,
           ...code === undefined ? {} : { code },

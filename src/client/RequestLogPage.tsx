@@ -133,6 +133,20 @@ function rate(value: number | undefined): string {
   return value === undefined ? '—' : value.toFixed(1)
 }
 
+/** Estimated USD, trimmed to cents and below. */
+function cost(value: number | undefined): string {
+  if (value === undefined) return '—'
+  return `$${value.toFixed(value < 0.01 ? 6 : 4)}`
+}
+
+/** A byte count in the unit a person reads it in. */
+function bytes(value: number | undefined): string {
+  if (value === undefined) return '—'
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+  return `${(value / (1024 * 1024)).toFixed(2)} MB`
+}
+
 /**
  * The share of input tokens the provider served from cache.
  *
@@ -305,10 +319,11 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId, useS
    * One sortable head cell: the arrow names the direction, a click flips it.
    * @param key - the column this head orders by.
    * @param label - the translated column name.
+   * @param hint - the hover text, when the name alone misleads.
    * @returns the head cell.
    */
-  const head = (key: SortKey, label: string): React.JSX.Element => (
-    <th className={css.thSortable} onClick={() => { toggleSort(key) }}>
+  const head = (key: SortKey, label: string, hint?: string): React.JSX.Element => (
+    <th className={css.thSortable} onClick={() => { toggleSort(key) }} title={hint}>
       {label}{sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
     </th>
   )
@@ -359,10 +374,22 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId, useS
                   <span className={css.detailLabel}>{t('requestLogDetailMethod')}</span>
                   <span className={`${css.detailValue} ${css.mono}`}>{entry.method}</span>
                 </div>
+                {entry.protocol !== undefined && (
+                  <div className={css.detailItem}>
+                    <span className={css.detailLabel}>{t('requestLogDetailProtocol')}</span>
+                    <span className={`${css.detailValue} ${css.mono}`}>{entry.protocol}</span>
+                  </div>
+                )}
                 <div className={css.detailItem}>
                   <span className={css.detailLabel}>{t('requestLogDetailUrl')}</span>
                   <span className={`${css.detailValue} ${css.mono}`}>{entry.url}</span>
                 </div>
+                {entry.requestBytes !== undefined && (
+                  <div className={css.detailItem}>
+                    <span className={css.detailLabel}>{t('requestLogDetailRequestBytes')}</span>
+                    <span className={css.detailValue}>{bytes(entry.requestBytes)}</span>
+                  </div>
+                )}
                 <div className={css.detailItem}>
                   <span className={css.detailLabel}>{t('requestLogDetailSession')}</span>
                   <span
@@ -398,8 +425,16 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId, useS
                   <span className={css.detailLabel}>{t('requestLogDetailTokens')}</span>
                   <span className={css.detailValue}>
                     {`${count(entry.inputTokens)} / ${count(entry.outputTokens)} / ${count(entry.cacheReadTokens)}`}
+                    {entry.cacheWriteTokens !== undefined && ` · ${t('requestLogDetailCacheWrite')} ${count(entry.cacheWriteTokens)}`}
+                    {entry.reasoningTokens !== undefined && ` · ${t('requestLogDetailReasoning')} ${count(entry.reasoningTokens)}`}
                   </span>
                 </div>
+                {entry.costUsd !== undefined && (
+                  <div className={css.detailItem}>
+                    <span className={css.detailLabel}>{t('requestLogDetailCost')}</span>
+                    <span className={css.detailValue}>{cost(entry.costUsd)}</span>
+                  </div>
+                )}
                 <div className={css.detailItem}>
                   <span className={css.detailLabel}>{t('requestLogColCacheRate')}</span>
                   <span className={css.detailValue}>{percent(cacheRate(entry))}</span>
@@ -408,6 +443,12 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId, useS
                   <span className={css.detailLabel}>{t('requestLogColTps')}</span>
                   <span className={css.detailValue}>{rate(entry.tps)}</span>
                 </div>
+                {entry.streamMs !== undefined && entry.tps === undefined && (
+                  <div className={css.detailItem}>
+                    <span className={css.detailLabel}>{t('requestLogColStream')}</span>
+                    <span className={css.detailValue}>{duration(entry.streamMs)}</span>
+                  </div>
+                )}
                 {!entry.ok && entry.code !== undefined && (
                   <div className={css.detailItem}>
                     <span className={css.detailLabel}>{t('requestLogDetailError')}</span>
@@ -566,9 +607,9 @@ export function RequestLogPage({ readLog, enabled, t, getLocale, sessionId, useS
                   {head('atMs', t('requestLogColTime'))}
                   {head('model', t('requestLogColModel'))}
                   {head('session', t('requestLogColSession'))}
-                  {head('inputTokens', t('requestLogColIn'))}
-                  {head('outputTokens', t('requestLogColOut'))}
-                  {head('cacheReadTokens', t('requestLogColCache'))}
+                  {head('inputTokens', t('requestLogColIn'), t('requestLogColInHint'))}
+                  {head('outputTokens', t('requestLogColOut'), t('requestLogColOutHint'))}
+                  {head('cacheReadTokens', t('requestLogColCache'), t('requestLogColCacheHint'))}
                   {head('cacheRate', t('requestLogColCacheRate'))}
                   {head('tps', t('requestLogColTps'))}
                   {head('firstTokenMs', t('requestLogColFirstToken'))}
