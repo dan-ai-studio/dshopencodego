@@ -123,6 +123,43 @@ function bodyBytes(body: unknown): number | undefined {
   return undefined
 }
 
+/**
+ * Estimate the image share of one request's wire bytes, from the messages
+ * before conversion.
+ *
+ * Every attached image travels as base64 (or raw bytes on the one protocol
+ * that sends them so), so the estimate uses the base64 size — the larger
+ * of the two — and can only understate the text residual, never inflate
+ * the parts past the whole. Repeated occurrences of one attachment travel
+ * once: the conversion dedupes by attachment id, and so does this walk.
+ * An offloaded placeholder travels as text, not bytes, and is skipped the
+ * same way. Each image is capped at the route's encoded-byte target,
+ * mirroring the preparation the conversion applies. Absent when the
+ * request carries no image bytes at all, so the common text-only request
+ * records nothing extra.
+ * @param messages - the request's messages, exactly as the caller passed them.
+ * @param capBytes - per-image encoded-byte target, before base64 expansion.
+ * @returns estimated image wire bytes, or undefined when there are none.
+ */
+export function estimateImageWireBytes(
+  messages: GenerateOptions['messages'],
+  capBytes: number,
+): number | undefined {
+  const seen = new Set<string>()
+  let total = 0
+  const cap = Math.max(0, capBytes)
+  for (const message of messages) {
+    for (const block of message.content) {
+      if (block.type !== 'image' || block.offloaded === true) continue
+      const id: string = block.attachment.attachmentId
+      if (seen.has(id)) continue
+      seen.add(id)
+      total += Math.ceil(Math.min(block.attachment.bytes, cap) / 3) * 4
+    }
+  }
+  return seen.size === 0 ? undefined : total
+}
+
 /** Image machinery the adapter reads once per request. */
 export interface OpencodeGoImageAccess {
   /** Resolve the durable attachment service at request time. */
@@ -436,6 +473,12 @@ export class OpencodeGoAdapter extends LlmAdapter {
     // `headers` is computed once here and reused below, so the allowlisted
     // values the recorder takes are the exact ones sent on the wire.
     const headers = providerHeaders(options.sessionId === undefined ? undefined : String(options.sessionId))
+    // The image share is estimated before conversion, from the same blocks
+    // the conversion will send: sizes here are the attachment service's
+    // stored bytes, capped the way preparation caps them.
+    const imageBytes = containsImage
+      ? estimateImageWireBytes(options.messages, config.requestImageMaxBytes)
+      : undefined
     const span = this.options.requestLog?.start({
       model: options.model,
       sessionId: options.sessionId === undefined ? undefined : String(options.sessionId),
@@ -445,6 +488,7 @@ export class OpencodeGoAdapter extends LlmAdapter {
       messageCount: options.messages.length,
       hasImage: containsImage,
       toolCount: options.tools?.length ?? 0,
+      ...imageBytes === undefined ? {} : { imageBytes },
       headers: {
         ...options.sessionId === undefined ? {} : { session: String(options.sessionId) },
         ...typeof headers['user-agent'] === 'string' ? { userAgent: headers['user-agent'] } : {},

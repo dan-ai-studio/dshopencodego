@@ -14,7 +14,9 @@
  *   immediately rather than on the next request.
  */
 import { afterEach, describe, expect, it } from 'vitest'
-import { OpencodeGoAdapter } from '../src/adapter.ts'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import { MessageId } from '@deepseek-ai/dsh-llm'
+import { estimateImageWireBytes, OpencodeGoAdapter } from '../src/adapter.ts'
 import type { OpencodeGoConfig } from '../src/config.ts'
 import { parseRequestLogSnapshot } from '../src/request-log/contract.ts'
 import { RequestLog } from '../src/request-log/store.ts'
@@ -271,6 +273,20 @@ describe('RequestLog', () => {
     expect(log.snapshot().entries[0]?.requestBytes).toBe(3_621_468)
   })
 
+  it('records the image share and the wire format keeps it', () => {
+    const log = new RequestLog(gates())
+    const span = log.start(start({ imageBytes: 2_700_000 }))
+    expect(span).toBeDefined()
+    span?.request('POST', 'https://opencode.ai/inference/go/v1/responses', 2_815_544)
+    span?.status(200)
+    span?.finish(true)
+    const entry = log.snapshot().entries[0]!
+    expect(entry.imageBytes).toBe(2_700_000)
+    // The wire codec carries it like any other optional count.
+    const parsed = parseRequestLogSnapshot(JSON.parse(JSON.stringify(log.snapshot())))
+    expect(parsed.entries[0]?.imageBytes).toBe(2_700_000)
+  })
+
   it('drops a protocol it does not know instead of the snapshot', () => {
     const log = new RequestLog(gates())
     record(log)
@@ -280,6 +296,40 @@ describe('RequestLog', () => {
       entries: [{ ...snapshot.entries[0], protocol: 'carrier-pigeon' }],
     }
     expect(parseRequestLogSnapshot(JSON.parse(JSON.stringify(tampered))).entries[0]).not.toHaveProperty('protocol')
+  })
+})
+
+describe('image share estimate', () => {
+  const text = (text: string) => ({
+    role: 'user' as const,
+    id: MessageId('m-text'),
+    source: { kind: 'user' as const },
+    content: [{ type: 'text' as const, text }],
+  })
+  const image = (id: string, bytes: number, offloaded?: true) => ({
+    role: 'user' as const,
+    id: MessageId(`m-${id}`),
+    source: { kind: 'user' as const },
+    content: [{
+      type: 'image' as const,
+      attachment: { attachmentId: AttachmentId(id), mediaType: 'image/png' as const, bytes, width: 64, height: 64 },
+      ...offloaded === true ? { offloaded: true as const } : {},
+    }],
+  })
+
+  it('is absent for text-only requests and ignores text', () => {
+    expect(estimateImageWireBytes([], 400_000)).toBeUndefined()
+    expect(estimateImageWireBytes([text('hi')], 400_000)).toBeUndefined()
+  })
+
+  it('counts base64 bytes once per attachment and skips offloaded placeholders', () => {
+    const messages = [image('a', 3_000), image('a', 3_000), image('b', 4, true), text('hi')]
+    // 3,000 bytes -> 4,000 base64; the duplicate and the offloaded one add nothing.
+    expect(estimateImageWireBytes(messages, 400_000)).toBe(4_000)
+  })
+
+  it('caps each image at the route target', () => {
+    expect(estimateImageWireBytes([image('a', 3_000_000)], 400_000)).toBe(Math.ceil(400_000 / 3) * 4)
   })
 })
 

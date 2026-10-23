@@ -248,6 +248,29 @@ describe('request-log page', () => {
     expect(within(rows).getByText('3.45 MB')).toBeTruthy()
   })
 
+  it('splits the wire body into text and images in the detail', async () => {
+    render(<RequestLogPage {...faceFor(snapshotOf([entry({
+      requestBytes: 3_000_000,
+      imageBytes: 2_700_000,
+    })]))} />)
+    const rows = await table()
+    fireEvent.click(within(rows).getByText('glm-5.3'))
+    await waitFor(() => {
+      // 300,000 residual bytes of text against 2,700,000 of images.
+      expect(within(rows).getByText(/Text 293\.0 KB \/ Images 2\.57 MB/)).toBeTruthy()
+    })
+  })
+
+  it('hides the split when the request carries no images', async () => {
+    render(<RequestLogPage {...faceFor(snapshotOf([entry()]))} />)
+    const rows = await table()
+    fireEvent.click(within(rows).getByText('glm-5.3'))
+    await waitFor(() => {
+      expect(within(rows).getByText('https://opencode.ai/inference/go/v1/chat/completions')).toBeTruthy()
+    })
+    expect(within(rows).queryByText(/Images/)).toBeNull()
+  })
+
   it('orders rows when a column head is clicked', async () => {
     // Newest first is the default; a click on Latency reorders slowest
     // first, and a second click flips it.

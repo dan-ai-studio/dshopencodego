@@ -156,6 +156,19 @@ function bytes(value: number | undefined): string {
 }
 
 /**
+ * The wire body split into text and images: the image share is the
+ * estimate the adapter recorded, the text share is whatever is left, so
+ * the two always reconcile with the total. The estimate can only
+ * understate images (raw-byte protocols, resized versions), never invent
+ * bytes the wire did not carry.
+ */
+function contentSplit(entry: RequestLogEntry, text: string, images: string): string {
+  const imageBytes = entry.imageBytes ?? 0
+  const textBytes = entry.requestBytes === undefined ? undefined : Math.max(0, entry.requestBytes - imageBytes)
+  return `${text} ${textBytes === undefined ? '—' : bytes(textBytes)} / ${images} ${bytes(imageBytes)}`
+}
+
+/**
  * The share of input tokens the provider served from cache.
  *
  * The adapter reports uncached input and cache reads separately, so the
@@ -413,6 +426,14 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
                   <div className={css.detailItem}>
                     <span className={css.detailLabel}>{t('requestLogDetailRequestBytes')}</span>
                     <span className={css.detailValue}>{bytes(entry.requestBytes)}</span>
+                  </div>
+                )}
+                {entry.imageBytes !== undefined && entry.imageBytes > 0 && (
+                  <div className={css.detailItem}>
+                    <span className={css.detailLabel}>{t('requestLogDetailContentSplit')}</span>
+                    <span className={css.detailValue}>
+                      {contentSplit(entry, t('requestLogDetailText'), t('requestLogDetailImages'))}
+                    </span>
                   </div>
                 )}
                 <div className={css.detailItem}>

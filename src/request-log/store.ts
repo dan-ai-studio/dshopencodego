@@ -69,6 +69,14 @@ export interface RequestLogEntry {
    */
   readonly requestBytes?: number
   /**
+   * Estimated image share of the wire body, in bytes: unique attached
+   * images as base64, each capped at the route's encoded-byte target.
+   * The text share is the residual (`requestBytes` minus this), so the two
+   * always reconcile with the total. Absent when the request carries no
+   * image bytes at all.
+   */
+  readonly imageBytes?: number
+  /**
    * Wall time from the first to the last content token, in milliseconds —
    * the window the output actually streamed in. Absent when fewer than two
    * content tokens arrived; a burst delivery reads here as ~zero while the
@@ -228,6 +236,8 @@ export interface RequestStart {
   readonly messageCount: number
   readonly hasImage: boolean
   readonly toolCount: number
+  /** Estimated image share of the wire body, in bytes; see the entry field. */
+  readonly imageBytes?: number
   /** Allowlisted request headers; the recorder never sees the credential. */
   readonly headers: { readonly session?: string; readonly userAgent?: string }
 }
@@ -358,6 +368,7 @@ export class RequestLog {
           },
           ...costUsd === undefined ? {} : { costUsd },
           ...requestBytes === undefined ? {} : { requestBytes },
+          ...detail.imageBytes === undefined ? {} : { imageBytes: detail.imageBytes },
           durationMs: Math.max(0, endedAt - startedAt),
           ...firstTokenAt === undefined ? {} : { firstTokenMs: Math.max(0, firstTokenAt - startedAt) },
           ...decodeMs === undefined ? {} : { decodeMs },
