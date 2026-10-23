@@ -50,6 +50,7 @@ import { toPiContext, toStreamChunks } from './conversion/index.ts'
 import type { PiImageRequestContext } from './conversion/index.ts'
 import { isModelEnabled, recommendedIds } from './models.ts'
 import { providerHeaders } from './session-header.ts'
+import { IMAGE_BUDGETS } from './image-budget.ts'
 import type { RequestRecorder } from './request-log/store.ts'
 import { costOf, usableRates } from './usage/meter.ts'
 import type { MeteredUsage } from './usage/meter.ts'
@@ -473,11 +474,15 @@ export class OpencodeGoAdapter extends LlmAdapter {
     // `headers` is computed once here and reused below, so the allowlisted
     // values the recorder takes are the exact ones sent on the wire.
     const headers = providerHeaders(options.sessionId === undefined ? undefined : String(options.sessionId))
+    // The effective image budgets behind the configured preset.
+    const imageBudget = IMAGE_BUDGETS[config.imageBudgetPreset]
+    // The image share is estimated before conversion, from the messages
+    // the caller passed, capped at the preset's per-image target.
     // The image share is estimated before conversion, from the same blocks
     // the conversion will send: sizes here are the attachment service's
     // stored bytes, capped the way preparation caps them.
     const imageBytes = containsImage
-      ? estimateImageWireBytes(options.messages, config.requestImageMaxBytes)
+      ? estimateImageWireBytes(options.messages, imageBudget.maxBytes)
       : undefined
     const span = this.options.requestLog?.start({
       model: options.model,
@@ -526,8 +531,8 @@ export class OpencodeGoAdapter extends LlmAdapter {
         imageRequest = {
           attachments: store,
           resolveImageAccess: ref => access.resolveImageAccess(store, ref),
-          maxRequestImageBytes: config.maxRequestImageBytes,
-          requestImagePolicy: { maxPixels: config.requestImagePixelBudget, maxBytes: config.requestImageMaxBytes },
+          maxRequestImageBytes: imageBudget.maxRequestBytes,
+          requestImagePolicy: { maxPixels: imageBudget.maxPixels, maxBytes: imageBudget.maxBytes },
         }
       }
       const context = imageRequest === undefined

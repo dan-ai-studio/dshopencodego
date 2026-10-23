@@ -29,6 +29,7 @@ import {
   MAX_REQUEST_LOG_MAX_ENTRIES,
   MIN_REQUEST_LOG_MAX_ENTRIES,
 } from './request-log/limits.ts'
+import type { ImageBudgetPreset } from './image-budget.ts'
 
 export {
   DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
@@ -52,15 +53,6 @@ export const DEFAULT_REFRESH_MINUTES = 60
 
 /** Default maximum idle interval while one stream read is outstanding. */
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
-
-/** Request-level bound on the base64-encoded image payload. */
-const DEFAULT_MAX_REQUEST_IMAGE_BYTES = 6 * 1024 * 1024
-
-/** Total-pixel budget for one request image. */
-const DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET = 1_440_000
-
-/** Raw encoded-byte target for one request image before base64 expansion. */
-const DEFAULT_REQUEST_IMAGE_MAX_BYTES = 400_000
 
 /**
  * One model's configured capacities. Every field is optional so a deployment
@@ -105,12 +97,12 @@ export interface OpencodeGoConfig {
    * requests.
    */
   keepAliveTimeoutMs: number
-  /** Request-level bound on base64-encoded image payload, in bytes. */
-  maxRequestImageBytes: number
-  /** Total-pixel budget for one request image. */
-  requestImagePixelBudget: number
-  /** Raw encoded-byte target for one request image before base64 expansion. */
-  requestImageMaxBytes: number
+  /**
+   * Which image-budget preset shapes request images. `dsh` is the default:
+   * an unwritten field reads exactly the host route's own budgets, the same
+   * numbers a profile that never configured images would get from DSH itself.
+   */
+  imageBudgetPreset: ImageBudgetPreset
   /** Per-model capacity overrides; an absent field inherits the catalog value. */
   modelLimits: OpencodeGoModelLimits
   /**
@@ -162,9 +154,7 @@ const fields = {
   // once and say so only in a warning on stderr. The bound here is what
   // keeps that unreachable.
   keepAliveTimeoutMs: z.number().step(1).min(1).max(MAX_KEEP_ALIVE_TIMEOUT_MS).default(DEFAULT_KEEP_ALIVE_TIMEOUT_MS),
-  maxRequestImageBytes: z.number().step(1).min(1).default(DEFAULT_MAX_REQUEST_IMAGE_BYTES),
-  requestImagePixelBudget: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET),
-  requestImageMaxBytes: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_MAX_BYTES),
+  imageBudgetPreset: z.union([z.const('dsh'), z.const('dshopencodego'), z.const('pi-ai')]).default('dsh'),
   modelLimits: z.dict(z.union([z.const(null), z.object({
     contextWindow: z.union([z.const(null), z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER)]),
     maxTokens: z.union([z.const(null), z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER)]),

@@ -101,9 +101,7 @@ Configuration lives in the profile's `cordis.patch.yml`:
                                                # the timer restarts on every answer, so a connection in
                                                # frequent use is never dropped; a long pause in a
                                                # conversation costs one handshake (about 200ms)
-    maxRequestImageBytes: 6291456             # whole-request image payload cap (after base64, bytes)
-    requestImagePixelBudget: 1440000          # total-pixel budget for one image
-    requestImageMaxBytes: 400000              # encoded-byte target for one image (before base64)
+    imageBudgetPreset: dsh                    # image budget preset: dsh / dshopencodego / pi-ai (default dsh, the host's own values)
     modelVisibility:                          # per-model switches; unlisted models follow the default rule (see "The model list in the settings page")
       glm-5: true
     modelLimits:                              # per-model capacity overrides
@@ -156,13 +154,13 @@ The API key comes from the Harness credential store (reference name `OPENCODE_GO
 - The log is a ring buffer (oldest dropped first) that dies with the process; snapshots are read on demand, never polled, so a page nobody opens costs no traffic.
 - The credential never enters a record: the recorder takes no headers argument at all, only the allowlisted session id and user agent. Failed requests are recorded with their error code; a request cut off before any terminal event is not recorded — no total reported, none invented.
 
-**Images**: three fields, one layer each. An image outside a bound is refused explicitly rather than silently downscaled or dropped:
+**Images**: an over-budget image is refused explicitly rather than silently downscaled or dropped. The budgets ride one preset `imageBudgetPreset` (three choices, default `dsh`), not three numbers:
 
-| Field | What it bounds | Default |
-| --- | --- | --- |
-| `requestImageMaxBytes` | one image, encoded bytes **before** base64 | 400 KB |
-| `requestImagePixelBudget` | one image's total pixels (width × height) | 1.44M pixels |
-| `maxRequestImageBytes` | the **whole request's** image payload, **after** base64 | 6 MiB |
+| Preset | Per-image pixels | Per-image bytes (pre-base64) | Whole-request bytes (post-base64) |
+| --- | --- | --- | --- |
+| `dsh` (default) | 2048×2048 | 1MB | 20 MiB |
+| `dshopencodego` | 1.44M px | 400 KB | 6 MiB |
+| `pi-ai` | 2000×2000 | 4.5MB | 20 MiB |
 
 A model that does not accept image input is rejected before the request is sent (`UNSUPPORTED_CONTENT`), so nothing is uploaded only to be refused by the gateway.
 
@@ -253,7 +251,7 @@ The verdict:
 | `peerDependencies` (20 `@deepseek-ai/dsh-*` packages) | all `>=0.2.0-rc.1 <0.3.0-0` | takes over only when `engines.dsh` is absent; this plugin declares it, so the peers take no part today |
 | `@deepseek-ai/cordis` | `4.0.4 \|\| 4.0.5-alpha.1 \|\| 4.0.5-alpha.2 \|\| 4.0.5` | the same peer channel |
 | `engines.node` | `^22.19.0 \|\| >=24.0.0` | the package manager |
-| bundled `@earendil-works/pi-ai` | `~1.3.0` (within 1.3.x), **compiled into `lib/`** (devDependency) | an independent coupling: a change in pi-ai's request construction changes this plugin's wire behaviour, and its opencode-go builtin catalog is this plugin's fallback data. Bundling leaves the plugin with **no runtime dependencies** for an installer to resolve |
+| bundled `@earendil-works/pi-ai` | `~1.4.0` (within 1.4.x), **compiled into `lib/`** (devDependency) | an independent coupling: a change in pi-ai's request construction changes this plugin's wire behaviour, and its opencode-go builtin catalog is this plugin's fallback data. Bundling leaves the plugin with **no runtime dependencies** for an installer to resolve |
 | bundled `@deepseek-ai/schemastery` | `~3.18.5-alpha.2`, **compiled into `lib/`** (devDependency) | a build-time dependency |
 
 Things to keep in mind when maintaining this:
@@ -277,7 +275,7 @@ Things to keep in mind when maintaining this:
 | The usage button shows "unavailable" | An endpoint or credential change invalidated the previous reading. Fix the configuration and press Retry. It never shows `0` in place of a missing reading. |
 | npm publish fails with `ENEEDAUTH` | OIDC did not match: check the Trusted Publisher's **workflow filename** (must be exactly `publish-npm.yml`, case-sensitive) and the organization/repository fields; run on GitHub-hosted runners with `id-token: write`. A `repository.url` that does not match the GitHub repository is rejected as well. |
 | A flood of `Accessing non-existent property 'Allow' of module exports inside circular dependency` | Caused by `pi-ai`'s **named import** of `partial-json`: resolving a named export from CommonJS enumerates the module's exports, and that package's `index.js`/`options.js` require each other, so reading `Allow` before its module initialises prints once per read — **a plugin reload turns it into a flood** (a restart usually clears it). **Removed at the mechanism since v0.1.38**: `pi-ai` and `partial-json` are now **compiled into the bundle**, so Node's ESM→CJS interop is not involved and there is no enumeration of an uninitialised export to begin with. That is a fix, not a filter. |
-| The whole DSH process stalls during ultra-long tool calls (multi-MB arguments) | Observed on pi-ai `0.87.1`: per-delta re-parsing of the accumulated arguments (issue #9265 / PR #9461). This plugin does not port DSH's consumer-side patch (ADR-0005); the bundled dependency is now `~1.3.0`, so a recurrence would be upstream behaviour and would be fixed by an upstream release. |
+| The whole DSH process stalls during ultra-long tool calls (multi-MB arguments) | Observed on pi-ai `0.87.1`: per-delta re-parsing of the accumulated arguments (issue #9265 / PR #9461). This plugin does not port DSH's consumer-side patch (ADR-0005); the bundled dependency is now `~1.4.0`, so a recurrence would be upstream behaviour and would be fixed by an upstream release. |
 
 ## Development
 

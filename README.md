@@ -100,9 +100,7 @@ DSH 桌面端是 Electron 壳 + 完整的 dsh Web 应用，本插件对它同样
     keepAliveTimeoutMs: 600000                # 连接空闲保留：两次请求之间连接留多久（毫秒，1 ~ 1800000）
                                                # 每次收到回答后重新计时，所以常用时连接不会被断开；
                                                # 对话中每次停顿较久都要重新握手一次（约 200ms）
-    maxRequestImageBytes: 6291456             # 整个请求的图片载荷上限（base64 之后，字节）
-    requestImagePixelBudget: 1440000          # 单张图的总像素预算
-    requestImageMaxBytes: 400000              # 单张图编码前的字节目标（base64 之前）
+    imageBudgetPreset: dsh                    # 图片预算三选一：dsh / dshopencodego / pi-ai（默认 dsh，即宿主自带值）
     modelVisibility:                          # 逐模型开关；未写到的模型走默认规则（见「设置页里的模型列表」）
       glm-5: true
     modelLimits:                              # 逐模型容量覆盖
@@ -157,11 +155,11 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 
 **图片**：三个字段各管一层，超限的图片会被明确拒绝，而不是静默降质或丢弃：
 
-| 字段 | 约束对象 | 默认 |
-| --- | --- | --- |
-| `requestImageMaxBytes` | 单张图，base64 **之前**的字节目标 | 400 KB |
-| `requestImagePixelBudget` | 单张图的总像素（按宽×高限制分辨率） | 144 万像素 |
-| `maxRequestImageBytes` | **整个请求**里图片载荷的总字节（base64 **之后**） | 6 MiB |
+| 预设 | 单张像素 | 单张字节（base64 前） | 整单字节（base64 后） |
+| --- | --- | --- | --- |
+| `dsh`（默认） | 2048×2048 | 1MB | 20 MiB |
+| `dshopencodego` | 144 万像素 | 400 KB | 6 MiB |
+| `pi-ai` | 2000×2000 | 4.5MB | 20 MiB |
 
 模型自身不支持图片输入时，适配器会在发请求前就拒绝（`UNSUPPORTED_CONTENT`），不会把图发出去再等网关报错。
 
@@ -252,7 +250,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 | `peerDependencies`（20 个 `@deepseek-ai/dsh-*`） | 均为 `>=0.2.0-rc.1 <0.3.0-0` | 仅当 `engines.dsh` 缺席时才接管；本插件声明了它，故当前不参与判定 |
 | `@deepseek-ai/cordis` | `4.0.4 \|\| 4.0.5-alpha.1 \|\| 4.0.5-alpha.2 \|\| 4.0.5` | 同上（peer 通道） |
 | `engines.node` | `^22.19.0 \|\| >=24.0.0` | 包管理器 |
-| 已打包依赖 `@earendil-works/pi-ai` | `~1.3.0`（1.3.x 内），**打进产物**（devDependency） | 独立耦合：pi-ai 改请求构造即影响本插件的线上行为；其 opencode-go 内置目录同时是本插件的打底数据。打包后本插件**没有任何运行时依赖**，安装者不必再解析它 |
+| 已打包依赖 `@earendil-works/pi-ai` | `~1.4.0`（1.4.x 内），**打进产物**（devDependency） | 独立耦合：pi-ai 改请求构造即影响本插件的线上行为；其 opencode-go 内置目录同时是本插件的打底数据。打包后本插件**没有任何运行时依赖**，安装者不必再解析它 |
 | 已打包依赖 `@deepseek-ai/schemastery` | `~3.18.5-alpha.2`，**打进产物**（devDependency） | 构建期依赖 |
 
 维护时需要注意：
@@ -276,7 +274,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 | 用量按钮显示「不可用」 | 端点或凭证变化导致旧读数作废；配置正确后点「重试」。数值不会以 0 冒充。 |
 | npm 发布报 `ENEEDAUTH` | OIDC 没匹配上：核对包设置里 Trusted Publisher 的 **workflow 文件名**（必须恰为 `publish-npm.yml`、大小写敏感）与组织/仓库字段；确认跑在 GitHub 托管 runner 上且工作流带 `id-token: write`。`package.json` 的 `repository.url` 与仓库不符也会被拒。 |
 | 日志成片出现 `Accessing non-existent property 'Allow' of module exports inside circular dependency` | 成因是 `pi-ai` 对 `partial-json` 的**具名导入**：Node 解析 CJS 的具名导出时会枚举其 exports，而该包内部 `index.js`/`options.js` 互相 require，读到尚未初始化的 `Allow` 就打印一次——**插件重载会让它成片出现**（重启后往往消失）。**自 v0.1.38 起从机制上消除**：`pi-ai` 与 `partial-json` 已**打包进产物**，Node 的 ESM→CJS 互操作不再参与，因此不存在"枚举读到未初始化属性"这一步（不是过滤，是让该路径不存在）。 |
-| 超长工具调用（多 MB 参数）期间整个 DSH 进程卡顿 | 曾在 pi-ai `0.87.1` 上观测到逐 delta 重解析的固有开销（issue #9265 / PR #9461）。本插件不移植 DSH 的消费者侧补丁（ADR-0005）；当前自带依赖已是 `~1.3.0`，若仍复现则属上游行为，随其发版解决。 |
+| 超长工具调用（多 MB 参数）期间整个 DSH 进程卡顿 | 曾在 pi-ai `0.87.1` 上观测到逐 delta 重解析的固有开销（issue #9265 / PR #9461）。本插件不移植 DSH 的消费者侧补丁（ADR-0005）；当前自带依赖已是 `~1.4.0`，若仍复现则属上游行为，随其发版解决。 |
 
 ## 开发
 

@@ -17,3 +17,7 @@ scratch/
 # Ad-hoc audit/verification notes. Generated material lives outside the
 # published surface, like `scratch/`.
 notes/
+
+# pnpm artifacts: this repo installs and publishes with npm.
+pnpm-lock.yaml
+pnpm-workspace.yaml

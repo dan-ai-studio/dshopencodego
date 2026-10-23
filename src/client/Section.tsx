@@ -19,6 +19,8 @@ import type { RequestLogSnapshot } from '../request-log/contract.ts'
 import type { UpdateStatus } from '../update/contract.ts'
 import { PACKAGE_NAME, REPOSITORY } from '../update/check.ts'
 import { DEFAULT_KEEP_ALIVE_TIMEOUT_MS, MAX_KEEP_ALIVE_TIMEOUT_SECONDS } from '../network/keep-alive.ts'
+import { isImageBudgetPreset } from '../image-budget.ts'
+import type { ImageBudgetPreset } from '../image-budget.ts'
 import {
   DEFAULT_REQUEST_LOG_MAX_ENTRIES,
   MAX_REQUEST_LOG_MAX_ENTRIES,
@@ -42,6 +44,8 @@ interface SectionSettings {
   readonly pinnedAddresses: Record<string, string>
   /** Idle time a gateway connection is kept, in milliseconds. */
   readonly keepAliveTimeoutMs: number
+  /** Which image-budget preset shapes request images. */
+  readonly imageBudgetPreset: ImageBudgetPreset
   /** Whether the per-request log records anything at all. */
   readonly requestLogEnabled: boolean
   /** Whether the request log keeps debug detail. */
@@ -229,6 +233,9 @@ function settingsOf(value: unknown): SectionSettings | undefined {
   // schema's own default then applies — the same number an unwritten field
   // means everywhere else.
   const keepAlive = record['keepAliveTimeoutMs']
+  // An unwritten preset means DSH's own budgets — and an unknown value
+  // (from a newer build, say) reads as the default rather than failing.
+  const imageBudgetPreset = record['imageBudgetPreset']
   // The request-log master switch defaults on; the debug switch stays
   // off. An old profile that never wrote these fields reads the same
   // values the schema fills in.
@@ -240,6 +247,7 @@ function settingsOf(value: unknown): SectionSettings | undefined {
     refreshMinutes: minutes,
     pinnedAddresses: Object.fromEntries(pinEntries) as Record<string, string>,
     keepAliveTimeoutMs: typeof keepAlive === 'number' ? keepAlive : DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
+    imageBudgetPreset: isImageBudgetPreset(imageBudgetPreset) ? imageBudgetPreset : 'dsh',
     requestLogEnabled: typeof requestLogEnabled === 'boolean' ? requestLogEnabled : true,
     requestLogDebug: typeof requestLogDebug === 'boolean' ? requestLogDebug : false,
     requestLogMaxEntries: typeof requestLogMaxEntries === 'number'
@@ -738,6 +746,21 @@ export class SectionController {
   }
 
   /**
+   * Switch the image-budget preset. Unknown values are ignored; the page
+   * never writes a preset it cannot name.
+   */
+  async setImageBudgetPreset(preset: string): Promise<void> {
+    const scope = this.services.scope
+    const current = this.state.settings
+    if (scope === undefined || current === undefined || !this.state.writable) return
+    if (!isImageBudgetPreset(preset)) return
+    await this.write(
+      () => scope.set('imageBudgetPreset', preset),
+      () => this.set({ settings: { ...current, imageBudgetPreset: preset } }),
+    )
+  }
+
+  /**
    * Set how many request-log entries the Host keeps, clamped to the schema's
    * own bounds. A lowered bound trims on the next read; raising it backfills
    * nothing.
@@ -1074,6 +1097,21 @@ export function Section({ controller, t, getLocale, openRequestLog }: SectionInj
           onChange={event => { void controller.setKeepAliveTimeoutSeconds(Number(event.target.value)) }}
         />
         <span className={css.hint}>{t('keepAliveHint')}</span>
+      </div>
+      <div className={css.row}>
+        <label className={css.hint} htmlFor="dshopencodego-image-budget">{t('imageBudgetPresetLabel')}</label>
+        <select
+          id="dshopencodego-image-budget"
+          className={css.select}
+          disabled={!editable || state.saving}
+          value={state.settings?.imageBudgetPreset ?? 'dsh'}
+          onChange={event => { void act(async () => { await controller.setImageBudgetPreset(event.target.value) }) }}
+        >
+          <option value="dsh">{t('imageBudgetPresetDsh')}</option>
+          <option value="dshopencodego">{t('imageBudgetPresetDshopencodego')}</option>
+          <option value="pi-ai">{t('imageBudgetPresetPiAi')}</option>
+        </select>
+        <span className={css.hint}>{t('imageBudgetPresetHint')}</span>
       </div>
       <div className={css.row}>
         <strong>{t('requestLogTitle')}</strong>

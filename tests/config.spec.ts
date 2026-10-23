@@ -22,6 +22,7 @@ import {
   readConfig,
   TIMER_CEILING_MS,
 } from '../src/config.ts'
+import { IMAGE_BUDGETS } from '../src/image-budget.ts'
 import type { LiveConfig } from '../src/config.ts'
 
 function liveOf(values: Record<string, unknown>): LiveConfig {
@@ -149,13 +150,20 @@ describe('readConfig', () => {
       baseURL: 'https://opencode.ai/zen/go/v1',
       refreshMinutes: 30,
       streamIdleTimeoutMs: 1_000,
-      maxRequestImageBytes: 100,
-      requestImagePixelBudget: 200,
-      requestImageMaxBytes: 50,
+      imageBudgetPreset: 'pi-ai',
       modelLimits: {},
       modelProtocols: {},
     }))
     expect(config.refreshMinutes).toBe(30)
     expect(config.modelVisibility).toEqual({ 'glm-5': true })
+    expect(config.imageBudgetPreset).toBe('pi-ai')
+  })
+
+  it('defaults the image budget to the DSH preset', () => {
+    expect(PlainConfig({}).imageBudgetPreset).toBe('dsh')
+    expect(IMAGE_BUDGETS.dsh).toEqual({ maxPixels: 4194304, maxBytes: 1048576, maxRequestBytes: 20971520 })
+    expect(IMAGE_BUDGETS.dshopencodego).toEqual({ maxPixels: 1440000, maxBytes: 400000, maxRequestBytes: 6291456 })
+    expect(IMAGE_BUDGETS['pi-ai']).toEqual({ maxPixels: 4000000, maxBytes: 4718592, maxRequestBytes: 20971520 })
+    expect(() => PlainConfig({ imageBudgetPreset: 'nope' as never })).toThrow()
   })
 })

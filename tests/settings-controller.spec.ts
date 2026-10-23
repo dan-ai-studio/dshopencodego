@@ -207,6 +207,19 @@ describe('settings controller', () => {
     expect(test.writes).toEqual([{ field: 'keepAliveTimeoutMs', value: 30_000 }])
   })
 
+  it('defaults the image budget to the DSH preset and switches it on choice', async () => {
+    const test = harness()
+    const controller = new SectionController(test.services)
+    await settle()
+    // An old profile never wrote this field, so the page must read as the
+    // DSH preset — the same budgets an unwritten field means everywhere else.
+    expect(controller.snapshot().settings).toMatchObject({ imageBudgetPreset: 'dsh' })
+    await controller.setImageBudgetPreset('bogus')
+    expect(test.writes).toHaveLength(0)
+    await controller.setImageBudgetPreset('pi-ai')
+    expect(test.writes).toEqual([{ field: 'imageBudgetPreset', value: 'pi-ai' }])
+  })
+
   it('records the request log with a bounded retention unless told otherwise', async () => {
     const test = harness()
     const controller = new SectionController(test.services)

@@ -37,9 +37,7 @@ const BASE_GETTERS = (): Record<string, () => unknown> => ({
   apiKeyEnv: () => 'OPENCODE_GO_API_KEY',
   refreshMinutes: () => 60,
   streamIdleTimeoutMs: () => 300_000,
-  maxRequestImageBytes: () => 6_000_000,
-  requestImagePixelBudget: () => 1_440_000,
-  requestImageMaxBytes: () => 400_000,
+  imageBudgetPreset: () => 'dsh',
   modelLimits: () => ({}),
   modelProtocols: () => ({}),
 })
