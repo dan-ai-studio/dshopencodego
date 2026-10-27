@@ -54,9 +54,9 @@ function context(options: {
   const state: Partial<Harness> = {}
 
   const adapterHandle = Object.assign((): void => {}, {
-    replace: (): void => {
+    replace: vi.fn((): void => {
       if (options.adapterReplaceThrows === true) throw new LlmError('route disposed', 'REGISTRATION_DISPOSED')
-    },
+    }),
   })
   const registerAdapter = vi.fn(() => adapterHandle)
   // Publishing a directory entry would collide with `llm-pi-ai`'s declaration
@@ -184,6 +184,37 @@ describe('loader/volatile-update listener', () => {
     expect(() => { emit() }).not.toThrow()
     expect(laterListener).toHaveBeenCalledTimes(1)
     expect(harness.errors.join('\n')).toMatch(/could not re-evaluate the route/)
+  })
+
+  it('re-registers when only the retry policy changes', async () => {
+    // The host captures the retry policy at registration, so a retry-only
+    // edit must replace the route — comparing visibility alone used to drop it.
+    let visibility: Record<string, boolean> = {}
+    let retryPolicy: unknown = { mode: 'normal', maxRetries: 2 }
+    const harness = context({ configured: true, entryId: 'go' })
+    apply(harness.ctx as never, live({
+      ...BASE_GETTERS(),
+      modelVisibility: () => visibility,
+      retryPolicy: () => retryPolicy,
+    }))
+    await tick()
+    expect(harness.registerAdapter).toHaveBeenCalledTimes(1)
+    const handle = harness.registerAdapter.mock.results[0]!.value as { replace: ReturnType<typeof vi.fn> }
+    expect(handle.replace).not.toHaveBeenCalled()
+
+    // A retry-only edit re-registers.
+    retryPolicy = { mode: 'normal', maxRetries: 9 }
+    harness.volatileUpdate!()
+    expect(handle.replace).toHaveBeenCalledTimes(1)
+
+    // An unrelated emission without any fact change re-registers nothing.
+    harness.volatileUpdate!()
+    expect(handle.replace).toHaveBeenCalledTimes(1)
+
+    // Visibility still re-registers on its own.
+    visibility = { 'glm-5.3': false }
+    harness.volatileUpdate!()
+    expect(handle.replace).toHaveBeenCalledTimes(2)
   })
 })
 

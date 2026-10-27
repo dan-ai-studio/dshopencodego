@@ -44,7 +44,7 @@ import { DISPLAY_NAME, PROVIDER_ID, OpencodeGoCatalog } from './catalog/index.ts
 import type { CatalogSnapshot } from './catalog/index.ts'
 import type { GoDoc } from './catalog/go-doc.ts'
 import { toPiModel } from './catalog/metadata.ts'
-import { assertBaseURL } from './config.ts'
+import { assertBaseURL, assertStreamIdleTimeoutMs } from './config.ts'
 import type { OpencodeGoConfig, OpencodeGoModelLimits } from './config.ts'
 import { toPiContext, toStreamChunks } from './conversion/index.ts'
 import type { PiImageRequestContext } from './conversion/index.ts'
@@ -414,6 +414,8 @@ export class OpencodeGoAdapter extends LlmAdapter {
     // and dispatch cannot combine one generation's capabilities with another's
     // endpoint. Mirrors llm-pi-ai's snapshot discipline.
     const config = this.options.config()
+    // Fail a misconfigured timeout before any catalog wait or credential read.
+    assertStreamIdleTimeoutMs(config.streamIdleTimeoutMs)
     const snapshot = await this.catalogOf(config).forModel(model)
     const facts = snapshot.facts.get(model)
     if (facts === undefined) throw new LlmError(`opencode-go has no model "${model}"`, 'UNKNOWN_MODEL')
@@ -426,6 +428,8 @@ export class OpencodeGoAdapter extends LlmAdapter {
 
   override async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     const config = this.options.config()
+    // Same fail-fast as prepareCall: a bad timeout never reaches the watchdog.
+    assertStreamIdleTimeoutMs(config.streamIdleTimeoutMs)
     const snapshot = await this.catalogOf(config).forModel(options.model)
     yield* this.streamWithSnapshot(options, config, snapshot)
   }
@@ -435,6 +439,10 @@ export class OpencodeGoAdapter extends LlmAdapter {
     config: OpencodeGoConfig,
     snapshot: CatalogSnapshot,
   ): AsyncIterable<StreamChunk> {
+    // Guard the direct path too: the prepared-call closure dispatches here,
+    // and a timeout edited between preparation and dispatch must still fail
+    // cleanly instead of tripping the watchdog's own assertion mid-request.
+    assertStreamIdleTimeoutMs(config.streamIdleTimeoutMs)
     const facts = snapshot.facts.get(options.model)
     if (facts === undefined) throw new LlmError(`opencode-go has no model "${options.model}"`, 'UNKNOWN_MODEL')
     const model = withModelLimit(toPiModel(facts, config.baseURL), config.modelLimits)

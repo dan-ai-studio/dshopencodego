@@ -323,6 +323,27 @@ describe('adapter on the wire', () => {
       .providerRetryPolicy('opencode-go')).toThrow()
   })
 
+  it('rejects a non-finite idle timeout before reading the credential', async () => {
+    // `NaN` passes the profile schema, so without this guard it would reach
+    // `idleWatchdog` mid-request — after the credential read — as a bare
+    // assertion error. Failing here fails before any of that.
+    const server = await gateway({ listing: ['glm-5.3'] })
+    const stub = stubModelsDev(DOCUMENT)
+    try {
+      let keys = 0
+      const adapter = new OpencodeGoAdapter({
+        config: () => configFor(server.baseURL, { streamIdleTimeoutMs: NaN }),
+        resolveApiKey: async () => { keys += 1; return 'test-key' },
+        readDocument: offlineDocument(),
+      })
+      await expect(collect(adapter.stream(options('glm-5.3')))).rejects.toMatchObject({ code: 'INVALID_CONFIG' })
+      expect(keys).toBe(0)
+      expect(server.requests.some(entry => entry.path.endsWith('/chat/completions'))).toBe(false)
+    } finally {
+      stub.restore()
+    }
+  })
+
   it('refuses a request without a credential instead of sending it', async () => {
     const server = await gateway({ listing: ['glm-5.3'] })
     const stub = stubModelsDev(DOCUMENT)

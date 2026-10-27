@@ -62,7 +62,7 @@ declare module '@deepseek-ai/cordis' {
 export { OpencodeGoAdapter } from './adapter.ts'
 export type { OpencodeGoAdapterOptions, OpencodeGoImageAccess } from './adapter.ts'
 export { DEFAULT_BASE_URL, CONSOLE_BASE_URL, DISPLAY_NAME, PROVIDER_ID, OpencodeGoCatalog, discoverCatalogModels, fetchModelIds } from './catalog/index.ts'
-export { Config, PlainConfig, assertBaseURL, DEFAULT_API_KEY_ENV } from './config.ts'
+export { Config, PlainConfig, assertBaseURL, assertStreamIdleTimeoutMs, DEFAULT_API_KEY_ENV } from './config.ts'
 export type { OpencodeGoConfig } from './config.ts'
 export { SESSION_HEADER, SESSION_AFFINITY_HEADER, opencodeSessionValue, providerHeaders } from './session-header.ts'
 export { isModelEnabled, sortModels } from './models.ts'
@@ -296,7 +296,13 @@ export function apply(ctx: Context, raw?: unknown): void {
   }, 'dshopencodego: catalog warm-up')
 
   let registration: AdapterRegistrationHandle | undefined
-  let visibilityFacts = JSON.stringify(current().modelVisibility)
+  // The registry captures the route set and each route's retry policy at
+  // registration, so a change to either must re-register — the same fact
+  // `llm-pi-ai` tracks as `registrationFacts`. Visibility alone used to be
+  // compared here, and a retry-only edit silently kept the previous policy.
+  const registrationFacts = (): string =>
+    JSON.stringify({ visibility: current().modelVisibility, retryPolicy: current().retryPolicy ?? null })
+  let registeredFacts = registrationFacts()
 
   /**
    * Register the route while it is enabled and its credential resolves, and
@@ -342,10 +348,11 @@ export function apply(ctx: Context, raw?: unknown): void {
    */
   const syncRoute = (): void => {
     try {
-      const visibility = JSON.stringify(current().modelVisibility)
-      if (visibility !== visibilityFacts) {
-        visibilityFacts = visibility
-        // Replacing the owned route notifies every open picker without a restart.
+      const facts = registrationFacts()
+      if (facts !== registeredFacts) {
+        registeredFacts = facts
+        // Replacing the owned route notifies every open picker without a restart,
+        // and re-captures the retry policy the registry holds per registration.
         registration?.replace([PROVIDER_ID])
       }
       const credentials = ctx.get('credentials')

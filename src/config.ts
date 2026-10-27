@@ -12,7 +12,7 @@
  * @module @dan-ai-studio/dshopencodego/config
  */
 
-import { RetryPolicySchema } from '@deepseek-ai/dsh-llm'
+import { LlmError, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import z from '@deepseek-ai/schemastery'
@@ -186,6 +186,28 @@ export type LiveConfig = { [K in keyof OpencodeGoConfig]-?: { get(): OpencodeGoC
 export const Config = z.object(Object.fromEntries(
   Object.entries(fields).map(([key, schema]) => [key, schema.volatile()]),
 )) as z<Partial<OpencodeGoConfig>, LiveConfig>
+
+/**
+ * Validate one request-time idle timeout the schema let through.
+ *
+ * The schema bounds the persisted profile, but a live reference hands back
+ * whatever it holds (and a programmatic mount hands back whatever it returns):
+ * `NaN` passes `z.number()`, and a non-positive or overflowing value would
+ * otherwise reach `idleWatchdog` mid-request — after the credential was read —
+ * as a bare `Error` from its own assertion. Failing here fails before any
+ * credential read or network wait, with the route's own message instead of
+ * the timer's. Mirrors the resolve-time guard `llm-pi-ai` applies to the same
+ * field (`llm-pi-ai/src/config.ts`, "must be a positive finite number").
+ * @param value - the configured idle timeout in milliseconds.
+ */
+export function assertStreamIdleTimeoutMs(value: unknown): asserts value is number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > MAX_TIMER_DELAY_MS) {
+    throw new LlmError(
+      `dshopencodego: streamIdleTimeoutMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`,
+      'INVALID_CONFIG',
+    )
+  }
+}
 
 /**
  * Keep the Loader's references: reparsing them would detach live updates.

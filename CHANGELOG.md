@@ -2,6 +2,24 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.75] - 2026-10-27
+
+两处经实测复现确认的修复（此前优化清单中的误报已逐条撤回：证书回落、`undici` 动态导入、边缘判定、`mapUsage` 单通道、google 协议、图片目标覆盖等均为设计如此，不改）。
+
+### 🐛 修复
+
+- 只改 `retryPolicy` 现在会重注册路由：宿主在注册时捕获重试策略，此前 `syncRoute` 只比较 `modelVisibility`，纯重试编辑会被静默吞掉（复现：挂载后仅改重试，`replace` 次数为 0；修复后为 1）。对齐 `llm-pi-ai` 的 `registrationFacts` 做法。
+- 非法 `streamIdleTimeoutMs`（如 `NaN`）提前失败：`NaN` 能穿过 profile schema，此前会一路走到 `idleWatchdog` 中途抛裸 `Error`（且已读过凭证）。现在请求前以 `INVALID_CONFIG` 明确拒绝，不读凭证、不发请求。镜像上游 `llm-pi-ai` 对同一字段的 resolve 期校验。
+
+### 🧪 测试
+
+- 新增用例 4 个：重试单改重注册、无变化不注册、可见性仍触发；`NaN` 超时在读凭证前拒绝且零请求。
+- 套件为 **59 个测试文件 / 470 个用例**，`typecheck`、`lint` 全绿。
+
+### ⬆️ 依赖
+
+- `@deepseek-ai/dsh-*` devDeps `0.2.1-rc.2` → `0.2.1-rc.3`（此前未提交的本地同步，随本版入库）。
+
 ## [0.1.74] - 2026-10-23
 
 图片预算三选一 + pi-ai 升到 1.4.0。

@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   assertBaseURL,
+  assertStreamIdleTimeoutMs,
   DEFAULT_API_KEY_ENV,
   DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
   DEFAULT_KEEP_ALIVE_TIMEOUT_SECONDS,
@@ -40,6 +41,21 @@ describe('assertBaseURL', () => {
     expect(() => assertBaseURL('ftp://example.com/v1')).toThrow(/must be http or https/)
     expect(() => assertBaseURL('https://opencode.ai/zen/go/v1?x=1')).toThrow(/must not carry a query or fragment/)
     expect(() => assertBaseURL('https://opencode.ai/zen/go/v1#frag')).toThrow(/must not carry a query or fragment/)
+  })
+})
+
+describe('assertStreamIdleTimeoutMs', () => {
+  it('accepts a positive finite timeout within the timer ceiling', () => {
+    expect(() => assertStreamIdleTimeoutMs(300_000)).not.toThrow()
+    expect(() => assertStreamIdleTimeoutMs(1)).not.toThrow()
+  })
+
+  it('rejects NaN, non-positive, non-finite, and overflowing values the schema lets through', () => {
+    // `NaN` passes `z.number()` — this guard is what stops it reaching the
+    // watchdog mid-request as a bare assertion error.
+    for (const value of [NaN, 0, -1, Infinity, 2_147_483_648, '300000']) {
+      expect(() => assertStreamIdleTimeoutMs(value)).toThrow(/positive finite number/)
+    }
   })
 })
 
