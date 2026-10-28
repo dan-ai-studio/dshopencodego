@@ -99,8 +99,9 @@ const clientExternals = [
 /**
  * The specifiers the DSH Web shell seeds into its frozen module table, copied
  * verbatim from `packages/client/web/src/platform.ts` (`PLATFORM_MODULES`) at
- * **DSH 0.2.1-rc.2** — the version this package's devDependencies pin and the
- * floor of its `dsh` peer range.
+ * **DSH 0.2.1-rc.4** — the version this package's devDependencies pin (the
+ * list is verified identical in 0.2.2-alpha.2; the `dsh` peer range floor is
+ * older, so re-check this list whenever the peer range moves).
  *
  * Copied rather than imported on purpose: the assertion below must fail when
  * DSH renames or drops an identity. A specifier the shell no longer provides is
@@ -126,7 +127,7 @@ const notProvided = clientExternals.filter(specifier => !DSH_PLATFORM_MODULES.in
 if (notProvided.length > 0) {
   throw new Error(
     `Unsupported DSH client external(s): ${notProvided.join(', ')}. `
-    + 'The Web shell does not provide them (PLATFORM_MODULES @ DSH 0.2.1-rc.2), so the client factory '
+    + 'The Web shell does not provide them (PLATFORM_MODULES @ DSH 0.2.1-rc.4), so the client factory '
     + 'would fail at require() time. Stop importing them, or update DSH_PLATFORM_MODULES together with '
     + 'the `dsh` peer range.',
   )

@@ -312,6 +312,21 @@ describe('adapter on the wire', () => {
     }
   })
 
+  it('sizes an undescribed model from the raised route defaults', async () => {
+    // Mirrors llm-pi-ai's raised guess for a model no source sizes: 1M input,
+    // 128K output. The gateway listing names the id; every other source is
+    // silent, so the route defaults are what size it.
+    const server = await gateway({ listing: ['zz-new'] })
+    const stub = stubModelsDev(DOCUMENT)
+    try {
+      const resolved = await adapterFor(server).resolveModel('opencode-go', 'zz-new')
+      expect(resolved.context).toMatchObject({ contextWindow: 1_000_000 })
+      expect(resolved.defaultMaxTokens).toBe(128_000)
+    } finally {
+      stub.restore()
+    }
+  })
+
   it('owns a retry policy only while one is configured', async () => {
     const server = await gateway({ listing: [] })
     // Absent configuration leaves the host's own default in force.

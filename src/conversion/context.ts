@@ -259,9 +259,16 @@ export async function toPiContext(
       continue
     }
     if (message.role === 'system') {
-      // pi-ai keeps one leading system message; a later one folds into a user
-      // message so its position in the history survives.
-      messages.push({ role: 'user', content: flattenText(message), timestamp: 0 })
+      // No OpenCode Go model declares mid-conversation system support, so a
+      // later system message rides as a user-role reminder — the same wrapper
+      // and escaping llm-pi-ai applies when its own support flag is absent —
+      // and its position in the history survives. An empty one carries no
+      // reminder and is skipped rather than sent as an empty turn.
+      const text = flattenText(message)
+      if (text.length > 0) {
+        const reminder = text.replaceAll('</system-reminder>', '<\\/system-reminder>')
+        messages.push({ role: 'user', content: `<system-reminder>\n${reminder}\n</system-reminder>`, timestamp: 0 })
+      }
       continue
     }
     if (message.role === 'assistant') {

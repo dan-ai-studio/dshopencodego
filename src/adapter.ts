@@ -276,8 +276,12 @@ export class OpencodeGoAdapter extends LlmAdapter {
           baseURL: assertBaseURL(config.baseURL),
           refreshMs: config.refreshMinutes * 60_000,
           defaults: {
-            contextWindow: 262_144,
-            maxTokens: 32_768,
+            // A guess for a model no source sizes, kept in step with the
+            // llm-pi-ai route defaults: modern models are roomier than the
+            // 2026-era numbers these replace, and undersizing one fails a
+            // request the gateway would have served.
+            contextWindow: 1_000_000,
+            maxTokens: 128_000,
             input: ['text'],
           },
           overrides: config.modelProtocols,

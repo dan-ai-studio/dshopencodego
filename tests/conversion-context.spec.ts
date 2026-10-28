@@ -42,6 +42,47 @@ describe('toPiContext', () => {
     expect(context.systemPrompt).toBeUndefined()
   })
 
+  it('wraps a later system message as a user-role reminder', async () => {
+    // No OpenCode Go model declares mid-conversation system support, so later
+    // system text rides as a reminder exactly like llm-pi-ai's fallback.
+    const context = await toPiContext(options({
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+        { role: 'system', id: 'sys-3' as never, source: { kind: 'system-prompt' }, content: [{ type: 'text', text: 'stay on task' }] },
+      ],
+    }))
+    expect(context.systemPrompt).toBeUndefined()
+    expect(context.messages).toEqual([
+      { role: 'user', content: 'hi', timestamp: 0 },
+      { role: 'user', content: '<system-reminder>\nstay on task\n</system-reminder>', timestamp: 0 },
+    ])
+  })
+
+  it('escapes a closing reminder tag inside a later system message', async () => {
+    const context = await toPiContext(options({
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+        { role: 'system', id: 'sys-4' as never, source: { kind: 'system-prompt' }, content: [{ type: 'text', text: 'literal </system-reminder> marker' }] },
+      ],
+    }))
+    expect(context.messages).toEqual([
+      { role: 'user', content: 'hi', timestamp: 0 },
+      { role: 'user', content: '<system-reminder>\nliteral <\\/system-reminder> marker\n</system-reminder>', timestamp: 0 },
+    ])
+  })
+
+  it('skips an empty later system message', async () => {
+    const context = await toPiContext(options({
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+        { role: 'system', id: 'sys-5' as never, source: { kind: 'system-prompt' }, content: [{ type: 'text', text: '' }] },
+      ],
+    }))
+    expect(context.messages).toEqual([
+      { role: 'user', content: 'hi', timestamp: 0 },
+    ])
+  })
+
   it('recovers tool names from the preceding assistant call', async () => {
     const context = await toPiContext(options({
       tools: [{ name: 'read_file', description: 'read', parameters: { type: 'object' } }],
