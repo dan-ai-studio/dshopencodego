@@ -642,6 +642,11 @@ export class OpencodeGoAdapter extends LlmAdapter {
       } finally {
         if (!exhausted) {
           timedOut = timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT') !== undefined
+          // The caller stopped consuming before the terminal event: without
+          // this the request would leave a running row behind and no
+          // completion behind it. `finish` is idempotent, so paths that
+          // already closed the span (errors above) are untouched.
+          span?.finish(false, 'ABORTED')
           consumer.abort('opencode-go stream consumer stopped')
           try {
             // The deadline owns a demand the iterator may never settle, and an

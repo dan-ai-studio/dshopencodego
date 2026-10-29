@@ -81,6 +81,18 @@ function card(label: string): string {
 
 afterEach(() => { cleanup() })
 
+/** A row for a request that has not finished: identity, no counts yet. */
+function runningEntry(seq: number): RequestLogEntry {
+  const next = entry({ seq, ok: false, running: true })
+  // The store omits unreported fields rather than writing them as
+  // undefined; the deletions below reproduce that shape.
+  const record = next as unknown as Partial<Record<string, unknown>>
+  for (const key of ['status', 'inputTokens', 'outputTokens', 'cacheReadTokens', 'durationMs', 'firstTokenMs', 'decodeMs', 'tps']) {
+    delete record[key]
+  }
+  return next
+}
+
 describe('request-log page', () => {
   it('shows the readings of every recorded request', async () => {
     render(<RequestLogPage {...faceFor(snapshotOf([entry()]))} />)
@@ -202,6 +214,35 @@ describe('request-log page', () => {
     fireEvent.change(screen.getByDisplayValue('All'), { target: { value: 'fail' } })
     await waitFor(() => { expect(within(rows).queryByText('200')).toBeNull() })
     expect(within(rows).getByText('TIMEOUT')).toBeTruthy()
+  })
+
+  it('shows a running request without counting it as a failure', async () => {
+    // A request that has not finished reports no counts yet — and must
+    // neither inflate the failure card nor appear under the fail filter.
+    render(<RequestLogPage {...faceFor(snapshotOf([
+      runningEntry(1),
+      entry({ seq: 2, model: 'other-model', ok: false, code: 'TRANSPORT' }),
+    ]))} />)
+    const rows = await table()
+    // The row names its state instead of failing.
+    expect(within(rows).getByText(/Requesting/)).toBeTruthy()
+    // One real failure of two rows: the running one is not counted.
+    expect(card('Failures')).toContain('1')
+    // And the fail filter hides the running row.
+    fireEvent.change(screen.getByDisplayValue('All'), { target: { value: 'fail' } })
+    await waitFor(() => { expect(within(rows).queryByText('glm-5.3')).toBeNull() })
+    expect(within(rows).getByText('TRANSPORT')).toBeTruthy()
+  })
+
+  it('groups a running request on its own', async () => {
+    render(<RequestLogPage {...faceFor(snapshotOf([
+      runningEntry(1),
+      entry({ seq: 2, ok: false, code: 'TIMEOUT' }),
+    ]))} />)
+    await table()
+    fireEvent.change(screen.getByDisplayValue('None'), { target: { value: 'result' } })
+    // The running header is the translated word, not a code.
+    await waitFor(() => { expect(screen.getByText('Requesting')).toBeTruthy() })
   })
 
   it('shows one session when it is scoped to one', async () => {

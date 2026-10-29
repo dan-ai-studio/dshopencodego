@@ -4,9 +4,10 @@
  * Everything here is inert unless the profile enables it. The recorder is
  * constructed only when `requestLogEnabled` reads true, so a disabled log
  * changes nothing on the request path — not one extra allocation. When
- * enabled, one entry per completed or failed request is appended; the oldest
- * entries are dropped past the configured bound, so the log can never grow
- * with the session.
+ * enabled, `start` appends a running placeholder immediately — so a request
+ * is visible from the moment it begins, not only after it ends — and
+ * `finish` completes that same row in place. The oldest entries are dropped
+ * past the configured bound, so the log can never grow with the session.
  *
  * Two facts are structural rather than conventional:
  *
@@ -103,7 +104,16 @@ export interface RequestLogEntry {
    * misreport a buffered reply as infinitely quick.
    */
   readonly tps?: number
-  /** Whether the request completed. */
+  /**
+   * Whether the request is still in flight. Present only while it runs:
+   * `finish` removes it. A running row always reads `ok: false` with no
+   * `code`, so readers must check this flag before counting a failure.
+   */
+  readonly running?: boolean
+  /**
+   * Whether the request completed successfully. Always false while
+   * `running` is true.
+   */
   readonly ok: boolean
   /** Failure code (`TIMEOUT`, `TRANSPORT`, …) for a request that did not complete. */
   readonly code?: string
@@ -140,7 +150,7 @@ export interface PoolLogEvent {
 
 /** What the viewer reads: the entries plus the counters a rate needs. */
 export interface RequestLogSnapshot {
-  /** Newest first, at most the configured bound. */
+  /** Newest first, at most the configured bound — finished rows plus running ones. */
   readonly entries: readonly RequestLogEntry[]
   /** Recent pool lifecycle, newest first, capped. */
   readonly poolEvents: readonly PoolLogEvent[]
@@ -182,11 +192,12 @@ const MIN_STREAM_MS_FOR_RATE = 100
 /**
  * An in-flight request, handed back only when the log is enabled.
  *
- * Every method is cheap by construction: one `Date.now` read per content
- * delta and small integer arithmetic across the whole span. No
- * serialization, no hashing, no body handling — the counts ride the usage
- * chunk the adapter already holds, and the timings bracket work that
- * already happened.
+ * `start` already appended its running row, so every method mutates the
+ * visible entry in place. Every method stays cheap by construction: one
+ * `Date.now` read per content delta, field writes for the wire line, and
+ * small integer arithmetic at close. No serialization, no hashing, no body
+ * handling — the counts ride the usage chunk the adapter already holds,
+ * and the timings bracket work that already happened.
  */
 export interface RequestSpan {
   /**
@@ -209,7 +220,7 @@ export interface RequestSpan {
   /** Mark the response status line's arrival. */
   status(status: number): void
   /**
-   * Close the span and append its entry.
+   * Close the span and complete its running row in place.
    * @param ok - whether the request completed.
    * @param code - failure code for a request that did not complete.
    * @param usage - provider-reported counts, when the terminal usage arrived.
@@ -288,7 +299,10 @@ export class RequestLog {
    * Begin one request's span, or nothing when the log is disabled.
    *
    * This is the single gate on the request path: a disabled log costs one
-   * method call and one boolean read, and constructs nothing.
+   * method call and one boolean read, and constructs nothing. When enabled,
+   * the running row is appended before the span is returned, so the viewer
+   * sees the request while it runs; `request` and `status` mutate that same
+   * visible row as the wire facts arrive.
    */
   start(detail: RequestStart): RequestSpan | undefined {
     if (!this.gates.enabled()) return undefined
@@ -297,32 +311,62 @@ export class RequestLog {
     // The session id is kept whole: it is the conversation's identity, not a
     // credential, and a truncated one cannot tell two conversations apart.
     const session = detail.sessionId ?? ''
+    // Mutable while the request runs; the snapshot hands out this same
+    // object, so the wire line lands in the visible row as it arrives. The
+    // readonly type is a compile-time promise to readers, not a freeze.
+    const record = {
+      seq: ++this.seq,
+      atMs: startedAt,
+      model: detail.model,
+      ...detail.protocol === undefined ? {} : { protocol: detail.protocol },
+      session,
+      method: detail.method ?? 'POST',
+      url: detail.url ?? '',
+      running: true,
+      ok: false,
+      shape: { messages: detail.messageCount, hasImage: detail.hasImage, tools: detail.toolCount },
+      ...detail.imageBytes === undefined ? {} : { imageBytes: detail.imageBytes },
+      ...!debug ? {} : {
+        headers: {
+          ...detail.headers.session === undefined ? {} : { session: detail.headers.session },
+          ...detail.headers.userAgent === undefined ? {} : { userAgent: detail.headers.userAgent },
+        },
+      },
+    } as { -readonly [K in keyof RequestLogEntry]: RequestLogEntry[K] }
+    this.insert(record as RequestLogEntry, true)
     let firstTokenAt: number | undefined
     let lastTokenAt: number | undefined
-    let method: string | undefined
-    let url: string | undefined
-    let requestBytes: number | undefined
-    let status: number | undefined
+    // The wire line lands once: a second call keeps the first, so retries
+    // never rewrite the original line — the same rule as before, now
+    // applied to the visible row.
+    let reported = false
     let finished = false
     return {
       token: (): void => {
         const now = Date.now()
-        if (firstTokenAt === undefined) firstTokenAt = now
+        if (firstTokenAt === undefined) {
+          firstTokenAt = now
+          // The first token's arrival is visible while the request still
+          // runs — `finish` reuses this same mark for the decode window.
+          record.firstTokenMs = Math.max(0, now - startedAt)
+        }
         lastTokenAt = now
       },
       request: (nextMethod: string, nextUrl: string, nextRequestBytes?: number): void => {
-        if (method === undefined) {
-          method = nextMethod
-          url = nextUrl
-          requestBytes = nextRequestBytes
+        if (!reported) {
+          reported = true
+          record.method = nextMethod
+          record.url = nextUrl
+          if (nextRequestBytes !== undefined) record.requestBytes = nextRequestBytes
         }
       },
       status: (value: number): void => {
-        status = value
+        record.status = value
       },
       finish: (ok, code, usage, costUsd): void => {
         if (finished) return
         finished = true
+        const seq = record.seq
         const endedAt = Date.now()
         // The decode window: first token to the terminal event. The terminal
         // event follows the last token by a few milliseconds, so this is the
@@ -345,14 +389,14 @@ export class RequestLog {
           ? undefined
           : usage.outputTokens / (decodeMs / 1000)
         const entry: RequestLogEntry = {
-          seq: ++this.seq,
+          seq,
           atMs: startedAt,
           model: detail.model,
           ...detail.protocol === undefined ? {} : { protocol: detail.protocol },
           session,
-          method: method ?? detail.method ?? 'POST',
-          url: url ?? detail.url ?? '',
-          ...status === undefined ? {} : { status },
+          method: record.method,
+          url: record.url,
+          ...record.status === undefined ? {} : { status: record.status },
           ...usage === undefined ? {} : {
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
@@ -367,7 +411,7 @@ export class RequestLog {
               : { reasoningTokens: usage.reasoningTokens },
           },
           ...costUsd === undefined ? {} : { costUsd },
-          ...requestBytes === undefined ? {} : { requestBytes },
+          ...record.requestBytes === undefined ? {} : { requestBytes: record.requestBytes },
           ...detail.imageBytes === undefined ? {} : { imageBytes: detail.imageBytes },
           durationMs: Math.max(0, endedAt - startedAt),
           ...firstTokenAt === undefined ? {} : { firstTokenMs: Math.max(0, firstTokenAt - startedAt) },
@@ -388,13 +432,21 @@ export class RequestLog {
             },
           },
         }
-        this.append(entry)
+        // Complete the running row in place: same sequence, no recount. A
+        // row the ring already dropped (its slot went to newer starts) is
+        // re-appended instead — the completion must not be lost with it.
+        const at = this.entries.findIndex(candidate => candidate.seq === seq)
+        if (at === -1) {
+          this.insert(entry, false)
+        } else {
+          this.entries[at] = entry
+        }
       },
     }
   }
 
-  private append(entry: RequestLogEntry): void {
-    this.totalRecords += 1
+  private insert(entry: RequestLogEntry, count: boolean): void {
+    if (count) this.totalRecords += 1
     const bound = Math.max(1, Math.floor(this.gates.maxEntries()))
     const next = [entry, ...this.entries].slice(0, bound)
     this.droppedRecords += this.entries.length + 1 - next.length

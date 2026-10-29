@@ -72,6 +72,9 @@ function parseEntry(value: unknown): RequestLogEntry {
     ...row['decodeMs'] === undefined ? {} : { decodeMs: count('decodeMs', row) },
     ...row['streamMs'] === undefined ? {} : { streamMs: count('streamMs', row) },
     ...row['tps'] === undefined ? {} : { tps: rate('tps', row) },
+    // Running rows cross the wire too: a viewer opened mid-request must
+    // see them. Older snapshots predate the flag and read as finished.
+    ...row['running'] === true ? { running: true } : {},
     ok: row['ok'] === true,
     ...typeof row['code'] === 'string' ? { code: row['code'] } : {},
     ...typeof row['poolKey'] === 'string' ? { poolKey: row['poolKey'] } : {},

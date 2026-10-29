@@ -97,6 +97,62 @@ describe('RequestLog', () => {
     expect(snapshot.totalRecords).toBe(1)
   })
 
+  it('publishes a running row at start and completes it in place', () => {
+    // A request is visible from the moment it begins, not only after it ends.
+    const log = new RequestLog(gates())
+    const span = log.start(start())
+    expect(span).toBeDefined()
+    const running = log.snapshot()
+    expect(running.entries).toHaveLength(1)
+    expect(running.entries[0]).toMatchObject({ ok: false, running: true })
+    expect(running.totalRecords).toBe(1)
+    // The wire line lands in the visible row as it arrives.
+    span?.request('POST', 'https://opencode.ai/inference/go/v1/chat/completions', 128)
+    span?.status(200)
+    span?.token()
+    expect(log.snapshot().entries[0]).toMatchObject({ method: 'POST', status: 200 })
+    // So does the first token's arrival: the first-token column fills while running.
+    expect(log.snapshot().entries[0]?.firstTokenMs).toEqual(expect.any(Number))
+    span?.finish(true, undefined, { inputTokens: 10, outputTokens: 5 })
+    const done = log.snapshot()
+    // Same row, same sequence, completed — counted once, not twice.
+    expect(done.entries).toHaveLength(1)
+    const entry = done.entries[0]!
+    expect(entry.seq).toBe(running.entries[0]!.seq)
+    expect(entry.running).toBeUndefined()
+    expect(entry.ok).toBe(true)
+    expect(done.totalRecords).toBe(1)
+    expect(done.droppedRecords).toBe(0)
+  })
+
+  it('re-appends a completion whose running row fell out of the ring', () => {
+    const log = new RequestLog(gates({ maxEntries: 1 }))
+    const first = log.start(start({ model: 'old-model' }))
+    expect(first).toBeDefined()
+    // A newer start evicts the still-running row.
+    const second = log.start(start({ model: 'new-model' }))
+    expect(second).toBeDefined()
+    expect(log.snapshot().entries.map(entry => entry.model)).toEqual(['new-model'])
+    expect(log.snapshot().droppedRecords).toBe(1)
+    // The completion must not be lost with its row.
+    first?.finish(true, undefined, { inputTokens: 1, outputTokens: 1 })
+    const snapshot = log.snapshot()
+    expect(snapshot.entries.map(entry => entry.model)).toEqual(['old-model'])
+    expect(snapshot.entries[0]).toMatchObject({ ok: true })
+    expect(snapshot.entries[0]?.running).toBeUndefined()
+    expect(snapshot.totalRecords).toBe(2)
+    second?.finish(true, undefined, { inputTokens: 1, outputTokens: 1 })
+    expect(log.snapshot().totalRecords).toBe(2)
+  })
+
+  it('carries the running flag across the wire codec', () => {
+    const log = new RequestLog(gates())
+    log.start(start())
+    const parsed = parseRequestLogSnapshot(JSON.parse(JSON.stringify(log.snapshot())))
+    expect(parsed.entries[0]?.running).toBe(true)
+    expect(parsed.entries[0]?.ok).toBe(false)
+  })
+
   it('keeps the session id whole, in both modes', () => {
     // A truncated session cannot tell two conversations apart: it is a
     // conversation identity, not a credential, so it is stored whole.
@@ -444,6 +500,49 @@ describe('request log on the wire', () => {
       }
       expect(text).toBe(true)
       expect(log.snapshot().totalRecords).toBe(0)
+    } finally {
+      stub.restore()
+    }
+  })
+
+  it('records an abandoned stream instead of losing it', async () => {
+    // A caller that stops consuming never reaches the terminal chunk, so no
+    // usage chunk and no finish chunk ever arrive. The adapter must still
+    // close the running row — otherwise a cancelled turn vanishes entirely.
+    const server = await startMockGateway({ listing: ['glm-5.3'] })
+    gateways.push(server)
+    const stub = stubModelsDev(modelsDevDocument({
+      'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 128_000, output: 8_192 } },
+    }))
+    const log = new RequestLog({
+      enabled: () => true,
+      debug: () => false,
+      maxEntries: () => 200,
+    })
+    try {
+      const adapter = new OpencodeGoAdapter({
+        config: () => configFor(server.baseURL),
+        resolveApiKey: async () => 'test-key',
+        readDocument: offlineDocument(),
+        fetch: () => globalThis.fetch,
+        requestLog: log,
+      })
+      const iterator = adapter.stream({
+        provider: 'opencode-go',
+        model: 'glm-5.3',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      })[Symbol.asyncIterator]()
+      const first = await iterator.next()
+      expect(first.done).toBe(false)
+      // The running row is already there before anything finished.
+      expect(log.snapshot().entries).toHaveLength(1)
+      expect(log.snapshot().entries[0]).toMatchObject({ running: true, ok: false })
+      await iterator.return?.(undefined)
+      const snapshot = log.snapshot()
+      expect(snapshot.entries).toHaveLength(1)
+      expect(snapshot.entries[0]).toMatchObject({ ok: false, code: 'ABORTED' })
+      expect(snapshot.entries[0]?.running).toBeUndefined()
+      expect(snapshot.totalRecords).toBe(1)
     } finally {
       stub.restore()
     }

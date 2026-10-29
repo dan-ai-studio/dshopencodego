@@ -7,8 +7,10 @@
  * where they are.
  *
  * Everything on this page reads one snapshot. The snapshot is read when the
- * page opens and when the reader asks for a refresh — never polled — so a
- * page nobody opens costs nothing.
+ * page opens and when the reader asks for a refresh — and, while any row is
+ * still running, once a second on its own, so a request is watched while it
+ * runs. A page nobody opens costs nothing; a page with no running row costs
+ * one read per manual refresh.
  *
  * @module @dan-ai-studio/dshopencodego/client/RequestLogPage
  */
@@ -118,7 +120,7 @@ function sortValue(entry: RequestLogEntry, key: SortKey): string | number {
     case 'tps': return entry.tps ?? -1
     case 'firstTokenMs': return entry.firstTokenMs ?? -1
     case 'durationMs': return entry.durationMs ?? -1
-    case 'status': return entry.ok ? `ok-${entry.status ?? ''}` : `fail-${entry.code ?? ''}`
+    case 'status': return entry.running === true ? 'running' : entry.ok ? `ok-${entry.status ?? ''}` : `fail-${entry.code ?? ''}`
   }
 }
 
@@ -200,7 +202,9 @@ function groupKey(entry: RequestLogEntry, groupBy: GroupBy): string | undefined 
   switch (groupBy) {
     case 'session': return entry.session === '' ? '—' : entry.session
     case 'model': return entry.model
-    case 'result': return entry.ok ? 'ok' : (entry.code ?? 'fail')
+    // A running row is neither a success nor a failure yet: it groups on
+    // its own instead of inflating either outcome.
+    case 'result': return entry.running === true ? 'running' : entry.ok ? 'ok' : (entry.code ?? 'fail')
     case 'none': return undefined
   }
 }
@@ -258,6 +262,13 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
       : { text: title, titled: true }
   }, [catalog])
 
+  /** A result group header reads as a word, with the running group naming itself. */
+  const resultGroupLabel = (group: string): string =>
+    group === 'ok' ? t('requestLogResultOk')
+    : group === 'fail' ? t('requestLogResultFail')
+    : group === 'running' ? t('requestLogRunning')
+    : group
+
   /** Order by a column: a new column starts in its reading direction. */
   const toggleSort = (key: SortKey): void => {
     if (key === sortKey) {
@@ -285,6 +296,16 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
 
   useEffect(() => { void load() }, [load])
 
+  // A running row is a live request: refresh it on its own until it
+  // finishes, then stop — the interval dies with the last running row, and
+  // with the page. Manual refresh keeps working on top of this.
+  const hasRunning = (snapshot?.entries ?? []).some(entry => entry.running === true)
+  useEffect(() => {
+    if (!hasRunning) return
+    const timer = setInterval(() => { void load() }, 1000)
+    return () => { clearInterval(timer) }
+  }, [hasRunning, load])
+
   const models = useMemo(() => {
     const ids = new Set<string>()
     for (const entry of snapshot?.entries ?? []) ids.add(entry.model)
@@ -296,7 +317,7 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
     return (snapshot?.entries ?? []).filter(entry => {
       if (model !== 'all' && entry.model !== model) return false
       if (result === 'ok' && !entry.ok) return false
-      if (result === 'fail' && entry.ok) return false
+      if (result === 'fail' && (entry.ok || entry.running === true)) return false
       if (slowOnly && (entry.durationMs ?? 0) < Math.max(0, slowSeconds) * 1000) return false
       if (onlySession && sessionId !== undefined && entry.session !== sessionId) return false
       if (query !== '') {
@@ -325,7 +346,9 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
   }, [filtered, sortKey, sortDir])
   const pageEntries = sorted.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
 
-  const failures = filtered.filter(entry => !entry.ok).length
+  // A running row is not a failure yet: it must not inflate the count or
+  // the fail filter while it still runs.
+  const failures = filtered.filter(entry => !entry.ok && entry.running !== true).length
   const meanLatency = average(filtered.flatMap(entry => entry.durationMs === undefined ? [] : [entry.durationMs]))
   const meanFirstToken = average(filtered.flatMap(entry => entry.firstTokenMs === undefined ? [] : [entry.firstTokenMs]))
   const meanTps = average(filtered.flatMap(entry => entry.tps === undefined ? [] : [entry.tps]))
@@ -362,11 +385,12 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
         out.push(
           <tr key={`group-${group}-${entry.seq}`} className={css.group}>
             {/* A session group names the conversation when the catalog knows it. */}
-            <td colSpan={11}>{groupBy === 'session' ? sessionLabel(group).text : group}</td>
+            {/* Result groups read as words, not codes; the running group names itself. */}
+            <td colSpan={11}>{groupBy === 'session' ? sessionLabel(group).text : groupBy === 'result' ? resultGroupLabel(group) : group}</td>
           </tr>,
         )
       }
-      const state = !entry.ok ? 'rowFail' : (entry.tps !== undefined && entry.tps < 5 ? 'rowSlow' : 'rowOk')
+      const state = entry.running === true ? 'rowRunning' : !entry.ok ? 'rowFail' : (entry.tps !== undefined && entry.tps < 5 ? 'rowSlow' : 'rowOk')
       const session = sessionLabel(entry.session)
       out.push(
         <tr
@@ -399,8 +423,8 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
           <td>{percent(cacheRate(entry))}</td>
           <td>{rate(entry.tps)}</td>
           <td>{duration(entry.firstTokenMs)}</td>
-          <td>{duration(entry.durationMs)}</td>
-          <td>{entry.ok ? (entry.status === undefined ? '✓' : String(entry.status)) : (entry.code ?? '✗')}</td>
+          <td>{entry.running === true ? duration(Math.max(0, Date.now() - entry.atMs)) : duration(entry.durationMs)}</td>
+          <td>{entry.running === true ? `${t('requestLogRunning')} · ${duration(Math.max(0, Date.now() - entry.atMs))}` : entry.ok ? (entry.status === undefined ? '✓' : String(entry.status)) : (entry.code ?? '✗')}</td>
         </tr>,
       )
       if (expanded === entry.seq) {

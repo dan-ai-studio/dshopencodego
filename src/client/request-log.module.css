@@ -302,6 +302,12 @@
   box-shadow: inset 3px 0 0 var(--dsw-alias-state-error-primary);
 }
 
+/* A request still running: the brand rule says "in flight", distinct from
+   the error and warning rules. Text carries the state; this is only a cue. */
+.rowRunning td:first-child {
+  box-shadow: inset 3px 0 0 var(--dsw-alias-brand-primary);
+}
+
 .rowFail td:last-child,
 .rowSlow td:last-child {
   color: var(--dsw-alias-state-error-primary);

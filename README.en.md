@@ -151,8 +151,8 @@ The API key comes from the Harness credential store (reference name `OPENCODE_GO
 - **The In column is uncached new input**: the gateway reports a prompt as "uncached plus cache hits" and the log records only the new part — a fully prefix-cached turn reads as a tiny input with a 100% hit, which is not a bug. Hover a column head for its definition.
 - **Content split**: below the body size the detail shows **Text X / Images Y** — images estimated as base64 per deduped attachment (each capped at the route's encoded target), text as the residual, so the two always sum to the total. Image-dominated turns read at a glance.
 - Session ids are **always stored whole**: an id is a conversation identity, not a credential, and a truncated one reads two conversations as one.
-- The log is a ring buffer (oldest dropped first) that dies with the process; snapshots are read on demand, never polled, so a page nobody opens costs no traffic.
-- The credential never enters a record: the recorder takes no headers argument at all, only the allowlisted session id and user agent. Failed requests are recorded with their error code; a request cut off before any terminal event is not recorded — no total reported, none invented.
+- The log is a ring buffer (oldest dropped first) that dies with the process; snapshots are read on open and on manual refresh, plus once a second while any request is running, so a page nobody opens costs no traffic.
+- The credential never enters a record: the recorder takes no headers argument at all, only the allowlisted session id and user agent. A request gets a "Requesting" placeholder row the moment it starts (the status column counts its seconds) and the row is completed in place when it ends. Failed requests are recorded with their error code; a stream the consumer abandoned early is recorded as `ABORTED` instead of vanishing silently.
 
 **Images**: an over-budget image is refused explicitly rather than silently downscaled or dropped. The budgets ride one preset `imageBudgetPreset` (three choices, default `dsh`), not three numbers:
 
