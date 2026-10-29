@@ -116,9 +116,9 @@ describe('PlainConfig', () => {
     expect(config.modelProtocols).toEqual({ 'some-new-model': 'openai-responses' })
   })
 
-  it('records the request log with a bounded retention by default, debug off', () => {
+  it('leaves the request log off with a bounded retention by default, debug off', () => {
     const config = PlainConfig({})
-    expect(config.requestLogEnabled).toBe(true)
+    expect(config.requestLogEnabled).toBe(false)
     expect(config.requestLogDebug).toBe(false)
     expect(config.requestLogMaxEntries).toBe(DEFAULT_REQUEST_LOG_MAX_ENTRIES)
     // The bound is a real interval, not an open end: the ring must always
@@ -129,7 +129,7 @@ describe('PlainConfig', () => {
       .toBe(MIN_REQUEST_LOG_MAX_ENTRIES)
     expect(PlainConfig({ requestLogMaxEntries: MAX_REQUEST_LOG_MAX_ENTRIES }).requestLogMaxEntries)
       .toBe(MAX_REQUEST_LOG_MAX_ENTRIES)
-    expect(PlainConfig({ requestLogEnabled: false, requestLogDebug: true }).requestLogEnabled).toBe(false)
+    expect(PlainConfig({ requestLogEnabled: true, requestLogDebug: true }).requestLogEnabled).toBe(true)
     // A stale key from a removed feature (e.g. requestGzip after the gzip
     // revert) must be ignored, not fatal: profiles outlive features.
     expect(() => PlainConfig({ requestGzip: false } as never)).not.toThrow()

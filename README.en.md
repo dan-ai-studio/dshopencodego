@@ -113,7 +113,7 @@ Configuration lives in the profile's `cordis.patch.yml`:
       some-new-model: openai-responses        # the only legal values are anthropic-messages / openai-completions / openai-responses
     pinnedAddresses:                           # fixed IP: host -> address (only the gateway host counts)
       opencode.ai: 104.18.32.47              # IPv4 or IPv6; an invalid or absent address uses the system DNS
-    requestLogEnabled: true                  # request-log master switch, default on: off reads byte-for-byte as without the log
+    requestLogEnabled: false                 # request-log master switch, default off: on registers the sidebar entry and the conversation tab; off leaves no entry and reads byte-for-byte as without the log
     requestLogDebug: false                   # debug detail: pool events and the request user agent; session ids are always whole
     requestLogMaxEntries: 200                # most entries to keep, 50 to 500; oldest are dropped first
     retryPolicy:                              # optional: this route's retry policy, executed by dsh-llm-retry
@@ -139,7 +139,7 @@ The API key comes from the Harness credential store (reference name `OPENCODE_GO
 - The settings page shows and accepts the value in **seconds** (a number of milliseconds is not readable at a glance) and stores it in milliseconds. Range: 1 to 1800000 milliseconds.
 - Once a connection has been idle that long, the pool **reclaims it** on its own — no separate mechanism is needed. The actual release comes a couple of seconds later than the setting, which is the client's own small margin beyond the deadline the server states. When the plugin is unloaded, the pool is **closed with it**: the pool belongs to the plugin and should not be left behind on the machine.
 
-**Request log**: per-request records, on by default; turning them off returns the request path to exactly as without the log. The settings page's "Request log" group holds the master switch, the debug switch (pool events and the request user agent, default off), and the retention count (default 200).
+**Request log**: per-request records, off by default; turning them on registers the sidebar entry and the conversation tab, and turning them off removes those entries and returns the request path to exactly as without the log. The settings page's "Request log" group holds the master switch, the debug switch (pool events and the request user agent, default off), and the retention count (default 200).
 
 - **Two entries, one page**:
   - **A sidebar icon → a full page in the main column**: every request across sessions. The log is a process-wide thing, so the sidebar is where it belongs — a fixed, always-visible spot, and the same pattern the Harness's own plugin manager uses.

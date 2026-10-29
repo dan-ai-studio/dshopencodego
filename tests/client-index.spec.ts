@@ -140,4 +140,67 @@ describe('client apply', () => {
     expect(panel?.['key']).toBe(entry?.['id'])
     expect(panel?.['key']).toBe('dshopencodego-request-log')
   })
+
+  it('hides the request-log seats while the master switch is off', () => {
+    let enabled = false
+    const listeners = new Set<() => void>()
+    const fire = (): void => { listeners.forEach(fn => fn()) }
+    const profile = {
+      getSnapshot: () => ({
+        status: 'ready',
+        value: { requestLogEnabled: enabled },
+        revision: 1,
+        writable: true,
+      }),
+      subscribe: (fn: () => void) => {
+        listeners.add(fn)
+        return () => { listeners.delete(fn) }
+      },
+      set: async () => true,
+    }
+    const registered: Array<Record<string, unknown>> = []
+    const disposed: string[] = []
+    const { ctx } = context()
+    const mockInject = (ctx as unknown as { inject: ReturnType<typeof vi.fn> }).inject
+    mockInject.mockImplementation(
+      (services: string[], run: (scope: unknown) => unknown) => {
+        void services
+        const current = scope()
+        current.get = ((name: string) => (name === 'configForms' ? { get: () => profile } : undefined)) as typeof current.get
+        current.slots.register = ((options: unknown, component: unknown) => {
+          void component
+          const record = options as Record<string, unknown>
+          registered.push(record)
+          return () => { disposed.push(String(record['name'])) }
+        }) as typeof current.slots.register
+        run(current)
+      },
+    )
+    apply(ctx)
+    const names = (): unknown[] => registered.map(options => options['name'])
+    // The settings section stays: it owns the switch that brings the log back.
+    expect(names()).toContain('settings.section')
+    // Off means gone: no sidebar entry, no main panel, no conversation tab.
+    expect(names()).not.toContain('main')
+    expect(names()).not.toContain('sidebar.panellist')
+    expect(names()).not.toContain('conversation.view')
+    // Flipping the switch registers all three seats without a restart, and a
+    // repeat notification does not register them twice.
+    enabled = true
+    fire()
+    fire()
+    expect(names()).toContain('main')
+    expect(names()).toContain('sidebar.panellist')
+    expect(names()).toContain('conversation.view')
+    expect(names().filter(name => name === 'main')).toHaveLength(1)
+    const panel = registered.find(options => options['name'] === 'main')
+    const entry = registered.find(options => options['name'] === 'sidebar.panellist')
+    expect(panel?.['key']).toBe(entry?.['id'])
+    // And flipping it back removes them again.
+    enabled = false
+    fire()
+    expect(disposed).toContain('main')
+    expect(disposed).toContain('sidebar.panellist')
+    expect(disposed).toContain('conversation.view')
+  })
 })

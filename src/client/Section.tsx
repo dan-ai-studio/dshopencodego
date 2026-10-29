@@ -236,7 +236,7 @@ function settingsOf(value: unknown): SectionSettings | undefined {
   // An unwritten preset means DSH's own budgets — and an unknown value
   // (from a newer build, say) reads as the default rather than failing.
   const imageBudgetPreset = record['imageBudgetPreset']
-  // The request-log master switch defaults on; the debug switch stays
+  // The request-log master switch defaults off; the debug switch stays
   // off. An old profile that never wrote these fields reads the same
   // values the schema fills in.
   const requestLogEnabled = record['requestLogEnabled']
@@ -248,7 +248,7 @@ function settingsOf(value: unknown): SectionSettings | undefined {
     pinnedAddresses: Object.fromEntries(pinEntries) as Record<string, string>,
     keepAliveTimeoutMs: typeof keepAlive === 'number' ? keepAlive : DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
     imageBudgetPreset: isImageBudgetPreset(imageBudgetPreset) ? imageBudgetPreset : 'dsh',
-    requestLogEnabled: typeof requestLogEnabled === 'boolean' ? requestLogEnabled : true,
+    requestLogEnabled: typeof requestLogEnabled === 'boolean' ? requestLogEnabled : false,
     requestLogDebug: typeof requestLogDebug === 'boolean' ? requestLogDebug : false,
     requestLogMaxEntries: typeof requestLogMaxEntries === 'number'
       ? requestLogMaxEntries
@@ -1121,7 +1121,7 @@ export function Section({ controller, t, getLocale, openRequestLog }: SectionInj
         <label className={css.hint}>
           <input
             type="checkbox"
-            checked={state.settings?.requestLogEnabled ?? true}
+            checked={state.settings?.requestLogEnabled ?? false}
             disabled={!editable || state.saving}
             onChange={event => { void act(async () => { await controller.setRequestLogEnabled(event.target.checked) }) }}
           />
@@ -1154,12 +1154,17 @@ export function Section({ controller, t, getLocale, openRequestLog }: SectionInj
         />
         <span className={css.hint}>{t('requestLogMaxEntriesHint')}</span>
       </div>
-      <div className={css.row}>
-        <button type="button" className={css.button} onClick={() => { setLogOpenFailed(!(openRequestLog?.() ?? false)) }}>
-          {t('requestLogOpen')}
-        </button>
-        {logOpenFailed && <span className={css.warn}>{t('requestLogOpenFailed')}</span>}
-      </div>
+      {/* The opener lives next to the switch that owns it: with the log
+          off the sidebar entry and the conversation tab are unregistered,
+          so a button that leads nowhere would be worse than none. */}
+      {state.settings?.requestLogEnabled === true && (
+        <div className={css.row}>
+          <button type="button" className={css.button} onClick={() => { setLogOpenFailed(!(openRequestLog?.() ?? false)) }}>
+            {t('requestLogOpen')}
+          </button>
+          {logOpenFailed && <span className={css.warn}>{t('requestLogOpenFailed')}</span>}
+        </div>
+      )}
       {state.writeFailure !== undefined && <p className={css.warn}>
         {state.writeFailure.kind === 'rejected'
           ? t('writeRejected')

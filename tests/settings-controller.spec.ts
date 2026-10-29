@@ -220,25 +220,25 @@ describe('settings controller', () => {
     expect(test.writes).toEqual([{ field: 'imageBudgetPreset', value: 'pi-ai' }])
   })
 
-  it('records the request log with a bounded retention unless told otherwise', async () => {
+  it('leaves the request log off with a bounded retention unless told otherwise', async () => {
     const test = harness()
     const controller = new SectionController(test.services)
     await settle()
     // An old profile never wrote these fields, so the page must read as
-    // recording with the documented retention — not as missing.
+    // off with the documented retention — not as missing.
     expect(controller.snapshot().settings).toMatchObject({
-      requestLogEnabled: true,
+      requestLogEnabled: false,
       requestLogDebug: false,
       requestLogMaxEntries: DEFAULT_REQUEST_LOG_MAX_ENTRIES,
     })
-    await controller.setRequestLogEnabled(false)
+    await controller.setRequestLogEnabled(true)
     await controller.setRequestLogDebug(true)
     expect(test.writes).toEqual([
-      { field: 'requestLogEnabled', value: false },
+      { field: 'requestLogEnabled', value: true },
       { field: 'requestLogDebug', value: true },
     ])
     expect(controller.snapshot().settings).toMatchObject({
-      requestLogEnabled: false,
+      requestLogEnabled: true,
       requestLogDebug: true,
     })
   })

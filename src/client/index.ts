@@ -175,19 +175,24 @@ export function apply(ctx: ClientContext): void {
     //
     // The page reads its snapshot on demand and never polls, so a page nobody
     // opens costs nothing at all.
+    //
+    // Read live: the switch on the settings page can change while the log
+    // page sits open, and the page says so rather than pretending. A
+    // composition without a settings surface has no switch to turn the log
+    // off with, so the entries stay — same as before.
+    const isLogEnabled = (): boolean => {
+      if (profile === undefined) return true
+      const value = profile.getSnapshot().value
+      if (value === null || typeof value !== 'object') return false
+      return (value as { requestLogEnabled?: unknown }).requestLogEnabled === true
+    }
     const requestLog: RequestLogFace = {
       readLog: async () => {
         const result = await scope.remote.opencodeGoRequestLog.readLog()
         if (!result.ok) throw result.error
         return result.value
       },
-      // Read live: the switch on the settings page can change while the log
-      // page sits open, and the page says so rather than pretending.
-      enabled: () => {
-        const value = profile?.getSnapshot().value
-        if (value === null || typeof value !== 'object') return false
-        return (value as { requestLogEnabled?: unknown }).requestLogEnabled === true
-      },
+      enabled: isLogEnabled,
       // Whether a title click can open its session. The navigation service
       // is a separate composition member; without it titles stay text.
       canOpenSession: () => sessionOpener.current !== undefined,
@@ -208,15 +213,39 @@ export function apply(ctx: ClientContext): void {
       t: (key: string) => translate(key as OpencodeGoKey),
       getLocale: () => scope.locale.getLocale().active,
     }
-    scope.slots.inject('main', function* () {
-      yield scope.slots.register({
-        name: 'main',
-        key: REQUEST_LOG_PANEL,
-        locale: NS,
-        inject: () => requestLog,
-      }, RequestLogPage)
-    })
-    scope.slots.inject('sidebar.panellist', () => scope.slots.register({
+    // The log's three seats follow the master switch: with the log off,
+    // the sidebar entry, the main panel, and the conversation tab are all
+    // unregistered, so "off" reads as the feature being gone rather than a
+    // row of dead entries. The subscription re-runs the sync on every
+    // profile write, so flipping the switch adds or removes the seats
+    // without a restart.
+    const gateLogSeat = (slot: 'main' | 'sidebar.panellist' | 'conversation.view', register: () => () => void): void => {
+      scope.slots.inject(slot, () => {
+        let disposeEntry: (() => void) | undefined
+        const sync = (): void => {
+          if (isLogEnabled()) {
+            disposeEntry ??= register()
+          } else {
+            disposeEntry?.()
+            disposeEntry = undefined
+          }
+        }
+        const unsubscribe = profile?.subscribe(sync) ?? ((): void => {})
+        sync()
+        return () => {
+          unsubscribe()
+          disposeEntry?.()
+          disposeEntry = undefined
+        }
+      })
+    }
+    gateLogSeat('main', () => scope.slots.register({
+      name: 'main',
+      key: REQUEST_LOG_PANEL,
+      locale: NS,
+      inject: () => requestLog,
+    }, RequestLogPage))
+    gateLogSeat('sidebar.panellist', () => scope.slots.register({
       name: 'sidebar.panellist',
       id: REQUEST_LOG_PANEL,
       // After the Host's own panels, which run from 0.
@@ -227,7 +256,7 @@ export function apply(ctx: ClientContext): void {
     // The same page, in the conversation: a View beside the chat, scoped to
     // one session. It is the in-place way to answer "why was that turn
     // slow" — the rows are already this session's.
-    scope.slots.inject('conversation.view', () => scope.slots.register({
+    gateLogSeat('conversation.view', () => scope.slots.register({
       name: 'conversation.view',
       id: 'dshopencodego-request-log',
       // After the Host's own View (the chat itself), which runs at 0.
