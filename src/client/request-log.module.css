@@ -354,6 +354,80 @@
   gap: 6px 24px;
 }
 
+/* The request timeline: full-width bar plus a labeled legend. Status stays
+   in the legend text — color is only a cue, never the meaning. */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  grid-column: 1 / -1;
+  padding: 4px 0 8px;
+}
+
+.timelineTrack {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-1);
+  overflow: hidden;
+}
+
+.timelineSeg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+}
+
+.timelinePrep {
+  background: var(--dsw-alias-brand-primary);
+}
+
+.timelineWait {
+  background: var(--dsw-alias-state-warn-primary);
+}
+
+.timelineStream {
+  background: var(--dsw-alias-brand-primary);
+  opacity: 0.45;
+}
+
+.timelineTick {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: 100%;
+  width: 2px;
+  margin-left: -2px;
+  background: var(--dsw-alias-label-primary);
+}
+
+.timelineLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.timelineItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.timelineSwatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.timelineTickSwatch {
+  background: var(--dsw-alias-label-primary);
+}
+
 .detailItem {
   display: flex;
   gap: 8px;

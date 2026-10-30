@@ -81,7 +81,7 @@ type GroupBy = 'none' | 'session' | 'model' | 'result'
 type SortKey =
   | 'atMs' | 'model' | 'session'
   | 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheRate'
-  | 'tps' | 'firstTokenMs' | 'durationMs' | 'status'
+  | 'tps' | 'prepMs' | 'firstTokenMs' | 'durationMs' | 'status'
 
 type SortDir = 'asc' | 'desc'
 
@@ -98,6 +98,7 @@ const SORT_DEFAULT_DIR: Record<SortKey, SortDir> = {
   cacheReadTokens: 'desc',
   cacheRate: 'desc',
   tps: 'desc',
+  prepMs: 'desc',
   firstTokenMs: 'desc',
   durationMs: 'desc',
   status: 'asc',
@@ -118,6 +119,7 @@ function sortValue(entry: RequestLogEntry, key: SortKey): string | number {
     case 'cacheReadTokens': return entry.cacheReadTokens ?? -1
     case 'cacheRate': return cacheRate(entry) ?? -1
     case 'tps': return entry.tps ?? -1
+    case 'prepMs': return entry.prepMs ?? -1
     case 'firstTokenMs': return entry.firstTokenMs ?? -1
     case 'durationMs': return entry.durationMs ?? -1
     case 'status': return entry.running === true ? 'running' : entry.ok ? `ok-${entry.status ?? ''}` : `fail-${entry.code ?? ''}`
@@ -182,6 +184,53 @@ function cacheRate(entry: RequestLogEntry): number | undefined {
   const cached = entry.cacheReadTokens ?? 0
   const total = entry.inputTokens + cached
   return total > 0 ? cached / total : undefined
+}
+
+/** One labeled slice of a request's life, in milliseconds from its start. */
+interface TimelineSlice {
+  readonly kind: 'prep' | 'wait' | 'stream'
+  readonly label: string
+  readonly from: number
+  readonly to: number
+}
+
+/**
+ * A request's life as labeled slices plus its end — or nothing worth
+ * drawing. Everything unreported stays out rather than invented: a row that
+ * never reached the wire has no timeline, and an old row without a
+ * preparation mark reads as one waiting stretch.
+ */
+function timelineOf(
+  entry: RequestLogEntry,
+  t: (key: string) => string,
+): { readonly slices: readonly TimelineSlice[]; readonly end: number } | undefined {
+  const end = entry.durationMs
+    ?? (entry.running === true ? Math.max(0, Date.now() - entry.atMs) : undefined)
+  if (end === undefined || end <= 0) return undefined
+  const prep = entry.prepMs
+  const first = entry.firstTokenMs
+  if (prep === undefined && first === undefined) return undefined
+  const start = prep ?? 0
+  const slices: TimelineSlice[] = []
+  if (prep !== undefined && prep > 0) {
+    slices.push({ kind: 'prep', label: t('requestLogDetailPrep'), from: 0, to: Math.min(prep, end) })
+  }
+  if (first !== undefined) {
+    if (first > start) {
+      slices.push({
+        kind: 'wait',
+        label: t('requestLogTimelineWait'),
+        from: Math.min(start, end),
+        to: Math.min(first, end),
+      })
+    }
+    if (entry.streamMs !== undefined && entry.streamMs > 0) {
+      const last = Math.min(first + entry.streamMs, end)
+      if (last > first) slices.push({ kind: 'stream', label: t('requestLogTimelineStream'), from: first, to: last })
+    }
+  }
+  if (slices.length === 0) return undefined
+  return { slices, end }
 }
 
 /** A share as whole percent, or a dash when it is unknown. */
@@ -386,7 +435,7 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
           <tr key={`group-${group}-${entry.seq}`} className={css.group}>
             {/* A session group names the conversation when the catalog knows it. */}
             {/* Result groups read as words, not codes; the running group names itself. */}
-            <td colSpan={11}>{groupBy === 'session' ? sessionLabel(group).text : groupBy === 'result' ? resultGroupLabel(group) : group}</td>
+            <td colSpan={12}>{groupBy === 'session' ? sessionLabel(group).text : groupBy === 'result' ? resultGroupLabel(group) : group}</td>
           </tr>,
         )
       }
@@ -428,6 +477,7 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
           <td>{count(entry.cacheReadTokens)}</td>
           <td>{percent(cacheRate(entry))}</td>
           <td>{rate(entry.tps)}</td>
+          <td>{duration(entry.prepMs)}</td>
           <td>{duration(entry.firstTokenMs)}</td>
           <td>{entry.running === true ? duration(Math.max(0, Date.now() - entry.atMs)) : duration(entry.durationMs)}</td>
           <td>{entry.running === true ? `${t('requestLogRunning')} · ${duration(Math.max(0, Date.now() - entry.atMs))}` : entry.ok ? (entry.status === undefined ? '✓' : String(entry.status)) : (entry.code ?? '✗')}</td>
@@ -436,8 +486,41 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
       if (expanded === entry.seq) {
         out.push(
           <tr key={`detail-${entry.seq}`} className={css.detail}>
-            <td colSpan={11}>
+            <td colSpan={12}>
               <div className={css.detailGrid}>
+                {(() => {
+                  const timeline = timelineOf(entry, t)
+                  return timeline === undefined ? null : (
+                    <div className={css.timeline}>
+                      <div className={css.timelineTrack}>
+                        {timeline.slices.map(slice => (
+                          <div
+                            key={slice.kind}
+                            className={`${css.timelineSeg} ${css[`timeline${slice.kind.charAt(0).toUpperCase()}${slice.kind.slice(1)}`]}`}
+                            style={{
+                              left: `${((slice.from / timeline.end) * 100).toFixed(2)}%`,
+                              width: `${Math.max(0, ((slice.to - slice.from) / timeline.end) * 100).toFixed(2)}%`,
+                            }}
+                            title={`${slice.label} ${duration(slice.to - slice.from)}`}
+                          />
+                        ))}
+                        <div className={css.timelineTick} title={duration(timeline.end)} />
+                      </div>
+                      <div className={css.timelineLegend}>
+                        {timeline.slices.map(slice => (
+                          <span key={slice.kind} className={css.timelineItem}>
+                            <span className={`${css.timelineSwatch} ${css[`timeline${slice.kind.charAt(0).toUpperCase()}${slice.kind.slice(1)}`]}`} />
+                            {slice.label} {duration(slice.to - slice.from)}
+                          </span>
+                        ))}
+                        <span className={css.timelineItem}>
+                          <span className={`${css.timelineSwatch} ${css.timelineTickSwatch}`} />
+                          {t('requestLogColLatency')} {duration(timeline.end)}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })()}
                 <div className={css.detailItem}>
                   <span className={css.detailLabel}>{t('requestLogDetailMethod')}</span>
                   <span className={`${css.detailValue} ${css.mono}`}>{entry.method}</span>
@@ -695,6 +778,7 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
                   {head('cacheReadTokens', t('requestLogColCache'), t('requestLogColCacheHint'))}
                   {head('cacheRate', t('requestLogColCacheRate'))}
                   {head('tps', t('requestLogColTps'))}
+                  {head('prepMs', t('requestLogColPrep'))}
                   {head('firstTokenMs', t('requestLogColFirstToken'))}
                   {head('durationMs', t('requestLogColLatency'))}
                   {head('status', t('requestLogColStatus'))}

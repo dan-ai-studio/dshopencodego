@@ -297,7 +297,38 @@ describe('request-log page', () => {
     await waitFor(() => {
       expect(within(rows).getByText('Preparation')).toBeTruthy()
     })
-    expect(within(rows).getByText('1.23s')).toBeTruthy()
+    // The timeline legend carries the same reading beside its label.
+    expect(rows.textContent).toContain('1.23s')
+  })
+
+  it('draws the request timeline in the detail', async () => {
+    render(<RequestLogPage {...faceFor(snapshotOf([entry({
+      prepMs: 100,
+      firstTokenMs: 1000,
+      streamMs: 500,
+    })]))} />)
+    const rows = await table()
+    fireEvent.click(within(rows).getByText('glm-5.3'))
+    // Preparation, waiting, streaming — each labeled, each with its length.
+    // (Legend text shares its element with the swatch and the reading, so
+    // the assertions read the rendered text, not one element per string.)
+    await waitFor(() => { expect(rows.textContent).toContain('Waiting for first token') })
+    expect(rows.textContent).toContain('Streaming')
+    expect(rows.textContent).toContain('100ms')
+    expect(rows.textContent).toContain('900ms')
+  })
+
+  it('orders rows by preparation time when its head is clicked', async () => {
+    render(<RequestLogPage {...faceFor(snapshotOf([
+      entry({ seq: 1, model: 'fast-prep', prepMs: 50 }),
+      entry({ seq: 2, model: 'slow-prep', prepMs: 2000 }),
+    ]))} />)
+    const rows = await table()
+    const order = (): string[] => within(rows).getAllByRole('row').slice(1, 3)
+      .map(row => within(row).getAllByRole('cell')[1]?.textContent ?? '')
+    // A click on Prep reorders slowest preparation first.
+    fireEvent.click(screen.getByText('Prep'))
+    await waitFor(() => { expect(order()).toEqual(['slow-prep', 'fast-prep']) })
   })
 
   it('splits the wire body into text and images in the detail', async () => {
