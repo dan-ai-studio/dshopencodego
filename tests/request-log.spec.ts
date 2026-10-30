@@ -152,6 +152,22 @@ describe('RequestLog', () => {
     expect(log.snapshot().totalRecords).toBe(2)
   })
 
+  it('fills the protocol in once the catalog answers', () => {
+    // The row opens before the catalog wait, so the protocol arrives late
+    // through `identify` — and the visible row and the completion agree.
+    const log = new RequestLog(gates())
+    const span = log.start(start())
+    expect(span).toBeDefined()
+    expect(log.snapshot().entries[0]).not.toHaveProperty('protocol')
+    span?.identify('openai-completions')
+    expect(log.snapshot().entries[0]).toMatchObject({ running: true, protocol: 'openai-completions' })
+    span?.finish(true, undefined, { inputTokens: 10, outputTokens: 5 })
+    const done = log.snapshot()
+    expect(done.entries[0]).toMatchObject({ ok: true, protocol: 'openai-completions' })
+    const parsed = parseRequestLogSnapshot(JSON.parse(JSON.stringify(done)))
+    expect(parsed.entries[0]?.protocol).toBe('openai-completions')
+  })
+
   it('carries the running flag across the wire codec', () => {
     const log = new RequestLog(gates())
     log.start(start())
@@ -553,6 +569,76 @@ describe('request log on the wire', () => {
       expect(snapshot.entries).toHaveLength(1)
       expect(snapshot.entries[0]).toMatchObject({ ok: false, code: 'ABORTED' })
       expect(snapshot.entries[0]?.running).toBeUndefined()
+      expect(snapshot.totalRecords).toBe(1)
+    } finally {
+      stub.restore()
+    }
+  })
+
+  it('records a resolve failure instead of losing it', async () => {
+    // An unknown model fails before the first byte — and used to leave no
+    // row behind. The row opens before the catalog is consulted, so the
+    // failure lands on it like any other.
+    const server = await startMockGateway({ listing: ['glm-5.3'] })
+    gateways.push(server)
+    const stub = stubModelsDev(modelsDevDocument({
+      'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 128_000, output: 8_192 } },
+    }))
+    const log = new RequestLog({
+      enabled: () => true,
+      debug: () => false,
+      maxEntries: () => 200,
+    })
+    try {
+      const adapter = new OpencodeGoAdapter({
+        config: () => configFor(server.baseURL),
+        resolveApiKey: async () => 'test-key',
+        readDocument: offlineDocument(),
+        fetch: () => globalThis.fetch,
+        requestLog: log,
+      })
+      await expect(drain(adapter.stream({
+        provider: 'opencode-go',
+        model: 'no-such-model',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      }))).rejects.toThrow()
+      const snapshot = log.snapshot()
+      expect(snapshot.entries).toHaveLength(1)
+        expect(snapshot.entries[0]).toMatchObject({ ok: false, code: 'UNKNOWN_MODEL', model: 'no-such-model' })
+      expect(snapshot.entries[0]?.running).toBeUndefined()
+      expect(snapshot.totalRecords).toBe(1)
+    } finally {
+      stub.restore()
+    }
+  })
+
+  it('records a missing credential instead of failing silently', async () => {
+    const server = await startMockGateway({ listing: ['glm-5.3'] })
+    gateways.push(server)
+    const stub = stubModelsDev(modelsDevDocument({
+      'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 128_000, output: 8_192 } },
+    }))
+    const log = new RequestLog({
+      enabled: () => true,
+      debug: () => false,
+      maxEntries: () => 200,
+    })
+    try {
+      const adapter = new OpencodeGoAdapter({
+        config: () => configFor(server.baseURL),
+        resolveApiKey: async () => undefined,
+        readDocument: offlineDocument(),
+        fetch: () => globalThis.fetch,
+        requestLog: log,
+      })
+      await expect(drain(adapter.stream({
+        provider: 'opencode-go',
+        model: 'glm-5.3',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      }))).rejects.toThrow()
+      const snapshot = log.snapshot()
+      expect(snapshot.entries).toHaveLength(1)
+      expect(snapshot.entries[0]).toMatchObject({ ok: false, code: 'MISSING_CREDENTIAL' })
       expect(snapshot.totalRecords).toBe(1)
     } finally {
       stub.restore()

@@ -85,10 +85,12 @@ export interface RequestLogEntry {
    */
   readonly streamMs?: number
   /**
-   * Wall time from request start to the moment the fetch actually went out,
-   * in milliseconds — the local preparation (catalog, conversion, images).
-   * The rest of the first-token wait belongs to the wire and the gateway.
-   * Absent when the request never reached the wire (rejected up front).
+   * Wall time from request start to the moment the fetch went out,
+   * in milliseconds — the whole local path, catalog wait included: the row
+   * opens before the catalog is consulted, so a cold catalog reads as
+   * preparation rather than invisible time. The rest of the first-token
+   * wait belongs to the wire and the gateway. Absent when the request never
+   * reached the wire (rejected up front).
    */
   readonly prepMs?: number
   /** Wall time from request start to terminal event, in milliseconds. */
@@ -229,6 +231,14 @@ export interface RequestSpan {
   /** Mark the response status line's arrival. */
   status(status: number): void
   /**
+   * Fill in the wire protocol once the catalog has answered.
+   *
+   * The row opens before the catalog wait (so the wait itself is recorded),
+   * but the protocol is only known after it. Called at most once, before
+   * `finish`; a second call keeps the first.
+   */
+  identify(protocol: WireProtocol): void
+  /**
    * Close the span and complete its running row in place.
    * @param ok - whether the request completed.
    * @param code - failure code for a request that did not complete.
@@ -351,6 +361,9 @@ export class RequestLog {
     let reported = false
     let finished = false
     return {
+      identify: (protocol: WireProtocol): void => {
+        if (record.protocol === undefined) record.protocol = protocol
+      },
       token: (): void => {
         const now = Date.now()
         if (firstTokenAt === undefined) {
@@ -406,7 +419,10 @@ export class RequestLog {
           seq,
           atMs: startedAt,
           model: detail.model,
-          ...detail.protocol === undefined ? {} : { protocol: detail.protocol },
+          // The protocol may have arrived after the row opened, through
+          // `identify` — the running row and the completion read the same
+          // field, so they never disagree.
+          ...record.protocol === undefined ? {} : { protocol: record.protocol },
           session,
           method: record.method,
           url: record.url,

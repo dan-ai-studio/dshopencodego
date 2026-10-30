@@ -44,6 +44,7 @@ import { DISPLAY_NAME, PROVIDER_ID, OpencodeGoCatalog } from './catalog/index.ts
 import type { CatalogSnapshot } from './catalog/index.ts'
 import type { GoDoc } from './catalog/go-doc.ts'
 import { toPiModel } from './catalog/metadata.ts'
+import type { WireProtocol } from './catalog/protocol.ts'
 import { assertBaseURL, assertStreamIdleTimeoutMs } from './config.ts'
 import type { OpencodeGoConfig, OpencodeGoModelLimits } from './config.ts'
 import { toPiContext, toStreamChunks } from './conversion/index.ts'
@@ -51,7 +52,7 @@ import type { PiImageRequestContext } from './conversion/index.ts'
 import { isModelEnabled, recommendedIds } from './models.ts'
 import { providerHeaders } from './session-header.ts'
 import { IMAGE_BUDGETS } from './image-budget.ts'
-import type { RequestRecorder } from './request-log/store.ts'
+import type { RequestRecorder, RequestSpan } from './request-log/store.ts'
 import { costOf, usableRates } from './usage/meter.ts'
 import type { MeteredUsage } from './usage/meter.ts'
 
@@ -412,6 +413,68 @@ export class OpencodeGoAdapter extends LlmAdapter {
     )
   }
 
+  /**
+   * Open the request's log row.
+   *
+   * Called before any wait the request may hit — the catalog included — so
+   * a cold catalog reads as preparation instead of invisible time, and a
+   * failure before the first byte still leaves a row behind. Everything
+   * here is already known or pure: the protocol arrives later, through
+   * `identify`, once the catalog has answered.
+   */
+  private startSpan(options: GenerateOptions, config: OpencodeGoConfig, protocol?: WireProtocol): RequestSpan | undefined {
+    const containsImage = options.messages.some(message => contentHasImage(message.content))
+    // `headers` is computed once here and reused below, so the allowlisted
+    // values the recorder takes are the exact ones sent on the wire.
+    const headers = providerHeaders(options.sessionId === undefined ? undefined : String(options.sessionId))
+    // The effective image budgets behind the configured preset.
+    const imageBudget = IMAGE_BUDGETS[config.imageBudgetPreset]
+    // The image share is estimated before conversion, from the messages
+    // the caller passed, capped at the preset's per-image target.
+    // The image share is estimated before conversion, from the same blocks
+    // the conversion will send: sizes here are the attachment service's
+    // stored bytes, capped the way preparation caps them.
+    const imageBytes = containsImage
+      ? estimateImageWireBytes(options.messages, imageBudget.maxBytes)
+      : undefined
+    return this.options.requestLog?.start({
+      model: options.model,
+      sessionId: options.sessionId === undefined ? undefined : String(options.sessionId),
+      ...protocol === undefined ? {} : { protocol },
+      method: 'POST',
+      url: config.baseURL,
+      messageCount: options.messages.length,
+      hasImage: containsImage,
+      toolCount: options.tools?.length ?? 0,
+      ...imageBytes === undefined ? {} : { imageBytes },
+      headers: {
+        ...options.sessionId === undefined ? {} : { session: String(options.sessionId) },
+        ...typeof headers['user-agent'] === 'string' ? { userAgent: headers['user-agent'] } : {},
+      },
+    })
+  }
+
+  /**
+   * Record a failure that happened before any request was built.
+   *
+   * Preparation (unlike dispatch) knows no session and no messages, so the
+   * row reads as unbuilt rather than empty — but it still names the model
+   * and the code, instead of leaving the caller with an error the log never
+   * heard of.
+   */
+  private logUnstartedFailure(config: OpencodeGoConfig, model: string, error: unknown): void {
+    this.options.requestLog?.start({
+      model,
+      sessionId: undefined,
+      method: 'POST',
+      url: config.baseURL,
+      messageCount: 0,
+      hasImage: false,
+      toolCount: 0,
+      headers: {},
+    })?.finish(false, error instanceof LlmError ? error.code : undefined)
+  }
+
   override async prepareCall(_provider: string, model: string, _signal?: AbortSignal): Promise<PreparedAdapterCall> {
     // Freeze one generation: the config, catalog snapshot, and model facts are
     // captured before the first await, so a settings change between preparation
@@ -420,13 +483,26 @@ export class OpencodeGoAdapter extends LlmAdapter {
     const config = this.options.config()
     // Fail a misconfigured timeout before any catalog wait or credential read.
     assertStreamIdleTimeoutMs(config.streamIdleTimeoutMs)
-    const snapshot = await this.catalogOf(config).forModel(model)
+    let snapshot: CatalogSnapshot
+    try {
+      snapshot = await this.catalogOf(config).forModel(model)
+    } catch (error: unknown) {
+      this.logUnstartedFailure(config, model, error)
+      throw error
+    }
     const facts = snapshot.facts.get(model)
-    if (facts === undefined) throw new LlmError(`opencode-go has no model "${model}"`, 'UNKNOWN_MODEL')
+    if (facts === undefined) {
+      const error = new LlmError(`opencode-go has no model "${model}"`, 'UNKNOWN_MODEL')
+      this.logUnstartedFailure(config, model, error)
+      throw error
+    }
     const prepared = this.modelInfo(withModelLimit(toPiModel(facts, config.baseURL), config.modelLimits))
     return {
       model: prepared,
-      stream: options => this.streamWithSnapshot(options, config, snapshot),
+      stream: options => {
+        const span = this.startSpan(options, config, facts.api)
+        return this.streamWithSnapshot(options, config, snapshot, span)
+      },
     }
   }
 
@@ -434,21 +510,52 @@ export class OpencodeGoAdapter extends LlmAdapter {
     const config = this.options.config()
     // Same fail-fast as prepareCall: a bad timeout never reaches the watchdog.
     assertStreamIdleTimeoutMs(config.streamIdleTimeoutMs)
-    const snapshot = await this.catalogOf(config).forModel(options.model)
-    yield* this.streamWithSnapshot(options, config, snapshot)
+    // The row opens before the catalog wait, for the same reason as above:
+    // a cold catalog must read as preparation, and its failure must leave
+    // a row behind. The protocol follows once the catalog has answered.
+    const span = this.startSpan(options, config)
+    let snapshot: CatalogSnapshot
+    try {
+      snapshot = await this.catalogOf(config).forModel(options.model)
+    } catch (error: unknown) {
+      span?.finish(false, error instanceof LlmError ? error.code : undefined)
+      throw error
+    }
+    yield* this.streamWithSnapshot(options, config, snapshot, span)
   }
 
   private async *streamWithSnapshot(
     options: GenerateOptions,
     config: OpencodeGoConfig,
     snapshot: CatalogSnapshot,
+    outerSpan?: RequestSpan,
   ): AsyncIterable<StreamChunk> {
+    // The row opens first — before the catalog is even looked at — so the
+    // catalog wait itself reads as preparation and every failure below
+    // closes the same row. A disabled log costs one call and one boolean.
+    const span = outerSpan ?? this.startSpan(options, config)
+    // Throws below the `try` further down never reach its `catch`, so they
+    // close the row through this instead of leaving it running.
+    const failSpan = (error: unknown): never => {
+      span?.finish(false, error instanceof LlmError ? error.code : undefined)
+      throw error
+    }
     // Guard the direct path too: the prepared-call closure dispatches here,
     // and a timeout edited between preparation and dispatch must still fail
     // cleanly instead of tripping the watchdog's own assertion mid-request.
-    assertStreamIdleTimeoutMs(config.streamIdleTimeoutMs)
+    try {
+      assertStreamIdleTimeoutMs(config.streamIdleTimeoutMs)
+    } catch (error: unknown) {
+      failSpan(error)
+    }
     const facts = snapshot.facts.get(options.model)
-    if (facts === undefined) throw new LlmError(`opencode-go has no model "${options.model}"`, 'UNKNOWN_MODEL')
+    if (facts === undefined) {
+      // Explicit throw (not `failSpan`): like the credential check below,
+      // the compiler must see the throw to narrow `facts` afterwards.
+      const error = new LlmError(`opencode-go has no model "${options.model}"`, 'UNKNOWN_MODEL')
+      span?.finish(false, error.code)
+      throw error
+    }
     const model = withModelLimit(toPiModel(facts, config.baseURL), config.modelLimits)
     // The rates this call will be priced at, captured before the first byte:
     // the catalog may be refreshed long before the meter is read, and a later
@@ -466,9 +573,18 @@ export class OpencodeGoAdapter extends LlmAdapter {
       : Math.min(options.maxTokens, ceiling)
     const apiKey = await this.options.resolveApiKey()
     if (apiKey === undefined || apiKey.length === 0) {
-      throw new LlmError('dshopencodego: no credential resolved for the opencode-go route', 'MISSING_CREDENTIAL')
+      // Explicit throw (not `failSpan`): the compiler must see the throw to
+      // narrow `apiKey` to a string for the SDK call below.
+      const error = new LlmError('dshopencodego: no credential resolved for the opencode-go route', 'MISSING_CREDENTIAL')
+      span?.finish(false, error.code)
+      throw error
     }
-    const reasoning = this.resolveReasoningLevel(model, options.reasoningEffort)
+    let reasoning: ModelThinkingLevel | undefined
+    try {
+      reasoning = this.resolveReasoningLevel(model, options.reasoningEffort)
+    } catch (error: unknown) {
+      failSpan(error)
+    }
 
     const consumer = new AbortController()
     const upstream = options.signal === undefined ? consumer.signal : AbortSignal.any([options.signal, consumer.signal])
@@ -479,38 +595,15 @@ export class OpencodeGoAdapter extends LlmAdapter {
     // and the catch would read a plain cancellation instead of the timeout.
     let timedOut = false
 
+    // The protocol arrives with the facts; a row the caller opened gets it
+    // filled in now (a second call is a no-op by construction).
+    span?.identify(facts.api)
     const containsImage = options.messages.some(message => contentHasImage(message.content))
-    // The request-log span, or undefined when the profile disabled the log.
-    // Built before the try so the failure paths below can close it too:
-    // one call per request, and disabled costs that call and one boolean.
-    // `headers` is computed once here and reused below, so the allowlisted
-    // values the recorder takes are the exact ones sent on the wire.
+    // The wire headers for this request. The span took its allowlisted copy
+    // at open time; this is the object actually sent.
     const headers = providerHeaders(options.sessionId === undefined ? undefined : String(options.sessionId))
     // The effective image budgets behind the configured preset.
     const imageBudget = IMAGE_BUDGETS[config.imageBudgetPreset]
-    // The image share is estimated before conversion, from the messages
-    // the caller passed, capped at the preset's per-image target.
-    // The image share is estimated before conversion, from the same blocks
-    // the conversion will send: sizes here are the attachment service's
-    // stored bytes, capped the way preparation caps them.
-    const imageBytes = containsImage
-      ? estimateImageWireBytes(options.messages, imageBudget.maxBytes)
-      : undefined
-    const span = this.options.requestLog?.start({
-      model: options.model,
-      sessionId: options.sessionId === undefined ? undefined : String(options.sessionId),
-      protocol: facts.api,
-      method: 'POST',
-      url: config.baseURL,
-      messageCount: options.messages.length,
-      hasImage: containsImage,
-      toolCount: options.tools?.length ?? 0,
-      ...imageBytes === undefined ? {} : { imageBytes },
-      headers: {
-        ...options.sessionId === undefined ? {} : { session: String(options.sessionId) },
-        ...typeof headers['user-agent'] === 'string' ? { userAgent: headers['user-agent'] } : {},
-      },
-    })
     // The fetch one request goes through. Without a span this is the
     // factory's own fetch, untouched: a disabled log reads exactly as
     // before. With a span the wrapper records the wire request line, the
