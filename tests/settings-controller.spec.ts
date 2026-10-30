@@ -5,7 +5,7 @@
  * remotes rather than a browser.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SectionController, API_KEY_REF, VISIBILITY_WRITE_DELAY_MS } from '../src/client/Section.tsx'
+import { SectionController, API_KEY_REF, FOLLOW_UP_MS, VISIBILITY_WRITE_DELAY_MS } from '../src/client/Section.tsx'
 import type { SectionServices, SettingsScopeLike } from '../src/client/Section.tsx'
 import { MAX_KEEP_ALIVE_TIMEOUT_MS } from '../src/config.ts'
 import { DEFAULT_REQUEST_LOG_MAX_ENTRIES, MAX_REQUEST_LOG_MAX_ENTRIES, MIN_REQUEST_LOG_MAX_ENTRIES } from '../src/config.ts'
@@ -31,7 +31,13 @@ interface Harness {
   readonly failRefresh: () => void
 }
 
-function harness(options: { withScope?: boolean; rejectWrites?: boolean; rejectFirstWrite?: boolean } = {}): Harness {
+function harness(options: {
+  withScope?: boolean
+  rejectWrites?: boolean
+  rejectFirstWrite?: boolean
+  /** Override the catalog reading the fake Host hands out. */
+  reading?: () => CatalogReading
+} = {}): Harness {
   const writes: Array<{ field: string; value: unknown }> = []
   let writable = true
   let visibility: Record<string, boolean> = { 'glm-5': true }
@@ -55,7 +61,7 @@ function harness(options: { withScope?: boolean; rejectWrites?: boolean; rejectF
   const services: SectionServices = {
     remote: {
       opencodeGoCatalog: {
-        read: async () => ({ ok: true, value: READING }),
+        read: async () => ({ ok: true, value: options.reading === undefined ? READING : options.reading() }),
         refresh: async () => (refreshFails
           ? { ok: false, error: new Error('the listing is unreachable') as never }
           : { ok: true, value: READING }),
@@ -288,5 +294,60 @@ describe('settings controller', () => {
     expect(controller.snapshot().reading?.counts.total).toBe(2)
     expect(controller.snapshot().failure).toBe('the listing is unreachable')
     expect(controller.snapshot().loading).toBe(false)
+  })
+
+  it('re-reads a stale catalog until it turns live, then stops', async () => {
+    // A mount that starts while the Host is still refreshing would
+    // otherwise show yesterday's date until the reader thought to refresh
+    // by hand. The follow-ups are plain reads: the Host's own back-off
+    // decides how often the gateway is really asked.
+    const stale = { ...READING, cached: true as const }
+    let reads = 0
+    const test = harness({ reading: () => (++reads <= 2 ? stale : READING) })
+    const controller = new SectionController(test.services)
+    await settle()
+    // The constructor's read answered stale and armed the follow-up.
+    expect(controller.snapshot().reading?.cached).toBe(true)
+    await vi.advanceTimersByTimeAsync(FOLLOW_UP_MS)
+    await vi.advanceTimersByTimeAsync(FOLLOW_UP_MS)
+    expect(reads).toBe(3)
+    expect(controller.snapshot().reading?.cached).toBeUndefined()
+    // Live now: the timer is gone, and no further read happens.
+    await vi.advanceTimersByTimeAsync(4 * FOLLOW_UP_MS)
+    expect(reads).toBe(3)
+    controller.dispose()
+  })
+
+  it('keeps following through a failed poll without touching the page', async () => {
+    const stale = { ...READING, cached: true as const }
+    let reads = 0
+    const test = harness({
+      reading: () => {
+        reads += 1
+        if (reads === 2) throw new Error('the Host is unreachable')
+        return stale
+      },
+    })
+    const controller = new SectionController(test.services)
+    await settle()
+    expect(controller.snapshot().reading?.counts.total).toBe(2)
+    // The failed follow-up neither clears the reading nor stops the watch.
+    await vi.advanceTimersByTimeAsync(FOLLOW_UP_MS)
+    expect(controller.snapshot().reading?.counts.total).toBe(2)
+    await vi.advanceTimersByTimeAsync(FOLLOW_UP_MS)
+    expect(reads).toBe(3)
+    controller.dispose()
+  })
+
+  it('stops following when the page goes away', async () => {
+    const stale = { ...READING, cached: true as const }
+    let reads = 0
+    const test = harness({ reading: () => { reads += 1; return stale } })
+    const controller = new SectionController(test.services)
+    await settle()
+    expect(reads).toBe(1)
+    controller.dispose()
+    await vi.advanceTimersByTimeAsync(4 * FOLLOW_UP_MS)
+    expect(reads).toBe(1)
   })
 })

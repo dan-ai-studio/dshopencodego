@@ -198,6 +198,18 @@ interface SectionState {
 /** How long a burst of switch flips is coalesced before one settings write. */
 export const VISIBILITY_WRITE_DELAY_MS = 250
 
+/**
+ * How long a stale reading waits before the page asks again on its own.
+ *
+ * A mount that starts while the Host is still refreshing (every restart
+ * does exactly that) would otherwise show yesterday's date until the reader
+ * thought to refresh by hand. The follow-up reads are plain reads — the
+ * Host answers from what it has, and its own back-off decides how often
+ * the gateway is really asked — so an open page costs one local read per
+ * interval and no extra wire traffic of its own.
+ */
+export const FOLLOW_UP_MS = 5_000
+
 const INITIAL: SectionState = {
   loading: true,
   reading: undefined,
@@ -266,6 +278,8 @@ export class SectionController {
   private pendingVisibility: Record<string, boolean> | undefined
   /** Timer of the coalescing window, when one is armed. */
   private visibilityTimer: ReturnType<typeof setTimeout> | undefined
+  /** The armed stale-reading follow-up, if one is waiting. */
+  private followTimer: ReturnType<typeof setTimeout> | undefined
 
   constructor(services: SectionServices) {
     this.services = services
@@ -295,6 +309,10 @@ export class SectionController {
   dispose(): void {
     this.listeners.clear()
     for (const dispose of this.disposers.splice(0)) dispose()
+    if (this.followTimer !== undefined) {
+      clearTimeout(this.followTimer)
+      this.followTimer = undefined
+    }
     // A coalesced write that is still waiting must reach the Host.
     const scope = this.services.scope
     if (this.visibilityTimer !== undefined && scope !== undefined) void this.flushVisibility(scope)
@@ -314,6 +332,7 @@ export class SectionController {
         : await this.services.remote.opencodeGoCatalog.read()
       if (!result.ok) throw result.error
       this.set({ loading: false, reading: result.value, failure: undefined })
+      if (result.value.cached === true) this.followReading()
     } catch (error: unknown) {
       // A failed refresh keeps the previous reading visible and says why.
       this.set({
@@ -321,6 +340,39 @@ export class SectionController {
         failure: error instanceof Error ? error.message : 'the catalog is unavailable',
       })
     }
+  }
+
+  /**
+   * Re-read a stale reading until it turns live, then stop.
+   *
+   * Only one follow-up is ever armed. The Host decides the real refresh
+   * rhythm, so this never hammers the gateway — a follow-up is a plain
+   * `read`, and the Host's own back-off decides how often the gateway is
+   * really asked. A failed or still-stale read re-arms; only a live reading
+   * or a disposal lets it lapse.
+   */
+  private followReading(): void {
+    if (this.followTimer !== undefined) return
+    const timer = setTimeout(() => {
+      this.followTimer = undefined
+      void (async () => {
+        try {
+          const result = await this.services.remote.opencodeGoCatalog.read()
+          if (result.ok) {
+            this.set({ reading: result.value, failure: undefined })
+            if (result.value.cached !== true) return
+          }
+        } catch {
+          // The Host is unreachable: the page keeps its reading and its hint.
+        }
+        this.followReading()
+      })()
+    }, FOLLOW_UP_MS)
+    // A composition that never disposes must not be held open by this: the
+    // timer is a convenience, never a reason to stay alive.
+    const releasable = timer as unknown as { unref?: () => void }
+    if (typeof releasable.unref === 'function') releasable.unref()
+    this.followTimer = timer
   }
 
   async loadKey(): Promise<void> {
