@@ -34,6 +34,7 @@ import { attributionHeaders, LlmError } from '@deepseek-ai/dsh-llm'
 import type { LlmDiscoveredModel } from '@deepseek-ai/dsh-llm'
 import {
   DISPLAY_NAME,
+  MAX_CATALOG_STALENESS_MS,
   MODEL_METADATA_MAX_BYTES,
   MODEL_METADATA_TIMEOUT_MS,
   MODEL_METADATA_URL,
@@ -49,16 +50,33 @@ import { readBoundedJson } from './json-response.ts'
 import { readOnlineMetadata, toPiModel } from './metadata.ts'
 import type { ModelDefaults, ModelFacts } from './metadata.ts'
 import { readFactsCache, writeFactsCache } from './metadata-cache.ts'
-import { readSnapshotCache, writeSnapshotCache } from './snapshot-cache.ts'
+import { parseSnapshotFile, readSnapshotCache, writeSnapshotCache } from './snapshot-cache.ts'
+import type { ParsedSnapshotFile } from './snapshot-cache.ts'
 import { asWireProtocol } from './protocol.ts'
 import type { GoQuota } from '../go-limits.ts'
 
-export { PROVIDER_ID, DISPLAY_NAME, DEFAULT_BASE_URL, CONSOLE_BASE_URL } from './constants.ts'
+export { PROVIDER_ID, DISPLAY_NAME, DEFAULT_BASE_URL, CONSOLE_BASE_URL, MAX_CATALOG_STALENESS_MS } from './constants.ts'
 export { readModelIds, fetchModelIds } from './gateway.ts'
 export { readOnlineMetadata, toPiModel, modelBaseURL } from './metadata.ts'
 export type { ModelFacts, OnlineMetadata, ModelDefaults } from './metadata.ts'
 export { decideProtocol, inferProtocol, protocolOfNpm } from './protocol.ts'
 export type { ProtocolDecision, ProtocolSource, WireProtocol } from './protocol.ts'
+
+/**
+ * Whether a snapshot still answers without a refresh.
+ *
+ * Freshness has a hard ceiling on top of the configured TTL: past a day, a
+ * catalog counts as stale no matter how long the TTL runs, and the next read
+ * refreshes it in the background. A shorter TTL behaves exactly as before;
+ * the ceiling only shortens longer ones. A snapshot that has never been
+ * built (age zero or less) is never fresh.
+ *
+ * Exported so tests can pin the ceiling without waiting a day.
+ */
+export function snapshotIsFresh(fetchedAtMs: number, nowMs: number, refreshMs: number): boolean {
+  if (!Number.isFinite(fetchedAtMs) || fetchedAtMs <= 0) return false
+  return nowMs - fetchedAtMs < Math.min(refreshMs, MAX_CATALOG_STALENESS_MS)
+}
 
 /**
  * One source the catalog could not read.
@@ -244,6 +262,16 @@ export interface CatalogOptions {
    */
   readonly cacheDir?: string
   /**
+   * A snapshot baked in at publish time: the floor when the disk cache is
+   * empty (fresh installs, wiped caches, a first run on a new machine).
+   *
+   * The disk always wins when it has anything to say, and the endpoint must
+   * match — a seed built for Go never serves Console and vice versa. Like a
+   * remembered disk reading it is served stale with an immediate background
+   * refresh, never presented as current.
+   */
+  readonly seed?: unknown
+  /**
    * The fetch the gateway listing is read through.
    *
    * A factory rather than a function: the pin follows the configuration, and
@@ -319,7 +347,7 @@ export class OpencodeGoCatalog {
    *   shared snapshot cannot carry two different cancellations.
    */
   snapshot(force = false, signal?: AbortSignal): Promise<CatalogSnapshot> {
-    if (!force && this.served !== undefined && Date.now() - this.served.fetchedAtMs < this.options.refreshMs) {
+    if (!force && this.served !== undefined && snapshotIsFresh(this.served.fetchedAtMs, Date.now(), this.options.refreshMs)) {
       return Promise.resolve(this.served)
     }
     if (!force) {
@@ -405,17 +433,14 @@ export class OpencodeGoCatalog {
   }
 
   /**
-   * The catalog a previous build produced, read from disk.
+   * Present a past listing as a stale-but-serving snapshot.
    *
    * It is presented as what it is: a listing from the past, being brought up
    * to date in the background. The facts it carries are the ones the last
    * build produced, so the protocols and the thinking levels are the ones
    * that were true then.
-   * @returns the remembered catalog, or undefined when there is none.
    */
-  private readRememberedSnapshot(): CatalogSnapshot | undefined {
-    const remembered = readSnapshotCache(this.options.cacheDir)
-    if (remembered === undefined) return undefined
+  private presentRemembered(remembered: ParsedSnapshotFile): CatalogSnapshot {
     const facts = new Map(remembered.facts)
     return {
       facts,
@@ -428,6 +453,25 @@ export class OpencodeGoCatalog {
       fetchedAtMs: remembered.updatedAt,
       ...remembered.quotas.size === 0 ? {} : { documentQuotas: remembered.quotas },
     }
+  }
+
+  /**
+   * The catalog a previous build produced, read from disk — or, when the
+   * disk holds nothing, the snapshot baked in at publish time.
+   *
+   * The bundled seed is the floor, not a peer: the disk always wins when it
+   * has anything to say, and the endpoint must match — a seed built for Go
+   * never serves Console and vice versa. Either way the reading is served
+   * stale with an immediate background refresh, never presented as current.
+   * @returns the remembered catalog, or undefined when there is none.
+   */
+  private readRememberedSnapshot(): CatalogSnapshot | undefined {
+    const remembered = readSnapshotCache(this.options.cacheDir)
+    if (remembered !== undefined) return this.presentRemembered(remembered)
+    const seed = parseSnapshotFile(this.options.seed)
+    if (seed === undefined) return undefined
+    if (seed.baseURL !== this.options.baseURL) return undefined
+    return this.presentRemembered(seed)
   }
 
   /**

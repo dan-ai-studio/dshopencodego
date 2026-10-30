@@ -95,7 +95,7 @@ DSH 桌面端是 Electron 壳 + 完整的 dsh Web 应用，本插件对它同样
     baseURL: https://opencode.ai/inference/go/v1    # 默认值（OpenCode Go 端点）
                                               # 只能是不带 query / fragment 的 http(s) 地址；写 ?x=1 会在保存配置时被拒
                                               # 也可指定为 https://opencode.ai/inference/v1（Console 主端点，含按量/免费模型）
-    refreshMinutes: 60                        # 目录缓存时长，1 ~ 10080（7 天）
+    refreshMinutes: 60                        # 目录缓存时长，1 ~ 10080（7 天）；超过 24 小时未刷新会被视为过期并在后台更新
     streamIdleTimeoutMs: 300000               # 流空闲超时：两次流事件之间的最长静默（毫秒）
     keepAliveTimeoutMs: 600000                # 连接空闲保留：两次请求之间连接留多久（毫秒，1 ~ 1800000）
                                                # 每次收到回答后重新计时，所以常用时连接不会被断开；
@@ -198,6 +198,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 - 官方**新增**模型 → 下次刷新即出现，协议/容量若不在内置目录中则标为"推断"并可被 `modelProtocols` 覆盖；
 - 官方**下线**模型 → 下次刷新即消失；
 - 内置目录**冻结**在插件版本里，仅影响"怎么调"的推断质量，不影响"有哪些"。
+- **首次安装不等待**：包里带了一份发布时生成的目录快照（`src/catalog/seed.snapshot.json`，28 个模型上下），磁盘缓存为空时直接用它回答并在后台刷新；过期（超 24 小时未刷新）同样后台刷新，绝不为等网络拦住请求。插件挂载后还会定时触发一次，保证长期运行的进程目录常新。
 
 网关**临时不可用**时，插件保留上次成功获取的列表并在页面上标注陈旧，同时在后台重试：重试由**5 分钟的退避**控制，而不是等满一个 TTL，所以网关恢复后 5 分钟内列表就会更新；网关持续不可用时，它只被问一次，不会每次模型请求都去问一遍。设置页的「重新检查」随时可以强制重验，不受这个退避限制。
 
@@ -284,17 +285,19 @@ npm run lint        # oxlint：静态检查（发布流程也会跑，失败即�
 npm run typecheck   # host 与 client 两半
 npm run build       # 先构建：产出 lib/index.js 与 lib/client.js
 npm test            # 契约测试：真实 HTTP mock 网关，断言请求头/体、目录阶梯、用量
+npm run seed        # 发版前刷新捆绑的目录种子（见「发布」）
 ```
 
 **顺序有讲究**：`npm run build` 要排在 `npm test` 之前——`tests/pack-contents.spec.ts` 会遍历 `exports` 的每个目标，`lib/` 存在与否决定这条检查是执行还是被跳过（不报错，但会少一层保护）。`package.json` 已移除 `prepare`，因此 `npm ci` 不会再替你隐式构建；三个 CI workflow 都显式跑了 `npm run build`。
 
-测试覆盖配置校验、协议阶梯、网关与在线元数据、目录投影、适配器（三种协议的线上请求）、Remote 契约与服务、会话头不变量、用量窗口与计量、客户端控制器与用量组件、两半的挂载与登记、流空闲超时与中止的错误映射、验证脚本的退出码契约、以及几条**结构性不变量**（inject 声明与源码读取一致、peer 覆盖双向、README 与 manifest 一致、README 对上游的断言与实装的上游一致）。共 **59 个测试文件**——这个数字由 `tests/readme-consistency.spec.ts` 对着 `tests/` 目录校验，不会漂移。
+测试覆盖配置校验、协议阶梯、网关与在线元数据、目录投影、适配器（三种协议的线上请求）、Remote 契约与服务、会话头不变量、用量窗口与计量、客户端控制器与用量组件、两半的挂载与登记、流空闲超时与中止的错误映射、验证脚本的退出码契约、以及几条**结构性不变量**（inject 声明与源码读取一致、peer 覆盖双向、README 与 manifest 一致、README 对上游的断言与实装的上游一致）。共 **60 个测试文件**——这个数字由 `tests/readme-consistency.spec.ts` 对着 `tests/` 目录校验，不会漂移。
 
 ## 发布（维护者）
 
 1. **版本**：把 `package.json` 的 `version` 与即将打出的 tag 对齐（`v<版本>`）。CI 会校验资产名与 tag。
-2. **GitHub Release**：提交并推送 `main`，打 tag 推送。`release.yml` 会跑测试、`npm pack` 并把 tarball 作为 Release 资产上传。
-3. **npm（Trusted Publishing / OIDC，无需令牌）**：`.github/workflows/publish-npm.yml` 仅手动触发，认证走 GitHub Actions 的 OIDC——本仓库**没有也不需要** `NPM_TOKEN`。运行方式：
+2. **种子**：运行 `npm run seed` 刷新 `src/catalog/seed.snapshot.json`（公开接口，无需 key）并一并提交，让新装用户开箱即有目录可用。
+3. **GitHub Release**：提交并推送 `main`，打 tag 推送。`release.yml` 会跑测试、`npm pack` 并把 tarball 作为 Release 资产上传。
+4. **npm（Trusted Publishing / OIDC，无需令牌）**：`.github/workflows/publish-npm.yml` 仅手动触发，认证走 GitHub Actions 的 OIDC——本仓库**没有也不需要** `NPM_TOKEN`。运行方式：
 
    ```sh
    gh workflow run publish-npm --repo dan-ai-studio/dshopencodego -f tag=v<版本>

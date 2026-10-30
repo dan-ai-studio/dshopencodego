@@ -1,6 +1,6 @@
 {
   "name": "@dan-ai-studio/dshopencodego",
-  "version": "0.1.83",
+  "version": "0.1.84",
   "description": "OpenCode Go provider for DeepSeek Harness: live gateway catalog, per-conversation session header, usage",
   "type": "module",
   "license": "MIT",
@@ -63,6 +63,8 @@
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "build": "node scripts/build.mjs",
+    "seed": "node scripts/seed-catalog.mjs",
+    "seed": "node scripts/seed-catalog.mjs",
     "typecheck": "tsc -p tsconfig.host.json --noEmit && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.tests.json --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

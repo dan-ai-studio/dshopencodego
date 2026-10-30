@@ -35,7 +35,7 @@ const CACHE_FILE = 'catalog-snapshot.json'
 const CACHE_VERSION = 1
 
 /** What the cache file holds. */
-interface SnapshotFile {
+export interface SnapshotFile {
   readonly version: number
   /** The facts, by model id. */
   readonly facts: Record<string, ModelFacts>
@@ -43,8 +43,64 @@ interface SnapshotFile {
   readonly quotas?: Record<string, GoQuota>
   /** The provider's protocols, by model id. */
   readonly protocols?: Record<string, WireProtocol>
+  /**
+   * The endpoint the snapshot was built against. Disk readings omit it —
+   * they were built for the endpoint in force when they were written — but
+   * a bundled seed must name its endpoint, or it could serve one gateway's
+   * listing to another.
+   */
+  readonly baseURL?: string
   /** When the catalog was built. */
   readonly updatedAt: number
+}
+
+/** A validated snapshot file, ready to serve. */
+export interface ParsedSnapshotFile {
+  readonly facts: ReadonlyMap<string, ModelFacts>
+  readonly quotas: ReadonlyMap<string, GoQuota>
+  readonly protocols: ReadonlyMap<string, WireProtocol>
+  readonly baseURL: string | undefined
+  readonly updatedAt: number
+}
+
+/**
+ * Validate a snapshot document, wherever it came from.
+ *
+ * One validator serves both readers: the disk cache and the bundled seed
+ * share the format on purpose, so a seed the format outgrows is refused
+ * rather than half-read.
+ * @param value - the parsed JSON document.
+ * @returns the validated reading, or undefined.
+ */
+export function parseSnapshotFile(value: unknown): ParsedSnapshotFile | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const parsed = value as Partial<SnapshotFile>
+  if (parsed.version !== CACHE_VERSION) return undefined
+  if (parsed.facts === null || typeof parsed.facts !== 'object') return undefined
+  const facts = new Map<string, ModelFacts>()
+  for (const [id, fact] of Object.entries(parsed.facts)) {
+    if (fact === null || typeof fact !== 'object') continue
+    if (typeof fact.id !== 'string' || typeof fact.api !== 'string') continue
+    facts.set(id, fact as ModelFacts)
+  }
+  if (facts.size === 0) return undefined
+  const quotas = new Map<string, GoQuota>()
+  for (const [id, quota] of Object.entries(parsed.quotas ?? {})) {
+    if (quota === null || typeof quota !== 'object') continue
+    quotas.set(id, quota as GoQuota)
+  }
+  const protocols = new Map<string, WireProtocol>()
+  for (const [id, protocol] of Object.entries(parsed.protocols ?? {})) {
+    if (typeof protocol !== 'string') continue
+    protocols.set(id, protocol as WireProtocol)
+  }
+  return {
+    facts,
+    quotas,
+    protocols,
+    baseURL: typeof parsed.baseURL === 'string' ? parsed.baseURL : undefined,
+    updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
+  }
 }
 
 /**
@@ -55,40 +111,10 @@ interface SnapshotFile {
  * @param cacheDir - the plugin's cache directory.
  * @returns the remembered catalog, or undefined.
  */
-export function readSnapshotCache(cacheDir: string | undefined): {
-  readonly facts: ReadonlyMap<string, ModelFacts>
-  readonly quotas: ReadonlyMap<string, GoQuota>
-  readonly protocols: ReadonlyMap<string, WireProtocol>
-  readonly updatedAt: number
-} | undefined {
+export function readSnapshotCache(cacheDir: string | undefined): ParsedSnapshotFile | undefined {
   if (cacheDir === undefined) return undefined
   try {
-    const parsed = JSON.parse(readFileSync(join(cacheDir, CACHE_FILE), 'utf8')) as Partial<SnapshotFile>
-    if (parsed.version !== CACHE_VERSION) return undefined
-    if (parsed.facts === null || typeof parsed.facts !== 'object') return undefined
-    const facts = new Map<string, ModelFacts>()
-    for (const [id, fact] of Object.entries(parsed.facts)) {
-      if (fact === null || typeof fact !== 'object') continue
-      if (typeof fact.id !== 'string' || typeof fact.api !== 'string') continue
-      facts.set(id, fact as ModelFacts)
-    }
-    if (facts.size === 0) return undefined
-    const quotas = new Map<string, GoQuota>()
-    for (const [id, quota] of Object.entries(parsed.quotas ?? {})) {
-      if (quota === null || typeof quota !== 'object') continue
-      quotas.set(id, quota as GoQuota)
-    }
-    const protocols = new Map<string, WireProtocol>()
-    for (const [id, protocol] of Object.entries(parsed.protocols ?? {})) {
-      if (typeof protocol !== 'string') continue
-      protocols.set(id, protocol as WireProtocol)
-    }
-    return {
-      facts,
-      quotas,
-      protocols,
-      updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
-    }
+    return parseSnapshotFile(JSON.parse(readFileSync(join(cacheDir, CACHE_FILE), 'utf8')))
   } catch {
     return undefined
   }

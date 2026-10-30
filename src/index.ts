@@ -41,7 +41,7 @@ import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { AdapterRegistrationHandle, LlmModelDiscoveryRequest } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-fs'
 import { OpencodeGoAdapter } from './adapter.ts'
-import { DISPLAY_NAME, PROVIDER_ID, discoverCatalogModels } from './catalog/index.ts'
+import { DISPLAY_NAME, MAX_CATALOG_STALENESS_MS, PROVIDER_ID, discoverCatalogModels } from './catalog/index.ts'
 import { assertBaseURL, PlainConfig, readConfig } from './config.ts'
 import type { LiveConfig, OpencodeGoConfig } from './config.ts'
 import { registerRemotes } from './remotes.ts'
@@ -269,7 +269,8 @@ export function apply(ctx: Context, raw?: unknown): void {
   })
   ctx.plugin(OpencodeGoUpdateService, { currentVersion: PLUGIN_VERSION })
 
-  // Warm the catalog while the host is still starting up.
+  // Warm the catalog while the host is still starting up, and keep warming
+  // it on a timer afterwards.
   //
   // The first thing a new session does is resolve its model, and resolving a
   // model builds the catalog: the gateway listing, the provider's document,
@@ -288,11 +289,24 @@ export function apply(ctx: Context, raw?: unknown): void {
   // The wait is not waited for — a mount that blocks on the network is a
   // mount that fails to start when the network is slow — and a warm-up that
   // fails is not an error: the session's own read will report it properly.
+  //
+  // The timer keeps that proactively true for a long-lived host, instead of
+  // leaving freshness to the next request's luck: a tick whose reading is
+  // still fresh costs one date comparison and no network, and a stale one
+  // refreshes in the background exactly as a request would have. The
+  // interval follows the live refresh setting, capped like staleness
+  // itself, so a deployment that never restarts still re-asks at least daily.
   ctx.effect(() => {
-    void adapter.catalogOf(current()).snapshot().catch(() => undefined)
-    // Nothing to undo: the read either finishes or fails on its own, and
-    // either way the session's own read is the one that reports.
-    return () => {}
+    const refresh = (): void => {
+      void adapter.catalogOf(current()).snapshot().catch(() => undefined)
+    }
+    refresh()
+    const intervalMs = Math.min(Math.max(current().refreshMinutes, 1) * 60_000, MAX_CATALOG_STALENESS_MS)
+    const timer = setInterval(refresh, intervalMs)
+    // A test harness that runs this body must not be held open by it: the
+    // timer is only a backstop, never a reason to stay alive.
+    if (typeof timer.unref === 'function') timer.unref()
+    return () => { clearInterval(timer) }
   }, 'dshopencodego: catalog warm-up')
 
   let registration: AdapterRegistrationHandle | undefined

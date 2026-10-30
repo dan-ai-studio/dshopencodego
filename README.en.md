@@ -95,7 +95,7 @@ Configuration lives in the profile's `cordis.patch.yml`:
     baseURL: https://opencode.ai/inference/go/v1    # default (OpenCode Go endpoint)
                                               # http(s) only, and no query or fragment; writing ?x=1 is refused when the profile is saved
                                               # or https://opencode.ai/inference/v1 (Console main endpoint, pay-as-you-go/free models)
-    refreshMinutes: 60                        # live catalog TTL, 1 ~ 10080 (7 days)
+    refreshMinutes: 60                        # live catalog TTL, 1 ~ 10080 (7 days); stale past 24 hours it refreshes in the background anyway
     streamIdleTimeoutMs: 300000               # stream idle timeout: longest silence between events (ms)
     keepAliveTimeoutMs: 600000                # connection kept idle between requests (ms, 1 ~ 1800000)
                                                # the timer restarts on every answer, so a connection in
@@ -199,6 +199,7 @@ The gateway's `/v1/models` answers only *which* models exist, never *how* to cal
 - a model the provider **adds** appears on the next refresh; if no metadata source describes it, it is labelled as inferred and can be pinned with `modelProtocols`;
 - a model the provider **retires** disappears on the next refresh;
 - the bundled catalog is **frozen at the plugin's version** and affects only the quality of the "how to call it" decision, never *which* models exist.
+- **fresh installs do not wait**: the bundle carries a directory snapshot from publish time (`src/catalog/seed.snapshot.json`), which answers at once when the disk cache is empty and refreshes behind it; past 24 hours without a refresh counts as stale and refreshes in the background too, whatever the TTL says. A timer re-checks on a live host, so long-running processes stay current without a request to trigger it.
 
 When the gateway is **temporarily unavailable**, the plugin keeps the last listing that succeeded, marks it stale on the page, and retries in the background. The retry rate is governed by a **five-minute back-off** rather than by the TTL, so a gateway that comes back is picked up within five minutes; while it stays down it is asked once, not once per model request. The settings page's Recheck button revalidates at any time and is not bound by that back-off.
 
@@ -285,17 +286,19 @@ npm run lint        # oxlint: static checks (the release workflow runs this too,
 npm run typecheck   # both halves: host and client
 npm run build       # build first: emits lib/index.js and lib/client.js
 npm test            # contract tests against a real local HTTP mock gateway
+npm run seed        # refresh the bundled catalog seed before a release (see "Releasing")
 ```
 
 **Order matters**: `npm run build` must come before `npm test` — `tests/pack-contents.spec.ts` walks every `exports` target, and whether `lib/` exists decides whether that check runs or is silently skipped (it does not fail, it just stops protecting you). `package.json` no longer carries `prepare`, so `npm ci` will not build for you; all three CI workflows run `npm run build` explicitly.
 
-The suite covers configuration validation, the protocol ladder, gateway and online metadata, the catalog projection, the adapter on the wire (all three protocols), Remote contracts and services, session-header invariants, usage windows and the meter, the client controller and usage pill, both halves' mounting and registration, the error mapping for stream idle timeouts and aborts, the exit-code contract of the verification scripts, and several **structural invariants** (inject declarations match the source's reads, peer coverage holds both ways, the READMEs match the manifest, and the READMEs' claims about the upstream match the upstream actually installed). That is **59 test files** — a number `tests/readme-consistency.spec.ts` checks against the `tests/` directory, so it cannot drift.
+The suite covers configuration validation, the protocol ladder, gateway and online metadata, the catalog projection, the adapter on the wire (all three protocols), Remote contracts and services, session-header invariants, usage windows and the meter, the client controller and usage pill, both halves' mounting and registration, the error mapping for stream idle timeouts and aborts, the exit-code contract of the verification scripts, and several **structural invariants** (inject declarations match the source's reads, peer coverage holds both ways, the READMEs match the manifest, and the READMEs' claims about the upstream match the upstream actually installed). That is **60 test files** — a number `tests/readme-consistency.spec.ts` checks against the `tests/` directory, so it cannot drift.
 
 ## Releasing (maintainers)
 
 1. **Version**: align `package.json`'s `version` with the tag you are about to push (`v<version>`); CI checks the asset name against the tag.
-2. **GitHub Release**: commit and push `main`, then push the tag. `release.yml` runs the tests, `npm pack`s, and uploads the tarball as the release asset.
-3. **npm (trusted publishing / OIDC, no token)**: `.github/workflows/publish-npm.yml` is manual-only and authenticates through GitHub Actions' OIDC — this repository **has no `NPM_TOKEN` and needs none**. Run it with:
+2. **Seed**: run `npm run seed` to refresh `src/catalog/seed.snapshot.json` (public endpoints, no key) and commit it, so fresh installs start with a usable catalog.
+3. **GitHub Release**: commit and push `main`, then push the tag. `release.yml` runs the tests, `npm pack`s, and uploads the tarball as the release asset.
+4. **npm (trusted publishing / OIDC, no token)**: `.github/workflows/publish-npm.yml` is manual-only and authenticates through GitHub Actions' OIDC — this repository **has no `NPM_TOKEN` and needs none**. Run it with:
 
    ```sh
    gh workflow run publish-npm --repo dan-ai-studio/dshopencodego -f tag=v<version>

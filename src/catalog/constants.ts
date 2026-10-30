@@ -81,3 +81,17 @@ export const MODEL_METADATA_MAX_BYTES = 16 * 1024 * 1024
  * without a restart, and long enough that a bad id costs one fetch.
  */
 export const UNKNOWN_MODEL_PROBE_COOLDOWN_MS = 5 * 60_000
+
+/**
+ * How old a catalog may be before it counts as stale, no matter the
+ * configured TTL.
+ *
+ * `refreshMinutes` answers "how long may requests reuse one listing", and a
+ * deployment may set it as high as seven days. Staleness answers a different
+ * question — "how long may the plugin go without asking what changed" — and
+ * that one is capped at a day: past it, the next read refreshes in the
+ * background even when the TTL has not expired, so a gateway that adds or
+ * retires models is noticed within a day. A lower TTL keeps working exactly
+ * as before; the cap only shortens longer ones.
+ */
+export const MAX_CATALOG_STALENESS_MS = 24 * 60 * 60_000

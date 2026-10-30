@@ -45,6 +45,9 @@ import type { CatalogSnapshot } from './catalog/index.ts'
 import type { GoDoc } from './catalog/go-doc.ts'
 import { toPiModel } from './catalog/metadata.ts'
 import type { WireProtocol } from './catalog/protocol.ts'
+// Baked-in fallback for a cold start: validated and endpoint-checked by the
+// catalog itself, so a stale or foreign seed reads as absent.
+import seedSnapshot from './catalog/seed.snapshot.json' with { type: 'json' }
 import { assertBaseURL, assertStreamIdleTimeoutMs } from './config.ts'
 import type { OpencodeGoConfig, OpencodeGoModelLimits } from './config.ts'
 import { toPiContext, toStreamChunks } from './conversion/index.ts'
@@ -286,6 +289,9 @@ export class OpencodeGoAdapter extends LlmAdapter {
             input: ['text'],
           },
           overrides: config.modelProtocols,
+          // The bundled seed is validated (and endpoint-checked) by the
+          // catalog; an out-of-date or foreign seed reads as absent.
+          seed: seedSnapshot,
           ...this.options.readDocument === undefined ? {} : { readDocument: this.options.readDocument },
           ...this.options.cacheDir === undefined ? {} : { cacheDir: this.options.cacheDir },
           ...this.options.fetch === undefined ? {} : { fetch: this.options.fetch },
