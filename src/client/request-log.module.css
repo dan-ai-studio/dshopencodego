@@ -371,16 +371,16 @@
 
 .timelineTrack {
   position: relative;
-  height: 10px;
+  height: 12px;
   border-radius: 999px;
   background: var(--dsw-alias-bg-layer-1);
-  overflow: hidden;
+  border: 1px solid var(--dsw-alias-border-l1);
 }
 
 .timelineMidTick {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: 2px;
+  bottom: 2px;
   left: 50%;
   width: 1px;
   background: var(--dsw-alias-label-tertiary);
@@ -402,40 +402,70 @@
 
 .timelineSeg {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  /* Inset bars inside the bordered track: every block reads as a pill,
+     so contiguous phases join without manual first/last rounding. */
+  top: 2px;
+  bottom: 2px;
   min-width: 2px;
+  border-radius: 4px;
 }
 
+/* Local preparation: cool idle gray — work before the wire, not waiting. */
 .timelinePrep {
-  background: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-state-idle-primary);
 }
 
+/* Waiting for the first token: warm amber — the intuitive "pending" hue. */
 .timelineWait {
   background: var(--dsw-alias-state-warn-primary);
 }
 
+/* Output flowing: green at two strengths, so the delivery phase reads as
+   one striped band and a stall mid-output reads as a gap. */
 .timelineStream {
-  background: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-state-success-primary);
   opacity: 0.45;
 }
 
-/* Every other streaming block: the same hue at full strength, so the
-   output phase reads as one striped band rather than several phases. */
 .timelineStreamAlt {
-  background: var(--dsw-alias-brand-primary);
-  opacity: 0.9;
+  background: var(--dsw-alias-state-success-primary);
+  opacity: 0.95;
 }
 
-/* The headers-arrival mark: same white as the end tick, one pixel narrower,
-   so the two ticks never read as the same event. */
+/* A live tail shimmers while the request is still running; static once the
+   terminal event lands. Honours reduced-motion by staying still. */
+.timelineLive {
+  background-image: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.5) 50%, transparent 70%);
+  background-size: 200% 100%;
+  animation: timelineShimmer 1.6s linear infinite;
+}
+
+@keyframes timelineShimmer {
+  from {
+    background-position: 200% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timelineLive {
+    animation: none;
+  }
+}
+
+/* The headers-arrival mark: slightly taller than the track with a soft
+   glow, so it never reads as the plain end tick. */
 .timelineRespTick {
   position: absolute;
-  top: -2px;
-  bottom: -2px;
-  width: 1px;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  border-radius: 2px;
   background: var(--dsw-alias-label-primary);
-  opacity: 0.7;
+  box-shadow: 0 0 6px var(--dsw-alias-label-primary);
 }
 
 .timelineTick {
@@ -445,6 +475,7 @@
   left: 100%;
   width: 2px;
   margin-left: -2px;
+  border-radius: 2px;
   background: var(--dsw-alias-label-primary);
 }
 
@@ -462,12 +493,28 @@
   align-items: center;
   gap: 6px;
   white-space: nowrap;
+  background: var(--dsw-alias-bg-layer-1);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  padding: 2px 10px;
 }
 
 .timelineSwatch {
   width: 8px;
   height: 8px;
-  border-radius: 2px;
+  border-radius: 50%;
+}
+
+.timelineSwatchPrep {
+  background: var(--dsw-alias-state-idle-primary);
+}
+
+.timelineSwatchWait {
+  background: var(--dsw-alias-state-warn-primary);
+}
+
+.timelineSwatchStream {
+  background: var(--dsw-alias-state-success-primary);
 }
 
 .timelineTickSwatch {

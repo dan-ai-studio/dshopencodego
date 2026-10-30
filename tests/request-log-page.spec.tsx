@@ -398,6 +398,20 @@ describe('request-log page', () => {
       expect(rows.querySelectorAll('[title^="Streaming"]').length).toBe(5)
     })
     expect(rows.textContent).toContain('Streaming 500ms')
+    // Finished rows are static: no tail shimmers after the terminal event.
+    for (const block of rows.querySelectorAll('[title^="Streaming"]')) {
+      expect(block.className).not.toContain('Live')
+    }
+  })
+
+  it('shimmers the growing tail while the request still runs', async () => {
+    // First token arrived, terminal event pending: the stream stretches to
+    // now and its tail carries the live shimmer.
+    render(<RequestLogPage {...faceFor(snapshotOf([runningEntry(1, true)]))} />)
+    const rows = await table()
+    fireEvent.click(within(rows).getByText('glm-5.3'))
+    await waitFor(() => { expect(rows.querySelector('[title^="Streaming"]')).not.toBeNull() })
+    expect(rows.querySelector('[title^="Streaming"]')?.className).toContain('Live')
   })
 
   it('orders rows by preparation time when its head is clicked', async () => {

@@ -245,8 +245,11 @@ function timelineOf(
         to: Math.min(first, end),
       })
     }
-    if (entry.streamMs !== undefined && entry.streamMs > 0) {
-      const last = Math.min(first + entry.streamMs, end)
+    // A finished row knows its content span; a running one is still
+    // growing it, so the tail stretches to now instead of vanishing.
+    const streamSpan = entry.streamMs ?? (running ? Math.max(0, end - first) : undefined)
+    if (streamSpan !== undefined && streamSpan > 0) {
+      const last = Math.min(first + streamSpan, end)
       if (last > first) {
         const cuts = [first, ...(entry.streamMarksMs ?? []).filter(mark => mark > first && mark < last), last]
         for (let index = 0; index + 1 < cuts.length; index += 1) {
@@ -553,6 +556,13 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
                     : kind === 'wait' ? css.timelineWait
                     : kind === 'stream' ? css.timelineStream
                     : css.timelineStreamAlt
+                  // Legend dots are solid by phase (bars may be translucent),
+                  // so the key stays readable at 8px.
+                  const legendSwatch = (key: string): string | undefined =>
+                    key === 'prep' ? css.timelineSwatchPrep
+                    : key === 'wait' ? css.timelineSwatchWait
+                    : key === 'stream' ? css.timelineSwatchStream
+                    : css.timelineTickSwatch
                   // One legend item per phase even when the bar drew several
                   // blocks for it: the two streaming shades share one entry,
                   // and the response tick names the gateway's answer inside
@@ -566,7 +576,7 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
                     if (!seen) {
                       legend.push({
                         key,
-                        swatch: kindClass(key as TimelineBlock['kind']),
+                        swatch: legendSwatch(key),
                         text: `${block.label} ${duration(
                           timeline.blocks.filter(other => legendKey(other.kind) === key)
                             .reduce((sum, other) => sum + (other.to - other.from), 0),
@@ -590,6 +600,11 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
                   // bar: the legend below says the same thing in parts.
                   const spoken = legend.map(item => item.text).join(', ')
                   const percent = (at: number): string => `${((at / timeline.end) * 100).toFixed(2)}%`
+                  // The tail shimmers only while the request is still alive;
+                  // a finished row is fully static.
+                  const liveIndex = entry.running === true
+                    ? timeline.blocks.findLastIndex(block => block.kind === 'stream' || block.kind === 'streamAlt')
+                    : -1
                   return (
                     <div className={css.timeline} role="img" aria-label={spoken}>
                       <div className={css.timelineTrackWrap}>
@@ -597,7 +612,7 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
                           {timeline.blocks.map((block, index) => (
                             <div
                               key={`${block.kind}-${index}`}
-                              className={`${css.timelineSeg} ${kindClass(block.kind)}`}
+                              className={`${css.timelineSeg} ${kindClass(block.kind)}${index === liveIndex ? ` ${css.timelineLive}` : ''}`}
                               style={{
                                 left: percent(block.from),
                                 width: percent(Math.max(0, block.to - block.from)),
