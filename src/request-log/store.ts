@@ -84,6 +84,13 @@ export interface RequestLogEntry {
    * whole reply still counts in the totals above.
    */
   readonly streamMs?: number
+  /**
+   * Wall time from request start to the moment the fetch actually went out,
+   * in milliseconds — the local preparation (catalog, conversion, images).
+   * The rest of the first-token wait belongs to the wire and the gateway.
+   * Absent when the request never reached the wire (rejected up front).
+   */
+  readonly prepMs?: number
   /** Wall time from request start to terminal event, in milliseconds. */
   readonly durationMs?: number
   /** Wall time from request start to the first token delta, in milliseconds. */
@@ -358,6 +365,11 @@ export class RequestLog {
           record.method = nextMethod
           record.url = nextUrl
           if (nextRequestBytes !== undefined) record.requestBytes = nextRequestBytes
+          // The SDK fires the HTTP call here, so this mark splits the
+          // first-token wait: everything before it is local preparation,
+          // everything after it is the wire and the gateway. Set on the
+          // visible row at once, so a slow start reads while it runs.
+          record.prepMs = Math.max(0, Date.now() - startedAt)
         }
       },
       status: (value: number): void => {
@@ -397,6 +409,7 @@ export class RequestLog {
           method: record.method,
           url: record.url,
           ...record.status === undefined ? {} : { status: record.status },
+          ...record.prepMs === undefined ? {} : { prepMs: record.prepMs },
           ...usage === undefined ? {} : {
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,

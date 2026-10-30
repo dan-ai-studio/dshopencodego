@@ -460,6 +460,12 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
                     </span>
                   </div>
                 )}
+                {entry.prepMs !== undefined && (
+                  <div className={css.detailItem}>
+                    <span className={css.detailLabel}>{t('requestLogDetailPrep')}</span>
+                    <span className={css.detailValue}>{duration(entry.prepMs)}</span>
+                  </div>
+                )}
                 <div className={css.detailItem}>
                   <span className={css.detailLabel}>{t('requestLogDetailSession')}</span>
                   <span

@@ -113,6 +113,9 @@ describe('RequestLog', () => {
     expect(log.snapshot().entries[0]).toMatchObject({ method: 'POST', status: 200 })
     // So does the first token's arrival: the first-token column fills while running.
     expect(log.snapshot().entries[0]?.firstTokenMs).toEqual(expect.any(Number))
+    // And the wire firing splits the first-token wait: everything before
+    // this mark is local preparation, everything after it is the gateway.
+    expect(log.snapshot().entries[0]?.prepMs).toEqual(expect.any(Number))
     span?.finish(true, undefined, { inputTokens: 10, outputTokens: 5 })
     const done = log.snapshot()
     // Same row, same sequence, completed — counted once, not twice.
@@ -123,6 +126,10 @@ describe('RequestLog', () => {
     expect(entry.ok).toBe(true)
     expect(done.totalRecords).toBe(1)
     expect(done.droppedRecords).toBe(0)
+    // The preparation split survives the completion and the wire codec.
+    expect(entry.prepMs).toEqual(expect.any(Number))
+    const parsed = parseRequestLogSnapshot(JSON.parse(JSON.stringify(done)))
+    expect(parsed.entries[0]?.prepMs).toBe(entry.prepMs)
   })
 
   it('re-appends a completion whose running row fell out of the ring', () => {
@@ -465,6 +472,10 @@ describe('request log on the wire', () => {
       expect(entry.cacheReadTokens).toBe(5)
       expect(entry.durationMs).toEqual(expect.any(Number))
       expect(entry.firstTokenMs).toEqual(expect.any(Number))
+      // The whole first-token wait is preparation plus gateway: the split
+      // locates a slow start on one side of the wire or the other.
+      expect(entry.prepMs).toEqual(expect.any(Number))
+      expect(entry.prepMs).toBeLessThanOrEqual(entry.durationMs ?? Number.MAX_SAFE_INTEGER)
       expect(entry.headers).toBeUndefined()
     } finally {
       stub.restore()

@@ -289,6 +289,16 @@ describe('request-log page', () => {
     expect(within(rows).getByText('3.45 MB')).toBeTruthy()
   })
 
+  it('shows the preparation split in the detail', async () => {
+    render(<RequestLogPage {...faceFor(snapshotOf([entry({ prepMs: 1234 })]))} />)
+    const rows = await table()
+    fireEvent.click(within(rows).getByText('glm-5.3'))
+    await waitFor(() => {
+      expect(within(rows).getByText('Preparation')).toBeTruthy()
+    })
+    expect(within(rows).getByText('1.23s')).toBeTruthy()
+  })
+
   it('splits the wire body into text and images in the detail', async () => {
     render(<RequestLogPage {...faceFor(snapshotOf([entry({
       requestBytes: 3_000_000,
