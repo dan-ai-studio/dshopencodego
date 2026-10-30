@@ -227,6 +227,27 @@
   text-decoration: underline;
 }
 
+/* A session title can be a whole sentence: without a cap it hogs the row
+   and pushes the token columns out of view. Truncate it, and let the hover
+   carry the full title plus the id. */
+.sessionText {
+  display: inline-block;
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+/* Model ids top out around thirty characters: cap the column there instead
+   of letting the longest id set the width. The hover spells the full id. */
+.modelText {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
 /* The table's own scroll area: the one place that scrolls vertically. */
 .tableWrap {
   flex: 1;

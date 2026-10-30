@@ -126,7 +126,8 @@ describe('request-log page', () => {
     const { container } = render(<RequestLogPage {...faceFor(snapshotOf([entry()]))} useSessions={useSessions} />)
     const rows = await table()
     const cell = within(rows).getByText('排查记录')
-    expect(cell.getAttribute('title')).toBe('session-a')
+    // Truncated in the row, whole on hover: title plus id.
+    expect(cell.getAttribute('title')).toBe('排查记录 · session-a')
     // The search box matches the title as well as the id.
     const search = container.querySelector('input[type="search"]')
     expect(search).not.toBeNull()

@@ -399,23 +399,29 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
           onClick={() => { setExpanded(expanded === entry.seq ? null : entry.seq) }}
         >
           <td>{new Date(entry.atMs).toLocaleTimeString(getLocale(), { hour12: false })}</td>
-          <td className={css.mono}>{entry.model}</td>
-          <td
-            title={session.titled ? entry.session : undefined}
-            className={session.titled ? undefined : css.mono}
-          >
+          <td className={css.mono}>
+            <span className={css.modelText} title={entry.model}>{entry.model}</span>
+          </td>
+          <td className={session.titled ? undefined : css.mono}>
             {session.titled && canOpenSession()
               ? (
                 <button
                   type="button"
-                  className={css.sessionLink}
+                  className={`${css.sessionLink} ${css.sessionText}`}
                   title={`${session.text} · ${entry.session}`}
                   onClick={() => { setSessionOpenFailed(!openSession(entry.session)) }}
                 >
                   {session.text}
                 </button>
               )
-              : session.text}
+              : (
+                <span
+                  className={css.sessionText}
+                  title={session.titled ? `${session.text} · ${entry.session}` : entry.session}
+                >
+                  {session.text}
+                </span>
+              )}
           </td>
           <td>{count(entry.inputTokens)}</td>
           <td>{count(entry.outputTokens)}</td>
