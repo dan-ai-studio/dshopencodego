@@ -192,25 +192,36 @@ function cacheRate(entry: RequestLogEntry): number | undefined {
 }
 
 /** One labeled slice of a request's life, in milliseconds from its start. */
-interface TimelineSlice {
-  readonly kind: 'prep' | 'wait' | 'stream'
+interface TimelineBlock {
+  readonly kind: 'prep' | 'wait' | 'stream' | 'streamAlt'
   readonly label: string
   readonly from: number
   readonly to: number
 }
 
 /**
- * A request's life as labeled slices plus its end — or nothing worth
+ * A request's life as labeled blocks plus its end — or nothing worth
  * drawing. Everything unreported stays out rather than invented: a row that
  * never reached the wire has no timeline, and an old row without a
  * preparation mark reads as one waiting stretch. A finished row whose first
  * token has no meaningful streaming phase after it is named a burst, so the
  * missing output slice reads as a shape rather than a hole.
+ *
+ * The streaming slice is cut at the recorded marks into alternating blocks,
+ * so a stall mid-output reads as a gap rather than a uniformly slow bar.
+ * Blocks are proportions of one delivery each, not categories: the legend
+ * names each phase once no matter how many blocks it drew.
  */
 function timelineOf(
   entry: RequestLogEntry,
   t: (key: string) => string,
-): { readonly slices: readonly TimelineSlice[]; readonly end: number; readonly burst: boolean } | undefined {
+): {
+  readonly blocks: readonly TimelineBlock[]
+  readonly end: number
+  readonly burst: boolean
+  readonly responseAt: number | undefined
+  readonly streamTotal: number | undefined
+} | undefined {
   const running = entry.running === true
   const end = entry.durationMs
     ?? (running ? Math.max(0, Date.now() - entry.atMs) : undefined)
@@ -219,13 +230,15 @@ function timelineOf(
   const first = entry.firstTokenMs
   if (prep === undefined && first === undefined) return undefined
   const start = prep ?? 0
-  const slices: TimelineSlice[] = []
+  const blocks: TimelineBlock[] = []
   if (prep !== undefined && prep > 0) {
-    slices.push({ kind: 'prep', label: t('requestLogDetailPrep'), from: 0, to: Math.min(prep, end) })
+    blocks.push({ kind: 'prep', label: t('requestLogDetailPrep'), from: 0, to: Math.min(prep, end) })
   }
+  const responseAt = entry.responseMs === undefined ? undefined : Math.min(Math.max(entry.responseMs, 0), end)
+  let streamTotal: number | undefined
   if (first !== undefined) {
     if (first > start) {
-      slices.push({
+      blocks.push({
         kind: 'wait',
         label: t('requestLogTimelineWait'),
         from: Math.min(start, end),
@@ -234,15 +247,31 @@ function timelineOf(
     }
     if (entry.streamMs !== undefined && entry.streamMs > 0) {
       const last = Math.min(first + entry.streamMs, end)
-      if (last > first) slices.push({ kind: 'stream', label: t('requestLogTimelineStream'), from: first, to: last })
+      if (last > first) {
+        const cuts = [first, ...(entry.streamMarksMs ?? []).filter(mark => mark > first && mark < last), last]
+        for (let index = 0; index + 1 < cuts.length; index += 1) {
+          const from = cuts[index]
+          const to = cuts[index + 1]
+          if (from === undefined || to === undefined) continue
+          blocks.push({
+            kind: index % 2 === 0 ? 'stream' : 'streamAlt',
+            label: t('requestLogTimelineStream'),
+            from,
+            to,
+          })
+        }
+        streamTotal = last - first
+      }
     }
   }
-  if (slices.length === 0) return undefined
+  if (blocks.length === 0) return undefined
   return {
-    slices,
+    blocks,
     end,
     burst: !running && first !== undefined
       && (entry.streamMs === undefined || entry.streamMs < MIN_STREAM_MS_FOR_RATE),
+    responseAt,
+    streamTotal,
   }
 }
 
@@ -517,47 +546,86 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
                 {(() => {
                   const timeline = timelineOf(entry, t)
                   if (timeline === undefined) return null
-                  // String, in practice: the three classes exist, and the
+                  // String, in practice: the classes exist, and the
                   // annotation stays honest about the index signature.
-                  const kindClass = (kind: TimelineSlice['kind']): string | undefined =>
-                    kind === 'prep' ? css.timelinePrep : kind === 'wait' ? css.timelineWait : css.timelineStream
+                  const kindClass = (kind: TimelineBlock['kind']): string | undefined =>
+                    kind === 'prep' ? css.timelinePrep
+                    : kind === 'wait' ? css.timelineWait
+                    : kind === 'stream' ? css.timelineStream
+                    : css.timelineStreamAlt
+                  // One legend item per phase even when the bar drew several
+                  // blocks for it: the two streaming shades share one entry,
+                  // and the response tick names the gateway's answer inside
+                  // the wait.
+                  const legend: Array<{ key: string; swatch: string | undefined; text: string }> = []
+                  const legendKey = (kind: TimelineBlock['kind']): string =>
+                    kind === 'streamAlt' ? 'stream' : kind
+                  for (const block of timeline.blocks) {
+                    const key = legendKey(block.kind)
+                    const seen = legend.some(item => item.key === key)
+                    if (!seen) {
+                      legend.push({
+                        key,
+                        swatch: kindClass(key as TimelineBlock['kind']),
+                        text: `${block.label} ${duration(
+                          timeline.blocks.filter(other => legendKey(other.kind) === key)
+                            .reduce((sum, other) => sum + (other.to - other.from), 0),
+                        )}`,
+                      })
+                    }
+                  }
+                  if (timeline.responseAt !== undefined) {
+                    legend.push({
+                      key: 'response',
+                      swatch: css.timelineTickSwatch,
+                      text: `${t('requestLogTimelineFirstByte')} ${duration(timeline.responseAt)}`,
+                    })
+                  }
+                  legend.push({
+                    key: 'total',
+                    swatch: css.timelineTickSwatch,
+                    text: `${t('requestLogColLatency')} ${duration(timeline.end)}`,
+                  })
                   // Spoken as one sentence for readers who cannot see the
                   // bar: the legend below says the same thing in parts.
-                  const spoken = [...timeline.slices.map(slice => `${slice.label} ${duration(slice.to - slice.from)}`),
-                    `${t('requestLogColLatency')} ${duration(timeline.end)}`].join(', ')
+                  const spoken = legend.map(item => item.text).join(', ')
+                  const percent = (at: number): string => `${((at / timeline.end) * 100).toFixed(2)}%`
                   return (
                     <div className={css.timeline} role="img" aria-label={spoken}>
                       <div className={css.timelineTrackWrap}>
                         <div className={css.timelineTrack}>
-                          {timeline.slices.map(slice => (
+                          {timeline.blocks.map((block, index) => (
                             <div
-                              key={slice.kind}
-                              className={`${css.timelineSeg} ${kindClass(slice.kind)}`}
+                              key={`${block.kind}-${index}`}
+                              className={`${css.timelineSeg} ${kindClass(block.kind)}`}
                               style={{
-                                left: `${((slice.from / timeline.end) * 100).toFixed(2)}%`,
-                                width: `${Math.max(0, ((slice.to - slice.from) / timeline.end) * 100).toFixed(2)}%`,
+                                left: percent(block.from),
+                                width: percent(Math.max(0, block.to - block.from)),
                               }}
-                              title={`${slice.label} ${duration(slice.to - slice.from)}`}
+                              title={`${block.label} ${duration(block.to - block.from)}`}
                             />
                           ))}
+                          {timeline.responseAt !== undefined && (
+                            <div
+                              className={css.timelineRespTick}
+                              style={{ left: percent(Math.min(timeline.responseAt, timeline.end)) }}
+                              title={`${t('requestLogTimelineFirstByte')} ${duration(timeline.responseAt)}`}
+                            />
+                          )}
                           <div className={css.timelineMidTick} />
                           <div className={css.timelineTick} title={duration(timeline.end)} />
                         </div>
-                        <div className={css.timelineMid} title={duration(timeline.end / 2)}>
+                        <div className={css.timelineMid} style={{ left: '50%' }} title={duration(timeline.end / 2)}>
                           {duration(timeline.end / 2)}
                         </div>
                       </div>
                       <div className={css.timelineLegend}>
-                        {timeline.slices.map(slice => (
-                          <span key={slice.kind} className={css.timelineItem}>
-                            <span className={`${css.timelineSwatch} ${kindClass(slice.kind)}`} />
-                            {slice.label} {duration(slice.to - slice.from)}
+                        {legend.map(item => (
+                          <span key={item.key} className={css.timelineItem}>
+                            <span className={`${css.timelineSwatch} ${item.swatch ?? ''}`} />
+                            {item.text}
                           </span>
                         ))}
-                        <span className={css.timelineItem}>
-                          <span className={`${css.timelineSwatch} ${css.timelineTickSwatch}`} />
-                          {t('requestLogColLatency')} {duration(timeline.end)}
-                        </span>
                         {timeline.burst && (
                           <span className={css.timelineItem}>{t('requestLogTimelineBurst')}</span>
                         )}

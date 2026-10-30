@@ -360,6 +360,44 @@ describe('request-log page', () => {
     expect(rows.textContent).toContain('Streaming')
     expect(rows.textContent).toContain('100ms')
     expect(rows.textContent).toContain('900ms')
+    // The halfway mark sits centered under the bar (not piled at the left).
+    const mid = rows.querySelector('[title="1.00s"]')
+    expect(mid).not.toBeNull()
+    expect((mid as HTMLElement).style.left).toBe('50%')
+  })
+
+  it('marks the response arrival on the timeline', async () => {
+    render(<RequestLogPage {...faceFor(snapshotOf([entry({
+      prepMs: 100,
+      responseMs: 400,
+      firstTokenMs: 1000,
+      streamMs: 500,
+      durationMs: 2000,
+    })]))} />)
+    const rows = await table()
+    fireEvent.click(within(rows).getByText('glm-5.3'))
+    // The tick sits a fifth of the way along: headers before content.
+    await waitFor(() => { expect(rows.textContent).toContain('First byte') })
+    const tick = rows.querySelector('[title="First byte 400ms"]')
+    expect(tick).not.toBeNull()
+    expect((tick as HTMLElement).style.left).toBe('20%')
+  })
+
+  it('cuts the streaming slice at the recorded marks', async () => {
+    render(<RequestLogPage {...faceFor(snapshotOf([entry({
+      prepMs: 100,
+      firstTokenMs: 1000,
+      streamMs: 500,
+      streamMarksMs: [1100, 1200, 1300, 1400],
+      durationMs: 2000,
+    })]))} />)
+    const rows = await table()
+    fireEvent.click(within(rows).getByText('glm-5.3'))
+    // Five blocks alternate two shades; the legend still names the phase once.
+    await waitFor(() => {
+      expect(rows.querySelectorAll('[title^="Streaming"]').length).toBe(5)
+    })
+    expect(rows.textContent).toContain('Streaming 500ms')
   })
 
   it('orders rows by preparation time when its head is clicked', async () => {

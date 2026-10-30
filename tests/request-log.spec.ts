@@ -168,6 +168,43 @@ describe('RequestLog', () => {
     expect(parsed.entries[0]?.protocol).toBe('openai-completions')
   })
 
+  it('marks the response arrival and samples the stream for the timeline', () => {
+    const log = new RequestLog(gates())
+    const span = log.start(start({ model: 'glm-5.3' }))
+    expect(span).toBeDefined()
+    span?.request('POST', 'https://opencode.ai/inference/go/v1/chat/completions', 128)
+    expect(log.snapshot().entries[0]?.prepMs).toEqual(expect.any(Number))
+    // Headers have not arrived yet: nothing to split the first-token wait with.
+    expect(log.snapshot().entries[0]?.responseMs).toBeUndefined()
+    span?.status(200)
+    expect(log.snapshot().entries[0]?.responseMs).toEqual(expect.any(Number))
+    // Every tenth accepted delta leaves a mark; the rest cost one counter.
+    for (let index = 0; index < 25; index += 1) span?.token()
+    expect(log.snapshot().entries[0]?.streamMarksMs).toHaveLength(2)
+    span?.finish(true, undefined, { inputTokens: 10, outputTokens: 5 })
+    const entry = log.snapshot().entries[0]!
+    expect(entry.responseMs).toEqual(expect.any(Number))
+    expect(entry.streamMarksMs).toHaveLength(2)
+    const parsed = parseRequestLogSnapshot(JSON.parse(JSON.stringify(log.snapshot())))
+    expect(parsed.entries[0]?.responseMs).toBe(entry.responseMs)
+    expect(parsed.entries[0]?.streamMarksMs).toEqual(entry.streamMarksMs)
+  })
+
+  it('caps the streaming trail and drops what is not a timestamp', () => {
+    const log = new RequestLog(gates())
+    const span = log.start(start())
+    for (let index = 0; index < 2050; index += 1) span?.token()
+    span?.finish(true, undefined, { inputTokens: 10, outputTokens: 5 })
+    // Bounded, so a marathon reply cannot grow a bounded row.
+    expect(log.snapshot().entries[0]?.streamMarksMs).toHaveLength(200)
+    const tampered = {
+      ...log.snapshot(),
+      entries: [{ ...log.snapshot().entries[0], streamMarksMs: ['soon', 5, -1, Number.NaN] }],
+    }
+    const parsed = parseRequestLogSnapshot(JSON.parse(JSON.stringify(tampered)))
+    expect(parsed.entries[0]?.streamMarksMs).toEqual([5])
+  })
+
   it('carries the running flag across the wire codec', () => {
     const log = new RequestLog(gates())
     log.start(start())

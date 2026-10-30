@@ -53,6 +53,7 @@ import type { OpencodeGoConfig, OpencodeGoModelLimits } from './config.ts'
 import { toPiContext, toStreamChunks } from './conversion/index.ts'
 import type { PiImageRequestContext } from './conversion/index.ts'
 import { isModelEnabled, recommendedIds } from './models.ts'
+import { estimateInputTokens, resolveFittedMaxTokens } from './context-fit.ts'
 import { providerHeaders } from './session-header.ts'
 import { IMAGE_BUDGETS } from './image-budget.ts'
 import type { RequestRecorder, RequestSpan } from './request-log/store.ts'
@@ -574,9 +575,26 @@ export class OpencodeGoAdapter extends LlmAdapter {
     // names none, so only a caller's own cap travels, clamped by a configured
     // per-model ceiling when one exists.
     const ceiling = config.modelLimits[model.id]?.maxTokens
-    const maxTokens = options.maxTokens === undefined || ceiling === null || ceiling === undefined
+    const requested = options.maxTokens === undefined || ceiling === null || ceiling === undefined
       ? options.maxTokens
       : Math.min(options.maxTokens, ceiling)
+    // Fit the output inside the remaining window before any byte is sent:
+    // an input that already fills the window fails here with
+    // CONTEXT_WINDOW_EXCEEDED (so the host compresses instead of taking a
+    // gateway 400), and an input-plus-output overflow shrinks this call's
+    // maxTokens. History is never truncated here.
+    let maxTokens: number | undefined
+    try {
+      maxTokens = resolveFittedMaxTokens({
+        modelId: model.id,
+        contextWindow: model.contextWindow,
+        routeMaxTokens: model.maxTokens,
+        requestedMaxTokens: requested,
+        estimatedInputTokens: estimateInputTokens(options),
+      })
+    } catch (error: unknown) {
+      failSpan(error)
+    }
     const apiKey = await this.options.resolveApiKey()
     if (apiKey === undefined || apiKey.length === 0) {
       // Explicit throw (not `failSpan`): the compiler must see the throw to

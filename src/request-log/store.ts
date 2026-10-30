@@ -93,6 +93,20 @@ export interface RequestLogEntry {
    * reached the wire (rejected up front).
    */
   readonly prepMs?: number
+  /**
+   * Wall time from request start to the response headers' arrival, in
+   * milliseconds. Splits the first-token wait in two: up to here the
+   * gateway is queuing, after here the model is thinking. Absent when the
+   * response never arrived.
+   */
+  readonly responseMs?: number
+  /**
+   * Elapsed milliseconds of every tenth accepted token delta, capped.
+   * Cuts the streaming phase into visible blocks, so a stall mid-output
+   * reads as a gap rather than a uniformly slow bar. Absent when fewer
+   * than ten deltas arrived — then the output slice needs no subdivision.
+   */
+  readonly streamMarksMs?: readonly number[]
   /** Wall time from request start to terminal event, in milliseconds. */
   readonly durationMs?: number
   /** Wall time from request start to the first token delta, in milliseconds. */
@@ -185,6 +199,22 @@ export interface RequestLogGates {
 
 /** Cap on pool lifecycle events; pools are rare, so this is generous. */
 const MAX_POOL_EVENTS = 20
+
+/**
+ * How often a streaming timestamp is kept for the timeline: every tenth
+ * accepted token delta. A per-delta mark would bloat long replies (and the
+ * wire that carries them); a tenth keeps a hundred-thousand-token turn to a
+ * bounded trail.
+ */
+const STREAM_MARK_EVERY = 10
+
+/**
+ * How many streaming timestamps one row keeps at most. Past the cap the
+ * trail simply stops growing: the newest marks matter more than the oldest
+ * for reading a stall, and the oldest are still bracketed by the first
+ * token and the last one.
+ */
+export const MAX_STREAM_MARKS = 200
 
 /**
  * Minimum content span for a meaningful rate, in milliseconds.
@@ -355,6 +385,8 @@ export class RequestLog {
     this.insert(record as RequestLogEntry, true)
     let firstTokenAt: number | undefined
     let lastTokenAt: number | undefined
+    let tokenDeltas = 0
+    const marks: number[] = []
     // The wire line lands once: a second call keeps the first, so retries
     // never rewrite the original line — the same rule as before, now
     // applied to the visible row.
@@ -373,6 +405,14 @@ export class RequestLog {
           record.firstTokenMs = Math.max(0, now - startedAt)
         }
         lastTokenAt = now
+        // A trail of the output's pacing, not its content: every tenth
+        // accepted delta leaves a timestamp, capped so a marathon reply
+        // cannot grow a bounded row.
+        tokenDeltas += 1
+        if (tokenDeltas % STREAM_MARK_EVERY === 0 && marks.length < MAX_STREAM_MARKS) {
+          marks.push(Math.max(0, now - startedAt))
+          record.streamMarksMs = marks
+        }
       },
       request: (nextMethod: string, nextUrl: string, nextRequestBytes?: number): void => {
         if (!reported) {
@@ -389,6 +429,9 @@ export class RequestLog {
       },
       status: (value: number): void => {
         record.status = value
+        // Headers arrived: the response exists even if no token ever does.
+        // First sighting wins, like the wire line above it.
+        if (record.responseMs === undefined) record.responseMs = Math.max(0, Date.now() - startedAt)
       },
       finish: (ok, code, usage, costUsd): void => {
         if (finished) return
@@ -428,6 +471,8 @@ export class RequestLog {
           url: record.url,
           ...record.status === undefined ? {} : { status: record.status },
           ...record.prepMs === undefined ? {} : { prepMs: record.prepMs },
+          ...record.responseMs === undefined ? {} : { responseMs: record.responseMs },
+          ...record.streamMarksMs === undefined ? {} : { streamMarksMs: [...record.streamMarksMs] },
           ...usage === undefined ? {} : {
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,

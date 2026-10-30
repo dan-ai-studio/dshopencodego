@@ -10,6 +10,7 @@
 
 import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import type { PoolLogEvent, RequestLogEntry, RequestLogSnapshot } from './store.ts'
+import { MAX_STREAM_MARKS } from './store.ts'
 
 export type { PoolLogEvent, RequestLogEntry, RequestLogSnapshot } from './store.ts'
 
@@ -67,6 +68,8 @@ function parseEntry(value: unknown): RequestLogEntry {
     ...row['costUsd'] === undefined ? {} : { costUsd: rate('costUsd', row) },
     ...row['requestBytes'] === undefined ? {} : { requestBytes: count('requestBytes', row) },
     ...row['prepMs'] === undefined ? {} : { prepMs: count('prepMs', row) },
+    ...row['responseMs'] === undefined ? {} : { responseMs: count('responseMs', row) },
+    ...row['streamMarksMs'] === undefined ? {} : { streamMarksMs: parseMarks(row['streamMarksMs']) },
     ...row['imageBytes'] === undefined ? {} : { imageBytes: count('imageBytes', row) },
     ...row['durationMs'] === undefined ? {} : { durationMs: count('durationMs', row) },
     ...row['firstTokenMs'] === undefined ? {} : { firstTokenMs: count('firstTokenMs', row) },
@@ -97,6 +100,23 @@ function parseEntry(value: unknown): RequestLogEntry {
       },
     } : {},
   }
+}
+
+/**
+ * Validate the streaming trail crossing the wire.
+ *
+ * Numbers must each be finite and non-negative; a longer trail is cut down
+ * to the cap rather than failing the row — the row's counts stand on their
+ * own, and the trail is only ever a visualization aid.
+ */
+function parseMarks(value: unknown): readonly number[] {
+  if (!Array.isArray(value)) throw new Error('invalid request-log stream marks')
+  const kept: number[] = []
+  for (const mark of value) {
+    if (typeof mark !== 'number' || !Number.isFinite(mark) || mark < 0 || kept.length >= MAX_STREAM_MARKS) continue
+    kept.push(mark)
+  }
+  return kept
 }
 
 /** A non-negative finite rate (tokens per second); decimals are meaningful here. */

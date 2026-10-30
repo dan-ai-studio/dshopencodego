@@ -420,6 +420,24 @@
   opacity: 0.45;
 }
 
+/* Every other streaming block: the same hue at full strength, so the
+   output phase reads as one striped band rather than several phases. */
+.timelineStreamAlt {
+  background: var(--dsw-alias-brand-primary);
+  opacity: 0.9;
+}
+
+/* The headers-arrival mark: same white as the end tick, one pixel narrower,
+   so the two ticks never read as the same event. */
+.timelineRespTick {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--dsw-alias-label-primary);
+  opacity: 0.7;
+}
+
 .timelineTick {
   position: absolute;
   top: -2px;
@@ -466,6 +484,10 @@
 
 .detailLabel {
   flex: none;
+  /* Labels share one width so every value starts on the same vertical:
+     without it, a long address or session id pushes its row's neighbours
+     out of alignment and the grid reads as scattered. */
+  width: 88px;
   color: var(--dsw-alias-label-tertiary);
 }
 
