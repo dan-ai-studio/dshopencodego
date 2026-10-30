@@ -364,12 +364,40 @@
   padding: 4px 0 8px;
 }
 
+.timelineTrackWrap {
+  position: relative;
+  padding-bottom: 18px;
+}
+
 .timelineTrack {
   position: relative;
   height: 10px;
   border-radius: 999px;
   background: var(--dsw-alias-bg-layer-1);
   overflow: hidden;
+}
+
+.timelineMidTick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--dsw-alias-label-tertiary);
+  opacity: 0.7;
+}
+
+/* The halfway mark: a value, not just a line, so long requests gain a
+   sense of scale without another trip to the legend. */
+.timelineMid {
+  position: absolute;
+  top: 100%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .timelineSeg {

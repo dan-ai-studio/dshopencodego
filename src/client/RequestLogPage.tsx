@@ -8,9 +8,9 @@
  *
  * Everything on this page reads one snapshot. The snapshot is read when the
  * page opens and when the reader asks for a refresh — and, while any row is
- * still running, once a second on its own, so a request is watched while it
- * runs. A page nobody opens costs nothing; a page with no running row costs
- * one read per manual refresh.
+ * still running, every two seconds on its own, so a request is watched
+ * while it runs. A page nobody opens costs nothing; a page with no running
+ * row costs one read per manual refresh.
  *
  * @module @dan-ai-studio/dshopencodego/client/RequestLogPage
  */
@@ -20,6 +20,9 @@ import type { CSSProperties } from 'react'
 import { IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RequestLogEntry, RequestLogSnapshot } from '../request-log/contract.ts'
+// A value import: the viewer names a burst with the same line the meter
+// withholds a rate on, so the two can never disagree on what "at once" is.
+import { MIN_STREAM_MS_FOR_RATE } from '../request-log/store.ts'
 import css from './request-log.module.css'
 
 /** What the page reads from the Host. */
@@ -81,7 +84,7 @@ type GroupBy = 'none' | 'session' | 'model' | 'result'
 type SortKey =
   | 'atMs' | 'model' | 'session'
   | 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheRate'
-  | 'tps' | 'prepMs' | 'firstTokenMs' | 'durationMs' | 'status'
+  | 'tps' | 'prepMs' | 'waitMs' | 'firstTokenMs' | 'durationMs' | 'status'
 
 type SortDir = 'asc' | 'desc'
 
@@ -99,6 +102,7 @@ const SORT_DEFAULT_DIR: Record<SortKey, SortDir> = {
   cacheRate: 'desc',
   tps: 'desc',
   prepMs: 'desc',
+  waitMs: 'desc',
   firstTokenMs: 'desc',
   durationMs: 'desc',
   status: 'asc',
@@ -120,6 +124,7 @@ function sortValue(entry: RequestLogEntry, key: SortKey): string | number {
     case 'cacheRate': return cacheRate(entry) ?? -1
     case 'tps': return entry.tps ?? -1
     case 'prepMs': return entry.prepMs ?? -1
+    case 'waitMs': return waitMs(entry) ?? -1
     case 'firstTokenMs': return entry.firstTokenMs ?? -1
     case 'durationMs': return entry.durationMs ?? -1
     case 'status': return entry.running === true ? 'running' : entry.ok ? `ok-${entry.status ?? ''}` : `fail-${entry.code ?? ''}`
@@ -198,14 +203,17 @@ interface TimelineSlice {
  * A request's life as labeled slices plus its end — or nothing worth
  * drawing. Everything unreported stays out rather than invented: a row that
  * never reached the wire has no timeline, and an old row without a
- * preparation mark reads as one waiting stretch.
+ * preparation mark reads as one waiting stretch. A finished row whose first
+ * token has no meaningful streaming phase after it is named a burst, so the
+ * missing output slice reads as a shape rather than a hole.
  */
 function timelineOf(
   entry: RequestLogEntry,
   t: (key: string) => string,
-): { readonly slices: readonly TimelineSlice[]; readonly end: number } | undefined {
+): { readonly slices: readonly TimelineSlice[]; readonly end: number; readonly burst: boolean } | undefined {
+  const running = entry.running === true
   const end = entry.durationMs
-    ?? (entry.running === true ? Math.max(0, Date.now() - entry.atMs) : undefined)
+    ?? (running ? Math.max(0, Date.now() - entry.atMs) : undefined)
   if (end === undefined || end <= 0) return undefined
   const prep = entry.prepMs
   const first = entry.firstTokenMs
@@ -230,12 +238,27 @@ function timelineOf(
     }
   }
   if (slices.length === 0) return undefined
-  return { slices, end }
+  return {
+    slices,
+    end,
+    burst: !running && first !== undefined
+      && (entry.streamMs === undefined || entry.streamMs < MIN_STREAM_MS_FOR_RATE),
+  }
 }
 
 /** A share as whole percent, or a dash when it is unknown. */
 function percent(value: number | undefined): string {
   return value === undefined ? '—' : `${(value * 100).toFixed(0)}%`
+}
+
+/**
+ * The gateway-side wait: first token minus local preparation. Old rows
+ * carry no preparation mark, so their whole first token counts as waiting —
+ * the same fallback the timeline uses.
+ */
+function waitMs(entry: RequestLogEntry): number | undefined {
+  if (entry.firstTokenMs === undefined) return undefined
+  return Math.max(0, entry.firstTokenMs - (entry.prepMs ?? 0))
 }
 
 /** The mean of a set, or undefined when the set is empty. */
@@ -347,11 +370,13 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
 
   // A running row is a live request: refresh it on its own until it
   // finishes, then stop — the interval dies with the last running row, and
-  // with the page. Manual refresh keeps working on top of this.
+  // with the page. Two seconds, not one: the page re-renders the whole
+  // table per refresh, and second-level precision buys nothing here.
+  // Manual refresh keeps working on top of this.
   const hasRunning = (snapshot?.entries ?? []).some(entry => entry.running === true)
   useEffect(() => {
     if (!hasRunning) return
-    const timer = setInterval(() => { void load() }, 1000)
+    const timer = setInterval(() => { void load() }, 2000)
     return () => { clearInterval(timer) }
   }, [hasRunning, load])
 
@@ -435,7 +460,7 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
           <tr key={`group-${group}-${entry.seq}`} className={css.group}>
             {/* A session group names the conversation when the catalog knows it. */}
             {/* Result groups read as words, not codes; the running group names itself. */}
-            <td colSpan={12}>{groupBy === 'session' ? sessionLabel(group).text : groupBy === 'result' ? resultGroupLabel(group) : group}</td>
+            <td colSpan={13}>{groupBy === 'session' ? sessionLabel(group).text : groupBy === 'result' ? resultGroupLabel(group) : group}</td>
           </tr>,
         )
       }
@@ -478,6 +503,7 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
           <td>{percent(cacheRate(entry))}</td>
           <td>{rate(entry.tps)}</td>
           <td>{duration(entry.prepMs)}</td>
+          <td>{duration(waitMs(entry))}</td>
           <td>{duration(entry.firstTokenMs)}</td>
           <td>{entry.running === true ? duration(Math.max(0, Date.now() - entry.atMs)) : duration(entry.durationMs)}</td>
           <td>{entry.running === true ? `${t('requestLogRunning')} · ${duration(Math.max(0, Date.now() - entry.atMs))}` : entry.ok ? (entry.status === undefined ? '✓' : String(entry.status)) : (entry.code ?? '✗')}</td>
@@ -486,30 +512,45 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
       if (expanded === entry.seq) {
         out.push(
           <tr key={`detail-${entry.seq}`} className={css.detail}>
-            <td colSpan={12}>
+            <td colSpan={13}>
               <div className={css.detailGrid}>
                 {(() => {
                   const timeline = timelineOf(entry, t)
-                  return timeline === undefined ? null : (
-                    <div className={css.timeline}>
-                      <div className={css.timelineTrack}>
-                        {timeline.slices.map(slice => (
-                          <div
-                            key={slice.kind}
-                            className={`${css.timelineSeg} ${css[`timeline${slice.kind.charAt(0).toUpperCase()}${slice.kind.slice(1)}`]}`}
-                            style={{
-                              left: `${((slice.from / timeline.end) * 100).toFixed(2)}%`,
-                              width: `${Math.max(0, ((slice.to - slice.from) / timeline.end) * 100).toFixed(2)}%`,
-                            }}
-                            title={`${slice.label} ${duration(slice.to - slice.from)}`}
-                          />
-                        ))}
-                        <div className={css.timelineTick} title={duration(timeline.end)} />
+                  if (timeline === undefined) return null
+                  // String, in practice: the three classes exist, and the
+                  // annotation stays honest about the index signature.
+                  const kindClass = (kind: TimelineSlice['kind']): string | undefined =>
+                    kind === 'prep' ? css.timelinePrep : kind === 'wait' ? css.timelineWait : css.timelineStream
+                  // Spoken as one sentence for readers who cannot see the
+                  // bar: the legend below says the same thing in parts.
+                  const spoken = [...timeline.slices.map(slice => `${slice.label} ${duration(slice.to - slice.from)}`),
+                    `${t('requestLogColLatency')} ${duration(timeline.end)}`].join(', ')
+                  return (
+                    <div className={css.timeline} role="img" aria-label={spoken}>
+                      <div className={css.timelineTrackWrap}>
+                        <div className={css.timelineTrack}>
+                          {timeline.slices.map(slice => (
+                            <div
+                              key={slice.kind}
+                              className={`${css.timelineSeg} ${kindClass(slice.kind)}`}
+                              style={{
+                                left: `${((slice.from / timeline.end) * 100).toFixed(2)}%`,
+                                width: `${Math.max(0, ((slice.to - slice.from) / timeline.end) * 100).toFixed(2)}%`,
+                              }}
+                              title={`${slice.label} ${duration(slice.to - slice.from)}`}
+                            />
+                          ))}
+                          <div className={css.timelineMidTick} />
+                          <div className={css.timelineTick} title={duration(timeline.end)} />
+                        </div>
+                        <div className={css.timelineMid} title={duration(timeline.end / 2)}>
+                          {duration(timeline.end / 2)}
+                        </div>
                       </div>
                       <div className={css.timelineLegend}>
                         {timeline.slices.map(slice => (
                           <span key={slice.kind} className={css.timelineItem}>
-                            <span className={`${css.timelineSwatch} ${css[`timeline${slice.kind.charAt(0).toUpperCase()}${slice.kind.slice(1)}`]}`} />
+                            <span className={`${css.timelineSwatch} ${kindClass(slice.kind)}`} />
                             {slice.label} {duration(slice.to - slice.from)}
                           </span>
                         ))}
@@ -517,6 +558,9 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
                           <span className={`${css.timelineSwatch} ${css.timelineTickSwatch}`} />
                           {t('requestLogColLatency')} {duration(timeline.end)}
                         </span>
+                        {timeline.burst && (
+                          <span className={css.timelineItem}>{t('requestLogTimelineBurst')}</span>
+                        )}
                       </div>
                     </div>
                   )
@@ -779,6 +823,7 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
                   {head('cacheRate', t('requestLogColCacheRate'))}
                   {head('tps', t('requestLogColTps'))}
                   {head('prepMs', t('requestLogColPrep'))}
+                  {head('waitMs', t('requestLogColWait'))}
                   {head('firstTokenMs', t('requestLogColFirstToken'))}
                   {head('durationMs', t('requestLogColLatency'))}
                   {head('status', t('requestLogColStatus'))}

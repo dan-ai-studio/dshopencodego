@@ -192,9 +192,11 @@ const MAX_POOL_EVENTS = 20
  * network flush fans its events out across several event-loop turns, and no
  * served LLM sustains thousands of tokens per second. Below this line the
  * tokens arrived in one burst — the reply's speed on the wire is unknown,
- * so no rate is reported rather than a fabricated one.
+ * so no rate is reported rather than a fabricated one. The viewer reuses
+ * the same line to name that shape instead of leaving the missing output
+ * slice unexplained.
  */
-const MIN_STREAM_MS_FOR_RATE = 100
+export const MIN_STREAM_MS_FOR_RATE = 100
 
 /**
  * An in-flight request, handed back only when the log is enabled.

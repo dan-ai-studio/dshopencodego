@@ -81,13 +81,19 @@ function card(label: string): string {
 
 afterEach(() => { cleanup() })
 
-/** A row for a request that has not finished: identity, no counts yet. */
-function runningEntry(seq: number): RequestLogEntry {
+/**
+ * A row for a request that has not finished: identity, no counts yet.
+ * @param withFirstToken - keep the first-token mark, for a turn that has
+ *   started streaming but not finished: preparation and waiting are known,
+ *   the streaming phase is not.
+ */
+function runningEntry(seq: number, withFirstToken = false): RequestLogEntry {
   const next = entry({ seq, ok: false, running: true })
   // The store omits unreported fields rather than writing them as
   // undefined; the deletions below reproduce that shape.
   const record = next as unknown as Partial<Record<string, unknown>>
-  for (const key of ['status', 'inputTokens', 'outputTokens', 'cacheReadTokens', 'durationMs', 'firstTokenMs', 'decodeMs', 'tps']) {
+  for (const key of ['status', 'inputTokens', 'outputTokens', 'cacheReadTokens', 'durationMs', 'decodeMs', 'tps',
+    ...(withFirstToken ? [] : ['firstTokenMs'])]) {
     delete record[key]
   }
   return next
@@ -95,12 +101,14 @@ function runningEntry(seq: number): RequestLogEntry {
 
 describe('request-log page', () => {
   it('shows the readings of every recorded request', async () => {
-    render(<RequestLogPage {...faceFor(snapshotOf([entry()]))} />)
+    render(<RequestLogPage {...faceFor(snapshotOf([entry({ prepMs: 100 })]))} />)
     const rows = await table()
     // The rate is a column of its own, not a detail behind a click: it is
     // the number a person reads while watching a reply stream.
     expect(within(rows).getByText('31.3')).toBeTruthy()
     expect(within(rows).getByText('2.00s')).toBeTruthy()
+    expect(within(rows).getByText('100ms')).toBeTruthy()
+    expect(within(rows).getByText('300ms')).toBeTruthy()
     expect(within(rows).getByText('400ms')).toBeTruthy()
     expect(within(rows).getByText('100')).toBeTruthy()
     expect(within(rows).getByText('50')).toBeTruthy()
@@ -299,6 +307,42 @@ describe('request-log page', () => {
     })
     // The timeline legend carries the same reading beside its label.
     expect(rows.textContent).toContain('1.23s')
+  })
+
+  it('orders rows by gateway wait when its head is clicked', async () => {
+    render(<RequestLogPage {...faceFor(snapshotOf([
+      entry({ seq: 1, model: 'fast-wait', prepMs: 50, firstTokenMs: 100 }),
+      entry({ seq: 2, model: 'slow-wait', prepMs: 50, firstTokenMs: 2000 }),
+    ]))} />)
+    const rows = await table()
+    const order = (): string[] => within(rows).getAllByRole('row').slice(1, 3)
+      .map(row => within(row).getAllByRole('cell')[1]?.textContent ?? '')
+    // Identical preparation, different waits: slowest wait first.
+    fireEvent.click(screen.getByText('Wait'))
+    await waitFor(() => { expect(order()).toEqual(['slow-wait', 'fast-wait']) })
+  })
+
+  it('names a burst delivery in the timeline', async () => {
+    // First token, no streaming phase, finished: the whole turn arrived in
+    // one flush, and the legend says so instead of leaving a hole.
+    render(<RequestLogPage {...faceFor(snapshotOf([entry({
+      prepMs: 50,
+      firstTokenMs: 500,
+      decodeMs: 200,
+      durationMs: 700,
+    })]))} />)
+    const rows = await table()
+    fireEvent.click(within(rows).getByText('glm-5.3'))
+    await waitFor(() => { expect(rows.textContent).toContain('Delivered in one burst') })
+  })
+
+  it('does not name a burst while the request still runs', async () => {
+    // First token arrived, streaming phase unknown: still running is not a burst.
+    render(<RequestLogPage {...faceFor(snapshotOf([runningEntry(1, true)]))} />)
+    const rows = await table()
+    fireEvent.click(within(rows).getByText('glm-5.3'))
+    await waitFor(() => { expect(rows.textContent).toContain('Waiting for first token') })
+    expect(rows.textContent).not.toContain('Delivered in one burst')
   })
 
   it('draws the request timeline in the detail', async () => {
