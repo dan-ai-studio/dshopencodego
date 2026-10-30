@@ -128,6 +128,33 @@ export interface RequestLogEntry {
    */
   readonly tps?: number
   /**
+   * Tools this request actually invoked, in first-seen order with call
+   * counts. Declarations live in `shape.tools`; this names what ran, so a
+   * row reads like the Harness's own per-turn execution summary. Absent
+   * when the request invoked nothing. Capped — a pathological turn cannot
+   * grow a bounded row.
+   */
+  readonly toolCalls?: ReadonlyArray<{ readonly name: string; readonly count: number }>
+  /**
+   * Conservative input estimate the adapter fitted against, in tokens. An
+   * upper bound, not a count: the gateway's tokenizer is unknown, so the
+   * estimate only ever overstates. Absent when the request failed before
+   * fitting ran.
+   */
+  readonly estimatedInputTokens?: number
+  /**
+   * The output cap actually sent on the wire, in tokens. Absent when the
+   * call sent none (caller and route both silent) or failed before
+   * fitting ran.
+   */
+  readonly fittedMaxTokens?: number
+  /**
+   * Present only when the fitted cap sits below what was asked: the input
+   * plus the requested output would not fit the window, so this call went
+   * out smaller instead of taking a gateway 400.
+   */
+  readonly maxTokensClamped?: boolean
+  /**
    * Whether the request is still in flight. Present only while it runs:
    * `finish` removes it. A running row always reads `ok: false` with no
    * `code`, so readers must check this flag before counting a failure.
@@ -201,6 +228,13 @@ export interface RequestLogGates {
 const MAX_POOL_EVENTS = 20
 
 /**
+ * How many distinct tool names one row keeps. Past the cap extra tools
+ * are still executed — only the record stops naming them — so a turn
+ * that fans out across dozens of tools cannot grow a bounded row.
+ */
+export const MAX_TOOL_CALLS = 32
+
+/**
  * How often a streaming timestamp is kept for the timeline: every tenth
  * accepted token delta. A per-delta mark would bloat long replies (and the
  * wire that carries them); a tenth keeps a hundred-thousand-token turn to a
@@ -268,6 +302,24 @@ export interface RequestSpan {
    * `finish`; a second call keeps the first.
    */
   identify(protocol: WireProtocol): void
+  /**
+   * Count one invoked tool by name, in first-seen order. Called once per
+   * completed tool call the stream carries; a second sighting of the same
+   * name bumps its count instead of appending. Past the distinct-name cap
+   * extra tools are ignored by the record, never by the request.
+   */
+  toolCall(name: string): void
+  /**
+   * Record the context fit this request was sent under. Called once, with
+   * the estimate and the cap the adapter actually sent; first call wins,
+   * like the wire line. A clamped cap is flagged so the row explains a
+   * shorter-than-asked reply.
+   * @param inputTokens - the conservative input estimate, in tokens.
+   * @param maxTokens - the output cap sent on the wire, or undefined when
+   *   the call sent none.
+   * @param clamped - whether the cap sits below what was asked.
+   */
+  fit(inputTokens: number, maxTokens: number | undefined, clamped: boolean): void
   /**
    * Close the span and complete its running row in place.
    * @param ok - whether the request completed.
@@ -387,6 +439,10 @@ export class RequestLog {
     let lastTokenAt: number | undefined
     let tokenDeltas = 0
     const marks: number[] = []
+    // Tools actually invoked, in first-seen order: the live row names
+    // what ran while it runs, and `finish` freezes a copy of it.
+    const toolList: Array<{ name: string; count: number }> = []
+    const toolSeen = new Map<string, number>()
     // The wire line lands once: a second call keeps the first, so retries
     // never rewrite the original line — the same rule as before, now
     // applied to the visible row.
@@ -395,6 +451,27 @@ export class RequestLog {
     return {
       identify: (protocol: WireProtocol): void => {
         if (record.protocol === undefined) record.protocol = protocol
+      },
+      toolCall: (name: string): void => {
+        if (name.length === 0) return
+        const at = toolSeen.get(name)
+        const known = at === undefined ? undefined : toolList[at]
+        if (known !== undefined) {
+          known.count += 1
+        } else {
+          // Past the cap the request still runs every tool; only the
+          // record stops naming new ones.
+          if (toolList.length >= MAX_TOOL_CALLS) return
+          toolSeen.set(name, toolList.length)
+          toolList.push({ name, count: 1 })
+        }
+        record.toolCalls = toolList
+      },
+      fit: (inputTokens: number, maxTokens: number | undefined, clamped: boolean): void => {
+        if (record.estimatedInputTokens !== undefined) return
+        record.estimatedInputTokens = inputTokens
+        if (maxTokens !== undefined) record.fittedMaxTokens = maxTokens
+        if (clamped) record.maxTokensClamped = true
       },
       token: (): void => {
         const now = Date.now()
@@ -473,6 +550,12 @@ export class RequestLog {
           ...record.prepMs === undefined ? {} : { prepMs: record.prepMs },
           ...record.responseMs === undefined ? {} : { responseMs: record.responseMs },
           ...record.streamMarksMs === undefined ? {} : { streamMarksMs: [...record.streamMarksMs] },
+          ...record.toolCalls === undefined || record.toolCalls.length === 0 ? {} : {
+            toolCalls: record.toolCalls.map(call => ({ name: call.name, count: call.count })),
+          },
+          ...record.estimatedInputTokens === undefined ? {} : { estimatedInputTokens: record.estimatedInputTokens },
+          ...record.fittedMaxTokens === undefined ? {} : { fittedMaxTokens: record.fittedMaxTokens },
+          ...record.maxTokensClamped === true ? { maxTokensClamped: true } : {},
           ...usage === undefined ? {} : {
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,

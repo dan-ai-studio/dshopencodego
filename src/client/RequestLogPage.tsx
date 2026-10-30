@@ -20,6 +20,9 @@ import type { CSSProperties } from 'react'
 import { IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RequestLogEntry, RequestLogSnapshot } from '../request-log/contract.ts'
+// Compact magnitudes for the fitted-context reading ("918.7K"), next to the
+// exact counts the hover title spells out.
+import { compactCount } from './model-view.ts'
 // A value import: the viewer names a burst with the same line the meter
 // withholds a rate on, so the two can never disagree on what "at once" is.
 import { MIN_STREAM_MS_FOR_RATE } from '../request-log/store.ts'
@@ -84,7 +87,7 @@ type GroupBy = 'none' | 'session' | 'model' | 'result'
 type SortKey =
   | 'atMs' | 'model' | 'session'
   | 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheRate'
-  | 'tps' | 'prepMs' | 'waitMs' | 'firstTokenMs' | 'durationMs' | 'status'
+  | 'tps' | 'prepMs' | 'waitMs' | 'firstTokenMs' | 'estimatedInputTokens' | 'durationMs' | 'status'
 
 type SortDir = 'asc' | 'desc'
 
@@ -104,6 +107,7 @@ const SORT_DEFAULT_DIR: Record<SortKey, SortDir> = {
   prepMs: 'desc',
   waitMs: 'desc',
   firstTokenMs: 'desc',
+  estimatedInputTokens: 'desc',
   durationMs: 'desc',
   status: 'asc',
 }
@@ -126,6 +130,7 @@ function sortValue(entry: RequestLogEntry, key: SortKey): string | number {
     case 'prepMs': return entry.prepMs ?? -1
     case 'waitMs': return waitMs(entry) ?? -1
     case 'firstTokenMs': return entry.firstTokenMs ?? -1
+    case 'estimatedInputTokens': return entry.estimatedInputTokens ?? -1
     case 'durationMs': return entry.durationMs ?? -1
     case 'status': return entry.running === true ? 'running' : entry.ok ? `ok-${entry.status ?? ''}` : `fail-${entry.code ?? ''}`
   }
@@ -198,6 +203,9 @@ interface TimelineBlock {
   readonly from: number
   readonly to: number
 }
+
+/** A drawable timeline: what `timelineOf` returns when there is one. */
+type PhaseTimeline = NonNullable<ReturnType<typeof timelineOf>>
 
 /**
  * A request's life as labeled blocks plus its end — or nothing worth
@@ -481,6 +489,128 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
     </th>
   )
 
+  /**
+   * A head cell for a column no click can order. Phases and tools read as
+   * shapes, not magnitudes, so they stay out of the sort contract.
+   */
+  const plainHead = (label: string, hint?: string): React.JSX.Element => (
+    <th title={hint}>{label}</th>
+  )
+
+  // String, in practice: the classes exist, and the annotation stays
+  // honest about the index signature.
+  const kindClass = (kind: TimelineBlock['kind']): string | undefined =>
+    kind === 'prep' ? css.timelinePrep
+    : kind === 'wait' ? css.timelineWait
+    : kind === 'stream' ? css.timelineStream
+    : css.timelineStreamAlt
+
+  /** One phase total, for the compact bar's spoken summary. */
+  const phaseSummary = (timeline: PhaseTimeline): string => {
+    const totals = new Map<string, { label: string; total: number }>()
+    const order: string[] = []
+    for (const block of timeline.blocks) {
+      const key = block.kind === 'streamAlt' ? 'stream' : block.kind
+      const known = totals.get(key)
+      if (known === undefined) {
+        totals.set(key, { label: block.label, total: block.to - block.from })
+        order.push(key)
+      } else {
+        known.total += block.to - block.from
+      }
+    }
+    const parts: string[] = []
+    for (const key of order) {
+      const group = totals.get(key)
+      if (group !== undefined) parts.push(`${group.label} ${duration(group.total)}`)
+    }
+    if (timeline.responseAt !== undefined) {
+      parts.push(`${t('requestLogTimelineFirstByte')} ${duration(timeline.responseAt)}`)
+    }
+    return parts.join(', ')
+  }
+
+  /**
+   * The shared phase blocks: preparation, wait and the cut-up streaming
+   * stretch plus the response tick. The detail timeline and the row's
+   * mini bar draw the same blocks; only the frame around them differs.
+   */
+  const phaseBlocks = (timeline: PhaseTimeline, live: boolean): React.JSX.Element[] => {
+    const percent = (at: number): string => `${((at / timeline.end) * 100).toFixed(2)}%`
+    // The tail shimmers only while the request is still alive; a finished
+    // row is fully static.
+    const liveIndex = live
+      ? timeline.blocks.findLastIndex(block => block.kind === 'stream' || block.kind === 'streamAlt')
+      : -1
+    const out: React.JSX.Element[] = timeline.blocks.map((block, index) => (
+      <div
+        key={`${block.kind}-${index}`}
+        className={`${css.timelineSeg} ${kindClass(block.kind)}${index === liveIndex ? ` ${css.timelineLive}` : ''}`}
+        style={{
+          left: percent(block.from),
+          width: percent(Math.max(0, block.to - block.from)),
+        }}
+        title={`${block.label} ${duration(block.to - block.from)}`}
+      />
+    ))
+    if (timeline.responseAt !== undefined) {
+      out.push(
+        <div
+          key="response"
+          className={css.timelineRespTick}
+          style={{ left: percent(Math.min(timeline.responseAt, timeline.end)) }}
+          title={`${t('requestLogTimelineFirstByte')} ${duration(timeline.responseAt)}`}
+        />,
+      )
+    }
+    return out
+  }
+
+  /** How many invoked tools one row names before folding the rest. */
+  const MAX_ROW_TOOLS = 3
+
+  /**
+   * The tools this request actually invoked, as chips with call counts —
+   * the row-level echo of the Harness's own per-turn execution summary.
+   */
+  const toolChips = (entry: RequestLogEntry): React.JSX.Element | string => {
+    const calls = entry.toolCalls ?? []
+    if (calls.length === 0) return '—'
+    const full = calls.map(call => `${call.name} ×${call.count}`).join(', ')
+    const shown = calls.slice(0, MAX_ROW_TOOLS)
+    const extra = calls.length - shown.length
+    return (
+      <span className={css.toolChips} title={full}>
+        {shown.map(call => (
+          <span key={call.name} className={css.toolChip} title={`${call.name} ×${call.count}`}>
+            {call.name} <span className={css.toolChipCount}>×{call.count}</span>
+          </span>
+        ))}
+        {extra > 0 && <span className={css.toolChipMore} title={full}>+{extra}</span>}
+      </span>
+    )
+  }
+
+  /** The fitted context reading: estimated input, plus the shrunk cap when clamped. */
+  const fitText = (entry: RequestLogEntry): string => {
+    if (entry.estimatedInputTokens === undefined) return '—'
+    const estimate = `~${compactCount(Math.round(entry.estimatedInputTokens))}`
+    if (entry.maxTokensClamped === true && entry.fittedMaxTokens !== undefined) {
+      return `${estimate} → ${compactCount(entry.fittedMaxTokens)}`
+    }
+    return estimate
+  }
+
+  /** The fitted context reading spelled out, for the hover title. */
+  const fitTitle = (entry: RequestLogEntry): string => {
+    if (entry.estimatedInputTokens === undefined) return t('requestLogColContextHint')
+    const estimate = `~${count(Math.round(entry.estimatedInputTokens))}`
+    const fitted = entry.maxTokensClamped === true && entry.fittedMaxTokens !== undefined
+      ? ` → ${count(entry.fittedMaxTokens)}`
+      : ''
+    return `${t('requestLogColContextHint')}: ${estimate}${fitted}`
+  }
+
   const rows = (): React.JSX.Element[] => {
     const out: React.JSX.Element[] = []
     let lastGroup: string | undefined
@@ -492,7 +622,7 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
           <tr key={`group-${group}-${entry.seq}`} className={css.group}>
             {/* A session group names the conversation when the catalog knows it. */}
             {/* Result groups read as words, not codes; the running group names itself. */}
-            <td colSpan={13}>{groupBy === 'session' ? sessionLabel(group).text : groupBy === 'result' ? resultGroupLabel(group) : group}</td>
+            <td colSpan={16}>{groupBy === 'session' ? sessionLabel(group).text : groupBy === 'result' ? resultGroupLabel(group) : group}</td>
           </tr>,
         )
       }
@@ -537,6 +667,22 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
           <td>{duration(entry.prepMs)}</td>
           <td>{duration(waitMs(entry))}</td>
           <td>{duration(entry.firstTokenMs)}</td>
+          <td>{(() => {
+            const timeline = timelineOf(entry, t)
+            if (timeline === undefined) return '—'
+            return (
+              <div className={css.phaseBar} role="img" aria-label={phaseSummary(timeline)}>
+                {phaseBlocks(timeline, false)}
+              </div>
+            )
+          })()}</td>
+          <td>{toolChips(entry)}</td>
+          <td
+            className={entry.maxTokensClamped === true ? css.fitClamped : undefined}
+            title={fitTitle(entry)}
+          >
+            {fitText(entry)}
+          </td>
           <td>{entry.running === true ? duration(Math.max(0, Date.now() - entry.atMs)) : duration(entry.durationMs)}</td>
           <td>{entry.running === true ? `${t('requestLogRunning')} · ${duration(Math.max(0, Date.now() - entry.atMs))}` : entry.ok ? (entry.status === undefined ? '✓' : String(entry.status)) : (entry.code ?? '✗')}</td>
         </tr>,
@@ -544,18 +690,11 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
       if (expanded === entry.seq) {
         out.push(
           <tr key={`detail-${entry.seq}`} className={css.detail}>
-            <td colSpan={13}>
+            <td colSpan={16}>
               <div className={css.detailGrid}>
                 {(() => {
                   const timeline = timelineOf(entry, t)
                   if (timeline === undefined) return null
-                  // String, in practice: the classes exist, and the
-                  // annotation stays honest about the index signature.
-                  const kindClass = (kind: TimelineBlock['kind']): string | undefined =>
-                    kind === 'prep' ? css.timelinePrep
-                    : kind === 'wait' ? css.timelineWait
-                    : kind === 'stream' ? css.timelineStream
-                    : css.timelineStreamAlt
                   // Legend dots are solid by phase (bars may be translucent),
                   // so the key stays readable at 8px.
                   const legendSwatch = (key: string): string | undefined =>
@@ -599,34 +738,11 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
                   // Spoken as one sentence for readers who cannot see the
                   // bar: the legend below says the same thing in parts.
                   const spoken = legend.map(item => item.text).join(', ')
-                  const percent = (at: number): string => `${((at / timeline.end) * 100).toFixed(2)}%`
-                  // The tail shimmers only while the request is still alive;
-                  // a finished row is fully static.
-                  const liveIndex = entry.running === true
-                    ? timeline.blocks.findLastIndex(block => block.kind === 'stream' || block.kind === 'streamAlt')
-                    : -1
                   return (
                     <div className={css.timeline} role="img" aria-label={spoken}>
                       <div className={css.timelineTrackWrap}>
                         <div className={css.timelineTrack}>
-                          {timeline.blocks.map((block, index) => (
-                            <div
-                              key={`${block.kind}-${index}`}
-                              className={`${css.timelineSeg} ${kindClass(block.kind)}${index === liveIndex ? ` ${css.timelineLive}` : ''}`}
-                              style={{
-                                left: percent(block.from),
-                                width: percent(Math.max(0, block.to - block.from)),
-                              }}
-                              title={`${block.label} ${duration(block.to - block.from)}`}
-                            />
-                          ))}
-                          {timeline.responseAt !== undefined && (
-                            <div
-                              className={css.timelineRespTick}
-                              style={{ left: percent(Math.min(timeline.responseAt, timeline.end)) }}
-                              title={`${t('requestLogTimelineFirstByte')} ${duration(timeline.responseAt)}`}
-                            />
-                          )}
+                          {phaseBlocks(timeline, entry.running === true)}
                           <div className={css.timelineMidTick} />
                           <div className={css.timelineTick} title={duration(timeline.end)} />
                         </div>
@@ -908,6 +1024,9 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
                   {head('prepMs', t('requestLogColPrep'))}
                   {head('waitMs', t('requestLogColWait'))}
                   {head('firstTokenMs', t('requestLogColFirstToken'))}
+                  {plainHead(t('requestLogColPhase'), t('requestLogColPhaseHint'))}
+                  {plainHead(t('requestLogColTools'), t('requestLogColToolsHint'))}
+                  {head('estimatedInputTokens', t('requestLogColContext'), t('requestLogColContextHint'))}
                   {head('durationMs', t('requestLogColLatency'))}
                   {head('status', t('requestLogColStatus'))}
                 </tr>

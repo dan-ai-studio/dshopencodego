@@ -205,6 +205,83 @@ describe('RequestLog', () => {
     expect(parsed.entries[0]?.streamMarksMs).toEqual([5])
   })
 
+  it('counts invoked tools in first-seen order and freezes a copy at finish', () => {
+    const log = new RequestLog(gates())
+    const span = log.start(start())
+    span?.toolCall('read')
+    span?.toolCall('edit')
+    span?.toolCall('read')
+    span?.toolCall('')
+    // Visible while the request still runs, like the first-token mark.
+    expect(log.snapshot().entries[0]?.toolCalls).toEqual([
+      { name: 'read', count: 2 },
+      { name: 'edit', count: 1 },
+    ])
+    span?.finish(true, undefined, { inputTokens: 10, outputTokens: 5 })
+    const entry = log.snapshot().entries[0]!
+    expect(entry.toolCalls).toEqual([
+      { name: 'read', count: 2 },
+      { name: 'edit', count: 1 },
+    ])
+    const parsed = parseRequestLogSnapshot(JSON.parse(JSON.stringify(log.snapshot())))
+    expect(parsed.entries[0]?.toolCalls).toEqual(entry.toolCalls)
+  })
+
+  it('caps distinct tool names and drops what is not a tool call', () => {
+    const log = new RequestLog(gates())
+    const span = log.start(start())
+    for (let index = 0; index < 40; index += 1) span?.toolCall(`tool-${index}`)
+    span?.finish(true, undefined, { inputTokens: 10, outputTokens: 5 })
+    // Bounded, so a fan-out turn cannot grow a bounded row.
+    expect(log.snapshot().entries[0]?.toolCalls).toHaveLength(32)
+    const tampered = {
+      ...log.snapshot(),
+      entries: [{
+        ...log.snapshot().entries[0],
+        toolCalls: [
+          { name: 'read', count: 2 },
+          { name: '', count: 1 },
+          { name: 'edit', count: 0 },
+          { name: 'edit', count: 'many' },
+          'read',
+          null,
+        ],
+      }],
+    }
+    const parsed = parseRequestLogSnapshot(JSON.parse(JSON.stringify(tampered)))
+    expect(parsed.entries[0]?.toolCalls).toEqual([{ name: 'read', count: 2 }])
+  })
+
+  it('records the context fit once and explains a clamped cap', () => {
+    const log = new RequestLog(gates())
+    const span = log.start(start())
+    span?.fit(918_672, 125_856, true)
+    // First sighting wins, like the wire line.
+    span?.fit(10, 20, false)
+    // Visible while the request still runs.
+    expect(log.snapshot().entries[0]?.estimatedInputTokens).toBe(918_672)
+    span?.finish(true, undefined, { inputTokens: 10, outputTokens: 5 })
+    const entry = log.snapshot().entries[0]!
+    expect(entry.estimatedInputTokens).toBe(918_672)
+    expect(entry.fittedMaxTokens).toBe(125_856)
+    expect(entry.maxTokensClamped).toBe(true)
+    const parsed = parseRequestLogSnapshot(JSON.parse(JSON.stringify(log.snapshot())))
+    expect(parsed.entries[0]?.estimatedInputTokens).toBe(918_672)
+    expect(parsed.entries[0]?.fittedMaxTokens).toBe(125_856)
+    expect(parsed.entries[0]?.maxTokensClamped).toBe(true)
+  })
+
+  it('leaves fit fields absent when the request never fitted', () => {
+    const log = new RequestLog(gates())
+    const span = log.start(start())
+    span?.finish(true, undefined, { inputTokens: 10, outputTokens: 5 })
+    const entry = log.snapshot().entries[0]!
+    expect(entry.estimatedInputTokens).toBeUndefined()
+    expect(entry.fittedMaxTokens).toBeUndefined()
+    expect(entry.maxTokensClamped).toBeUndefined()
+    expect(entry.toolCalls).toBeUndefined()
+  })
+
   it('carries the running flag across the wire codec', () => {
     const log = new RequestLog(gates())
     log.start(start())
@@ -530,6 +607,78 @@ describe('request log on the wire', () => {
       expect(entry.prepMs).toEqual(expect.any(Number))
       expect(entry.prepMs).toBeLessThanOrEqual(entry.durationMs ?? Number.MAX_SAFE_INTEGER)
       expect(entry.headers).toBeUndefined()
+    } finally {
+      stub.restore()
+    }
+  })
+
+  it('records the tools the model actually invoked', async () => {
+    const server = await startMockGateway({ listing: ['glm-5.3'], toolCall: true })
+    gateways.push(server)
+    const stub = stubModelsDev(modelsDevDocument({
+      'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 128_000, output: 8_192 } },
+    }))
+    const log = new RequestLog({
+      enabled: () => true,
+      debug: () => false,
+      maxEntries: () => 200,
+    })
+    try {
+      const adapter = new OpencodeGoAdapter({
+        config: () => configFor(server.baseURL),
+        resolveApiKey: async () => 'test-key',
+        readDocument: offlineDocument(),
+        fetch: () => globalThis.fetch,
+        requestLog: log,
+      })
+      await drain(adapter.stream({
+        provider: 'opencode-go',
+        model: 'glm-5.3',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+        tools: [{
+          name: 'read_file',
+          description: 'read a file',
+          parameters: { type: 'object' },
+        }],
+      }))
+      const entry = log.snapshot().entries[0]!
+      expect(entry.toolCalls).toEqual([{ name: 'read_file', count: 1 }])
+    } finally {
+      stub.restore()
+    }
+  })
+
+  it('records the context fit the wire was sent under', async () => {
+    const server = await startMockGateway({ listing: ['glm-5.3'] })
+    gateways.push(server)
+    const stub = stubModelsDev(modelsDevDocument({
+      'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 8192, output: 2048 } },
+    }))
+    const log = new RequestLog({
+      enabled: () => true,
+      debug: () => false,
+      maxEntries: () => 200,
+    })
+    try {
+      const adapter = new OpencodeGoAdapter({
+        config: () => configFor(server.baseURL),
+        resolveApiKey: async () => 'test-key',
+        readDocument: offlineDocument(),
+        fetch: () => globalThis.fetch,
+        requestLog: log,
+      })
+      await drain(adapter.stream({
+        provider: 'opencode-go',
+        model: 'glm-5.3',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'a'.repeat(15_000) }] }],
+        maxTokens: 2048,
+      }))
+      const entry = log.snapshot().entries[0]!
+      // A ~5K-token input against an 8K window leaves no room for the
+      // asked 2K output: the estimate travels and the clamp is flagged.
+      expect(entry.estimatedInputTokens).toBeGreaterThan(4000)
+      expect(entry.fittedMaxTokens).toBeLessThan(2048)
+      expect(entry.maxTokensClamped).toBe(true)
     } finally {
       stub.restore()
     }

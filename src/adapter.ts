@@ -584,17 +584,26 @@ export class OpencodeGoAdapter extends LlmAdapter {
     // gateway 400), and an input-plus-output overflow shrinks this call's
     // maxTokens. History is never truncated here.
     let maxTokens: number | undefined
+    const estimatedInputTokens = estimateInputTokens(options)
     try {
       maxTokens = resolveFittedMaxTokens({
         modelId: model.id,
         contextWindow: model.contextWindow,
         routeMaxTokens: model.maxTokens,
         requestedMaxTokens: requested,
-        estimatedInputTokens: estimateInputTokens(options),
+        estimatedInputTokens,
       })
     } catch (error: unknown) {
       failSpan(error)
     }
+    // Record what the wire was fitted to: the estimate travels even when
+    // the cap needed no shrinking, so the row explains both quiet turns
+    // and ones that went out smaller than asked.
+    span?.fit(
+      estimatedInputTokens,
+      maxTokens,
+      requested !== undefined && maxTokens !== undefined && maxTokens < requested,
+    )
     const apiKey = await this.options.resolveApiKey()
     if (apiKey === undefined || apiKey.length === 0) {
       // Explicit throw (not `failSpan`): the compiler must see the throw to
@@ -713,6 +722,11 @@ export class OpencodeGoAdapter extends LlmAdapter {
           // The span is undefined unless the profile enabled the log, so the
           // check short-circuits before the chunk is even classified.
           if (span !== undefined && isTokenDelta(result.value)) span.token()
+          // One completed tool call: the row names what ran, like the
+          // Harness's own per-turn execution summary.
+          if (span !== undefined && result.value.type === 'block-end' && result.value.block.type === 'tool-call') {
+            span.toolCall(result.value.block.name)
+          }
           if (result.value.type === 'usage') {
             pendingUsage = result.value.usage
             this.options.onUsage?.({

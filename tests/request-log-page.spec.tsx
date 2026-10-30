@@ -394,8 +394,10 @@ describe('request-log page', () => {
     const rows = await table()
     fireEvent.click(within(rows).getByText('glm-5.3'))
     // Five blocks alternate two shades; the legend still names the phase once.
+    // Scoped to the expanded detail: every row now carries its own mini bar.
     await waitFor(() => {
-      expect(rows.querySelectorAll('[title^="Streaming"]').length).toBe(5)
+      const blocks = rows.querySelector('[role="img"][aria-label*="Latency"]')?.querySelectorAll('[title^="Streaming"]')
+      expect(blocks?.length).toBe(5)
     })
     expect(rows.textContent).toContain('Streaming 500ms')
     // Finished rows are static: no tail shimmers after the terminal event.
@@ -404,14 +406,71 @@ describe('request-log page', () => {
     }
   })
 
+  it('draws a mini phase bar in each row', async () => {
+    render(<RequestLogPage {...faceFor(snapshotOf([entry({
+      prepMs: 100,
+      responseMs: 400,
+      firstTokenMs: 1000,
+      streamMs: 500,
+      durationMs: 2000,
+    })]))} />)
+    const rows = await table()
+    // The row bar speaks the same phases as the detail timeline, without
+    // opening the detail: preparation, wait, streaming and first byte.
+    const bar = await waitFor(() => {
+      const found = rows.querySelector('[role="img"][aria-label*="Streaming"]')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    expect(bar.getAttribute('aria-label')).toContain('Waiting for first token')
+    expect(bar.getAttribute('aria-label')).toContain('First byte')
+    expect(bar.querySelectorAll('[title^="Streaming"]').length).toBeGreaterThan(0)
+  })
+
+  it('names invoked tools as chips and folds the rest', async () => {
+    render(<RequestLogPage {...faceFor(snapshotOf([entry({
+      toolCalls: [
+        { name: 'read', count: 6 },
+        { name: 'edit', count: 3 },
+        { name: 'bash', count: 2 },
+        { name: 'grep', count: 1 },
+      ],
+    })]))} />)
+    const rows = await table()
+    await waitFor(() => {
+      expect(rows.querySelector('[title="read ×6, edit ×3, bash ×2, grep ×1"]')).not.toBeNull()
+    })
+    expect(rows.textContent).toContain('×6')
+    // Three chips read, the fourth folds behind a count.
+    expect(rows.textContent).toContain('+1')
+    expect(rows.textContent).not.toContain('grep ×1')
+  })
+
+  it('reads the fitted context with a clamped marker', async () => {
+    render(<RequestLogPage {...faceFor(snapshotOf([
+      entry({ seq: 1, estimatedInputTokens: 259_000, fittedMaxTokens: 125_856, maxTokensClamped: true }),
+      entry({ seq: 2, model: 'other-model', estimatedInputTokens: 1000 }),
+    ]))} />)
+    const rows = await table()
+    // Compact magnitudes in the cell, exact counts one hover away.
+    await waitFor(() => { expect(rows.textContent).toContain('~259K → 126K') })
+    expect(rows.textContent).toContain('~1K')
+    expect(rows.querySelector('[title*="→"]')).not.toBeNull()
+  })
+
   it('shimmers the growing tail while the request still runs', async () => {
     // First token arrived, terminal event pending: the stream stretches to
     // now and its tail carries the live shimmer.
     render(<RequestLogPage {...faceFor(snapshotOf([runningEntry(1, true)]))} />)
     const rows = await table()
     fireEvent.click(within(rows).getByText('glm-5.3'))
-    await waitFor(() => { expect(rows.querySelector('[title^="Streaming"]')).not.toBeNull() })
-    expect(rows.querySelector('[title^="Streaming"]')?.className).toContain('Live')
+    // Scoped to the expanded detail: the row's own mini bar stays static.
+    const live = await waitFor(() => {
+      const found = rows.querySelector('[role="img"][aria-label*="Latency"] [title^="Streaming"]')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    expect(live.className).toContain('Live')
   })
 
   it('orders rows by preparation time when its head is clicked', async () => {

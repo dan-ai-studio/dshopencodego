@@ -10,7 +10,7 @@
 
 import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import type { PoolLogEvent, RequestLogEntry, RequestLogSnapshot } from './store.ts'
-import { MAX_STREAM_MARKS } from './store.ts'
+import { MAX_STREAM_MARKS, MAX_TOOL_CALLS } from './store.ts'
 
 export type { PoolLogEvent, RequestLogEntry, RequestLogSnapshot } from './store.ts'
 
@@ -47,6 +47,10 @@ function parseEntry(value: unknown): RequestLogEntry {
   const shape = row['shape']
   const headers = row['headers']
   const protocol = row['protocol']
+  // Tool calls are the one new optional list: an absent field reads as
+  // "invoked nothing", and a tampered one degrades to the valid prefix
+  // rather than failing the whole snapshot.
+  const toolCalls = row['toolCalls'] === undefined ? undefined : parseToolCalls(row['toolCalls'])
   return {
     seq: count('seq', row),
     atMs: count('atMs', row),
@@ -76,6 +80,10 @@ function parseEntry(value: unknown): RequestLogEntry {
     ...row['decodeMs'] === undefined ? {} : { decodeMs: count('decodeMs', row) },
     ...row['streamMs'] === undefined ? {} : { streamMs: count('streamMs', row) },
     ...row['tps'] === undefined ? {} : { tps: rate('tps', row) },
+    ...toolCalls === undefined || toolCalls.length === 0 ? {} : { toolCalls },
+    ...row['estimatedInputTokens'] === undefined ? {} : { estimatedInputTokens: count('estimatedInputTokens', row) },
+    ...row['fittedMaxTokens'] === undefined ? {} : { fittedMaxTokens: count('fittedMaxTokens', row) },
+    ...row['maxTokensClamped'] === true ? { maxTokensClamped: true } : {},
     // Running rows cross the wire too: a viewer opened mid-request must
     // see them. Older snapshots predate the flag and read as finished.
     ...row['running'] === true ? { running: true } : {},
@@ -126,6 +134,29 @@ function rate(key: string, row: Record<string, unknown>): number {
     throw new Error(`invalid request-log entry "${key}"`)
   }
   return entry
+}
+
+/**
+ * Validate the invoked-tool list crossing the wire.
+ *
+ * Each item names one tool and how many times it ran. Invalid items are
+ * skipped and the list is cut at the store's cap — like the stream marks,
+ * the list is only ever a reading aid, so a tampered row degrades to its
+ * valid prefix instead of failing the snapshot.
+ */
+function parseToolCalls(value: unknown): ReadonlyArray<{ readonly name: string; readonly count: number }> {
+  if (!Array.isArray(value)) return []
+  const kept: Array<{ name: string; count: number }> = []
+  for (const item of value) {
+    if (kept.length >= MAX_TOOL_CALLS) break
+    if (item === null || typeof item !== 'object') continue
+    const row = item as Record<string, unknown>
+    if (typeof row['name'] !== 'string' || row['name'].length === 0) continue
+    const callCount = row['count']
+    if (typeof callCount !== 'number' || !Number.isInteger(callCount) || callCount < 1) continue
+    kept.push({ name: row['name'], count: callCount })
+  }
+  return kept
 }
 
 /** Validate one pool event crossing the wire. */

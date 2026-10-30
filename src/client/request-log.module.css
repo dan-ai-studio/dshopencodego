@@ -479,6 +479,72 @@
   background: var(--dsw-alias-label-primary);
 }
 
+/* The row's mini phase bar: the same blocks as the detail timeline, at
+   a glance height. Segment insets are tuned for 8px: the shared 2px
+   timeline insets belong to the 12px detail track. */
+.phaseBar {
+  position: relative;
+  height: 8px;
+  min-width: 110px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.phaseBar .timelineSeg {
+  top: 1px;
+  bottom: 1px;
+  border-radius: 3px;
+}
+
+.phaseBar .timelineRespTick {
+  top: -2px;
+  bottom: -2px;
+}
+
+/* Invoked-tool chips: one pill per tool with its call count, folding the
+   rest behind a "+n" so a fan-out turn cannot stretch the row. */
+.toolChips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 220px;
+}
+
+.toolChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.toolChipCount {
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.toolChipMore {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+  border: 1px dashed var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A clamped fitted cap reads in warn: the reply went out smaller than
+   asked, and the color says so without reading the title. */
+.fitClamped {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
 .timelineLegend {
   display: flex;
   flex-wrap: wrap;
