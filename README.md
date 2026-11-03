@@ -239,7 +239,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 - 不满足 → **该插件行被禁用并打印原因**（`Plugin … is incompatible with dsh …`），其他插件不受影响；
 - 需要冒险时可用**精确版本豁免**：`dsh plugin --profile <profile> allow-version <包>@<版本> --dsh-version <精确版本> --accept-risk`（只对该包与该精确版本生效）；`dsh plugin --profile <profile> version-exemptions` 可列出当前 profile 的豁免。
 
-**本插件声明了 `engines.dsh`，所以生效的门禁就是它**；peer 范围是给读者与包管理器的声明，只在 `engines.dsh` 被删除之后才会接管判定。上界写成 `<0.3.0-0` 而不是 `<0.3.0`，正是因为判定含预发布：`<0.3.0` 会把 `0.3.0-rc.1` 这类**预发布版判为兼容**并放行，`<0.3.0-0` 才真正封住整条 `0.3.0` 线。`@deepseek-ai/cordis` 单独声明为 `4.0.4 || 4.0.5-alpha.1 || 4.0.5-alpha.2 || 4.0.5`——依次是 DSH `0.2.0-rc.1`/`rc.2`、`0.2.1-alpha.1`/`alpha.2`、`0.2.1-alpha.3`–`alpha.5`、以及 `0.2.1-rc.2` 所用的运行时（`4.0.2`/`4.0.3` 随 `0.2.0` 之前的支持一并移除）。
+**本插件声明了 `engines.dsh`，所以生效的门禁就是它**；peer 范围是给读者与包管理器的声明，只在 `engines.dsh` 被删除之后才会接管判定。上界写成 `<0.3.0-0` 而不是 `<0.3.0`，正是因为判定含预发布：`<0.3.0` 会把 `0.3.0-rc.1` 这类**预发布版判为兼容**并放行，`<0.3.0-0` 才真正封住整条 `0.3.0` 线。`@deepseek-ai/cordis` 单独声明为 `4.0.4 || 4.0.5-alpha.1 || 4.0.5-alpha.2 || 4.0.5 || 4.0.6-alpha.1 || 4.0.6-alpha.2`——依次是 DSH `0.2.0-rc.1`/`rc.2`、`0.2.1-alpha.1`/`alpha.2`、`0.2.1-alpha.3`–`alpha.5`、以及 `0.2.1-rc.2` 所用的运行时（`4.0.2`/`4.0.3` 随 `0.2.0` 之前的支持一并移除）。
 
 **声明范围之外**：`0.2.0-rc.1` 之前的所有版本、以及整条 `0.3.0` 线（含预发布）都会被拒绝加载。如果 DSH 侧接口兼容，可自行放宽或删除该插件的 **`engines.dsh`** 后重新构建（改 peer 范围是无效的——它不参与判定）；否则请等插件跟进发版。
 
@@ -249,10 +249,10 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 | --- | --- | --- |
 | `engines.dsh` | `>=0.2.0-rc.1 <0.3.0-0` | **DSH 加载时的真门禁；声明了它，peer 判定被整体跳过** |
 | `peerDependencies`（20 个 `@deepseek-ai/dsh-*`） | 均为 `>=0.2.0-rc.1 <0.3.0-0` | 仅当 `engines.dsh` 缺席时才接管；本插件声明了它，故当前不参与判定 |
-| `@deepseek-ai/cordis` | `4.0.4 \|\| 4.0.5-alpha.1 \|\| 4.0.5-alpha.2 \|\| 4.0.5` | 同上（peer 通道） |
+| `@deepseek-ai/cordis` | `4.0.4 \|\| 4.0.5-alpha.1 \|\| 4.0.5-alpha.2 \|\| 4.0.5 \|\| 4.0.6-alpha.1 \|\| 4.0.6-alpha.2` | 同上（peer 通道） |
 | `engines.node` | `^22.19.0 \|\| >=24.0.0` | 包管理器 |
-| 已打包依赖 `@earendil-works/pi-ai` | `~1.4.0`（1.4.x 内），**打进产物**（devDependency） | 独立耦合：pi-ai 改请求构造即影响本插件的线上行为；其 opencode-go 内置目录同时是本插件的打底数据。打包后本插件**没有任何运行时依赖**，安装者不必再解析它 |
-| 已打包依赖 `@deepseek-ai/schemastery` | `~3.18.5-alpha.2`，**打进产物**（devDependency） | 构建期依赖 |
+| 已打包依赖 `@earendil-works/pi-ai` | `1.5.0`（1.5.x 内），**打进产物**（devDependency） | 独立耦合：pi-ai 改请求构造即影响本插件的线上行为；其 opencode-go 内置目录同时是本插件的打底数据。打包后本插件**没有任何运行时依赖**，安装者不必再解析它 |
+| 已打包依赖 `@deepseek-ai/schemastery` | `~3.18.6-alpha.2`，**打进产物**（devDependency） | 构建期依赖 |
 
 维护时需要注意：
 
@@ -275,7 +275,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 | 用量按钮显示「不可用」 | 端点或凭证变化导致旧读数作废；配置正确后点「重试」。数值不会以 0 冒充。 |
 | npm 发布报 `ENEEDAUTH` | OIDC 没匹配上：核对包设置里 Trusted Publisher 的 **workflow 文件名**（必须恰为 `publish-npm.yml`、大小写敏感）与组织/仓库字段；确认跑在 GitHub 托管 runner 上且工作流带 `id-token: write`。`package.json` 的 `repository.url` 与仓库不符也会被拒。 |
 | 日志成片出现 `Accessing non-existent property 'Allow' of module exports inside circular dependency` | 成因是 `pi-ai` 对 `partial-json` 的**具名导入**：Node 解析 CJS 的具名导出时会枚举其 exports，而该包内部 `index.js`/`options.js` 互相 require，读到尚未初始化的 `Allow` 就打印一次——**插件重载会让它成片出现**（重启后往往消失）。**自 v0.1.38 起从机制上消除**：`pi-ai` 与 `partial-json` 已**打包进产物**，Node 的 ESM→CJS 互操作不再参与，因此不存在"枚举读到未初始化属性"这一步（不是过滤，是让该路径不存在）。 |
-| 超长工具调用（多 MB 参数）期间整个 DSH 进程卡顿 | 曾在 pi-ai `0.87.1` 上观测到逐 delta 重解析的固有开销（issue #9265 / PR #9461）。本插件不移植 DSH 的消费者侧补丁（ADR-0005）；当前自带依赖已是 `~1.4.0`，若仍复现则属上游行为，随其发版解决。 |
+| 超长工具调用（多 MB 参数）期间整个 DSH 进程卡顿 | 曾在 pi-ai `0.87.1` 上观测到逐 delta 重解析的固有开销（issue #9265 / PR #9461）。本插件不移植 DSH 的消费者侧补丁（ADR-0005）；当前自带依赖已是 `1.5.0`，若仍复现则属上游行为，随其发版解决。 |
 
 ## 开发
 

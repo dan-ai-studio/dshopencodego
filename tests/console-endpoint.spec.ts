@@ -71,7 +71,7 @@ describe('Console endpoint constant', () => {
 })
 
 describe('Console 86 models catalog', () => {
-  it('parses all 86 advertised models into callable facts with zero unavailable', async () => {
+  it('parses 85 of the 86 advertised models, refusing the one it cannot speak', async () => {
     const server = await gateway({ listing: CONSOLE_MODELS_FIXTURE })
     const stub = stubModelsDev(modelsDevDocument({}))
     try {
@@ -85,9 +85,15 @@ describe('Console 86 models catalog', () => {
 
       const snapshot = await catalog.snapshot()
       expect(snapshot.live).toBe(true)
-      expect(snapshot.facts.size).toBe(86)
-      expect(snapshot.unavailable.size).toBe(0)
-      expect(snapshot.provider.getModels().length).toBe(86)
+      // pi-ai 1.5.0 labels `gemini-4-argon` as `google-generative-ai` — a
+      // fourth protocol `buildProvider` has no implementation for. The gateway
+      // still advertises it, so the honest result is a refusal with the reason
+      // attached rather than a model that fails on first use. Everything else
+      // in the listing must still come through as callable.
+      expect(snapshot.facts.size).toBe(85)
+      expect([...snapshot.unavailable.keys()]).toEqual(['gemini-4-argon'])
+      expect(snapshot.unavailable.get('gemini-4-argon')).toContain('google-generative-ai')
+      expect(snapshot.provider.getModels().length).toBe(85)
 
       // Verify every model has a valid wire protocol
       const validApis = new Set(['openai-completions', 'openai-responses', 'anthropic-messages'])

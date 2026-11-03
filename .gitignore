@@ -21,3 +21,8 @@ notes/
 # pnpm artifacts: this repo installs and publishes with npm.
 pnpm-lock.yaml
 pnpm-workspace.yaml
+
+# Local scratch used while verifying an upgrade (dependency backups, an
+# alternate npm cache, ACL recovery records). Never part of the package.
+.trial/
+.npm-cache/

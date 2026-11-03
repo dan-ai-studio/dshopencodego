@@ -435,19 +435,19 @@ describe('live catalog', () => {
 
   it('refuses a model whose builtin protocol this plugin does not implement', async () => {
     // pi-ai's builtin catalog is wider than this plugin's three protocols:
-    // 1.3.0 labels `gemini-4-argon-contributor` as `google-generative-ai`,
+    // 1.5.0 labels `gemini-4-argon` as `google-generative-ai`,
     // which `buildProvider` has no entry for. It used to reach the model list
     // through an unchecked cast and be advertised as fully configurable, so
     // the refusal only arrived when a stream was attempted. Refusing it up
     // front — with the reason — is the same treatment a malformed record gets,
     // and the rest of the listing must be unaffected.
-    const server = await gateway({ listing: ['glm-5.3', 'gemini-4-argon-contributor'] })
+    const server = await gateway({ listing: ['glm-5.3', 'gemini-4-argon'] })
     const stub = stubModelsDev(modelsDevDocument({}))
     try {
       const snapshot = await catalogFor(server.baseURL).snapshot()
       expect(snapshot.live).toBe(true)
-      expect(snapshot.facts.has('gemini-4-argon-contributor')).toBe(false)
-      expect(snapshot.unavailable.get('gemini-4-argon-contributor')).toContain('google-generative-ai')
+      expect(snapshot.facts.has('gemini-4-argon')).toBe(false)
+      expect(snapshot.unavailable.get('gemini-4-argon')).toContain('google-generative-ai')
       expect(snapshot.facts.has('glm-5.3')).toBe(true)
     } finally {
       stub.restore()

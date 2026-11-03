@@ -2,6 +2,25 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.89] - 2026-11-03
+
+跟进 DSH `0.2.2-alpha.3`（Cordis `4.0.6-alpha.2`）与 pi-ai `1.5.0`。
+
+### 🔧 适配
+
+- **`internal/config` 监听器双兼容**：Cordis 4.0.6 把所属 fiber 从 `this` 挪进了第一个参数，原来那个位置放的是候选配置——`'internal/config'(this: Fiber, config, next)` 变成 `'internal/config'(fiber, next)`。旧写法在 0.2.2-alpha.3 上 `this` 恒为 `undefined`，`this === ctx.fiber` 永远不成立，**baseURL 校验会静默失效**（不报错，只是不再拦非法值）。现在按位置取 `next`，把 `this` 或 `first` 中等于自己 fiber 的那个当归属者，两代 Cordis 都正确。
+- **pi-ai `~1.4.0` → `1.5.0`**：插件用到的入口（`models`、`api/*.lazy`、`providers/opencode-go.models`、`utils/transcript`、根类型）签名未变，bundle 照常打包。
+- **devDependencies 全部升到 DSH `0.2.2-alpha.3`**，`@deepseek-ai/schemastery` 随之上到 `~3.18.6-alpha.2`（`dsh-settings@0.2.2-alpha.3` 的 peer 要求）；`@deepseek-ai/cordis` 的 peer 范围补上 `4.0.6-alpha.1 || 4.0.6-alpha.2`，避免新宿主上出现 peer 警告。
+
+### ⚠️ 行为变化
+
+- **`gemini-4-argon` 不再列为可用**：pi-ai 1.5.0 把该模型标为 `google-generative-ai`（本插件不实现的第四种线协议），而网关仍在 listing 里公布它。结果是 Gateway 86 个模型中 85 个可用，`gemini-4-argon` 进 `unavailable` 并附上协议原因——这与插件一贯拒绝「静默的谎话」的做法一致：列出来只会在首次请求时失败。要恢复它需要实现 Google 协议，那是新增能力，不在本次适配范围。
+
+### 🧪 测试
+
+- 断言跟随上游改名（`gemini-4-argon-contributor` → `gemini-4-argon`）；Console 目录用例改为「86 个里 85 个可调用 + 唯一不可用者及其原因」；README 版本行同步。
+- 新增 4 条 `internal/config` 监听器用例：4.0.5 的 `this` 形状、4.0.6 的首参形状、别人的 fiber 不碰、以及挂载尚无 fiber 时不得误判。套件 **61 个测试文件 / 527 个用例**，`typecheck`、`build`、`lint` 全绿。
+
 ## [0.1.88] - 2026-10-30
 
 请求日志参考 DSH 内置统计：行内迷你阶段条、工具调用列、上下文装配列。
