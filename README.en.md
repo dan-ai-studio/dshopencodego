@@ -240,7 +240,7 @@ The verdict:
 - not satisfied → **that plugin row is disabled with a printed reason** (`Plugin … is incompatible with dsh …`), leaving other plugins untouched;
 - to take the risk anyway, grant an **exact-version exemption**: `dsh plugin --profile <profile> allow-version <pkg>@<version> --dsh-version <exact> --accept-risk` (applies only to that package and that exact runtime version); `dsh plugin --profile <profile> version-exemptions` lists what a profile holds.
 
-**This plugin declares `engines.dsh`, so that is the range the gate enforces**; the peer ranges are a declaration for readers and package managers, and only take over the verdict if `engines.dsh` is removed. The upper bound is written `<0.3.0-0` rather than `<0.3.0` precisely because the check includes prereleases: `<0.3.0` would judge `0.3.0-rc.1` and its siblings **compatible** and let them load, while `<0.3.0-0` closes the whole `0.3.0` line. `@deepseek-ai/cordis` is declared separately as `4.0.4 || 4.0.5-alpha.1 || 4.0.5-alpha.2 || 4.0.5 || 4.0.6-alpha.1 || 4.0.6-alpha.2` — the runtimes used by DSH `0.2.0-rc.1`/`rc.2`, `0.2.1-alpha.1`/`alpha.2`, `0.2.1-alpha.3`–`alpha.5`, and `0.2.1-rc.2` respectively (`4.0.2`/`4.0.3` were dropped along with pre-`0.2.0` support).
+**This plugin declares `engines.dsh`, so that is the range the gate enforces**; the peer ranges are a declaration for readers and package managers, and only take over the verdict if `engines.dsh` is removed. The upper bound is written `<0.3.0-0` rather than `<0.3.0` precisely because the check includes prereleases: `<0.3.0` would judge `0.3.0-rc.1` and its siblings **compatible** and let them load, while `<0.3.0-0` closes the whole `0.3.0` line. `@deepseek-ai/cordis` is declared separately as `4.0.4 || 4.0.5-alpha.1 || 4.0.5-alpha.2 || 4.0.5 || 4.0.6-alpha.1 || 4.0.6-alpha.2 || 4.1.0` — the runtimes used by DSH `0.2.0-rc.1`/`rc.2`, `0.2.1-alpha.1`/`alpha.2`, `0.2.1-alpha.3`–`alpha.5`, and `0.2.1-rc.2` respectively, with `4.1.0` from `0.2.2-rc.1` onward (`4.0.2`/`4.0.3` were dropped along with pre-`0.2.0` support).
 
 **Outside the declared range**: everything before `0.2.0-rc.1`, and the whole `0.3.0` line (prereleases included), are refused. If the seam is compatible, widen or drop this plugin's **`engines.dsh`** in your own build — widening the peer range does nothing, since it takes no part in the verdict — or wait for a plugin release.
 
@@ -250,10 +250,10 @@ The verdict:
 | --- | --- | --- |
 | `engines.dsh` | `>=0.2.0-rc.1 <0.3.0-0` | **DSH's gate at plugin load time; declaring it skips the peer verdict entirely** |
 | `peerDependencies` (20 `@deepseek-ai/dsh-*` packages) | all `>=0.2.0-rc.1 <0.3.0-0` | takes over only when `engines.dsh` is absent; this plugin declares it, so the peers take no part today |
-| `@deepseek-ai/cordis` | `4.0.4 \|\| 4.0.5-alpha.1 \|\| 4.0.5-alpha.2 \|\| 4.0.5 \|\| 4.0.6-alpha.1 \|\| 4.0.6-alpha.2` | the same peer channel |
+| `@deepseek-ai/cordis` | `4.0.4 \|\| 4.0.5-alpha.1 \|\| 4.0.5-alpha.2 \|\| 4.0.5 \|\| 4.0.6-alpha.1 \|\| 4.0.6-alpha.2 \|\| 4.1.0` | the same peer channel |
 | `engines.node` | `^22.19.0 \|\| >=24.0.0` | the package manager |
 | bundled `@earendil-works/pi-ai` | `1.5.0` (within 1.5.x), **compiled into `lib/`** (devDependency) | an independent coupling: a change in pi-ai's request construction changes this plugin's wire behaviour, and its opencode-go builtin catalog is this plugin's fallback data. Bundling leaves the plugin with **no runtime dependencies** for an installer to resolve |
-| bundled `@deepseek-ai/schemastery` | `~3.18.6-alpha.2`, **compiled into `lib/`** (devDependency) | a build-time dependency |
+| bundled `@deepseek-ai/schemastery` | `~3.19.0`, **compiled into `lib/`** (devDependency) | a build-time dependency |
 
 Things to keep in mind when maintaining this:
 

@@ -239,7 +239,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 - 不满足 → **该插件行被禁用并打印原因**（`Plugin … is incompatible with dsh …`），其他插件不受影响；
 - 需要冒险时可用**精确版本豁免**：`dsh plugin --profile <profile> allow-version <包>@<版本> --dsh-version <精确版本> --accept-risk`（只对该包与该精确版本生效）；`dsh plugin --profile <profile> version-exemptions` 可列出当前 profile 的豁免。
 
-**本插件声明了 `engines.dsh`，所以生效的门禁就是它**；peer 范围是给读者与包管理器的声明，只在 `engines.dsh` 被删除之后才会接管判定。上界写成 `<0.3.0-0` 而不是 `<0.3.0`，正是因为判定含预发布：`<0.3.0` 会把 `0.3.0-rc.1` 这类**预发布版判为兼容**并放行，`<0.3.0-0` 才真正封住整条 `0.3.0` 线。`@deepseek-ai/cordis` 单独声明为 `4.0.4 || 4.0.5-alpha.1 || 4.0.5-alpha.2 || 4.0.5 || 4.0.6-alpha.1 || 4.0.6-alpha.2`——依次是 DSH `0.2.0-rc.1`/`rc.2`、`0.2.1-alpha.1`/`alpha.2`、`0.2.1-alpha.3`–`alpha.5`、以及 `0.2.1-rc.2` 所用的运行时（`4.0.2`/`4.0.3` 随 `0.2.0` 之前的支持一并移除）。
+**本插件声明了 `engines.dsh`，所以生效的门禁就是它**；peer 范围是给读者与包管理器的声明，只在 `engines.dsh` 被删除之后才会接管判定。上界写成 `<0.3.0-0` 而不是 `<0.3.0`，正是因为判定含预发布：`<0.3.0` 会把 `0.3.0-rc.1` 这类**预发布版判为兼容**并放行，`<0.3.0-0` 才真正封住整条 `0.3.0` 线。`@deepseek-ai/cordis` 单独声明为 `4.0.4 || 4.0.5-alpha.1 || 4.0.5-alpha.2 || 4.0.5 || 4.0.6-alpha.1 || 4.0.6-alpha.2 || 4.1.0`——依次是 DSH `0.2.0-rc.1`/`rc.2`、`0.2.1-alpha.1`/`alpha.2`、`0.2.1-alpha.3`–`alpha.5`、以及 `0.2.1-rc.2` 所用的运行时，末尾的 `4.1.0` 是 `0.2.2-rc.1` 起的运行时（`4.0.2`/`4.0.3` 随 `0.2.0` 之前的支持一并移除）。
 
 **声明范围之外**：`0.2.0-rc.1` 之前的所有版本、以及整条 `0.3.0` 线（含预发布）都会被拒绝加载。如果 DSH 侧接口兼容，可自行放宽或删除该插件的 **`engines.dsh`** 后重新构建（改 peer 范围是无效的——它不参与判定）；否则请等插件跟进发版。
 
@@ -249,10 +249,10 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 | --- | --- | --- |
 | `engines.dsh` | `>=0.2.0-rc.1 <0.3.0-0` | **DSH 加载时的真门禁；声明了它，peer 判定被整体跳过** |
 | `peerDependencies`（20 个 `@deepseek-ai/dsh-*`） | 均为 `>=0.2.0-rc.1 <0.3.0-0` | 仅当 `engines.dsh` 缺席时才接管；本插件声明了它，故当前不参与判定 |
-| `@deepseek-ai/cordis` | `4.0.4 \|\| 4.0.5-alpha.1 \|\| 4.0.5-alpha.2 \|\| 4.0.5 \|\| 4.0.6-alpha.1 \|\| 4.0.6-alpha.2` | 同上（peer 通道） |
+| `@deepseek-ai/cordis` | `4.0.4 \|\| 4.0.5-alpha.1 \|\| 4.0.5-alpha.2 \|\| 4.0.5 \|\| 4.0.6-alpha.1 \|\| 4.0.6-alpha.2 \|\| 4.1.0` | 同上（peer 通道） |
 | `engines.node` | `^22.19.0 \|\| >=24.0.0` | 包管理器 |
 | 已打包依赖 `@earendil-works/pi-ai` | `1.5.0`（1.5.x 内），**打进产物**（devDependency） | 独立耦合：pi-ai 改请求构造即影响本插件的线上行为；其 opencode-go 内置目录同时是本插件的打底数据。打包后本插件**没有任何运行时依赖**，安装者不必再解析它 |
-| 已打包依赖 `@deepseek-ai/schemastery` | `~3.18.6-alpha.2`，**打进产物**（devDependency） | 构建期依赖 |
+| 已打包依赖 `@deepseek-ai/schemastery` | `~3.19.0`，**打进产物**（devDependency） | 构建期依赖 |
 
 维护时需要注意：
 

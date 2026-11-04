@@ -2,6 +2,29 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.90] - 2026-11-04
+
+跟进 DSH `0.2.2-rc.1`（Cordis `4.1.0`）。
+
+### 🔧 适配
+
+- **`@deepseek-ai/cordis` peer 范围补 `4.1.0`**：DSH 把 Cordis 从 `4.0.6-alpha.2` 提到 `4.1.0`，但 `vendor/cordis` 的源码在这两个版本之间**一行未改**（只有 `package.json` 的 version），`'internal/config'` 仍是 `(fiber, next)` 形态——0.1.89 的双签名兼容代码继续正确，无需改逻辑。
+- **devDependencies 升到 `0.2.2-rc.1`**，`@deepseek-ai/schemastery` 随 `dsh-settings` 的 peer 要求到 `~3.19.0`；新增 `@deepseek-ai/cordis-plugin-loader` 与 `@deepseek-ai/cordis-plugin-include` 的 `1.1.0`（Cordis 4.1.0 的 peerOptional，否则 npm 报 ERESOLVE）。
+
+### 🔍 兼容性核查（结论：宿主 API 对插件零破坏）
+
+- `dsh-llm`：只有 `content.ts` 的工具声明重建逻辑变了；插件用的 `contentHasImage`、`requestImageHandleText` 未动。
+- `dsh-typert-protocol`、`dsh-attachment`、`dsh-timeout`、`dsh-brand`、`dsh-credentials`、`dsh-launch-environment`：`src` 零变化。
+- `ui-slots`：新增 `hoc` slot kind 与 `HocRenderOpts`/`HocShare`，`InjectFace`/`PropsRuntime` 保留。
+- `ui-sidebar`：`sidebar.panellist` 的 SlotMap 声明一字未改，只是渲染改由新的 `sidebar.panel.icon` factory 包裹，对注册方透明。
+- `ui-primitives`：**移除**了 `useAnchoredPosition` 与 `AnchoredPositionOptions`——本插件未使用。
+- `PLATFORM_MODULES` 与 `build.mjs` 的断言列表仍完全一致。
+- rc.1 里三条面向插件的迁移（`agent.model` 取代 `agent/request` 改路由、Session Projection 注册改异步、`tools.resolve/executable`）本插件都未使用。
+
+### 🧪 测试
+
+- 套件 **61 个测试文件 / 527 个用例**全绿，`typecheck`、`build`、`lint` 通过。`metadata-etag` 与 `pin-wiring` 各有一条并发时序 flaky，单跑与重跑均通过，与本改动无关。
+
 ## [0.1.89] - 2026-11-03
 
 跟进 DSH `0.2.2-alpha.3`（Cordis `4.0.6-alpha.2`）与 pi-ai `1.5.0`。
