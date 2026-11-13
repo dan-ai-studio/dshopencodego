@@ -2,6 +2,27 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.93] - 2026-11-13
+
+跟进 DSH `0.2.2-rc.3`。上游 `rc.1 → rc.3` 之间对插件只有一处**类型收窄**，运行时零破坏。
+
+### 🔧 适配
+
+- **`LlmError` 的 `code` 收窄为内置联合类型**（`0.2.2-rc.2`）：构造函数从 `code: string` 改成 `code: BuiltinLlmFailureCode`，同版本新增 `LlmError.fromFailure()` 供「provider 自己选的 code」使用。本插件有三个 code 刻意在联合之外——`USAGE_UNAVAILABLE`、`DOCUMENT_UNAVAILABLE`、`MODEL_METADATA_UNAVAILABLE`，它们描述用量探测与文档抓取，不是模型请求失败，内置分类里没有对应词。新增 `src/llm-error.ts` 的 `llmFailure()`：运行时若 `fromFailure` 存在就走它，否则回落到构造函数（`0.2.2-rc.1` 及更早的构造函数只校验「非空字符串」，所以声明范围内的老宿主继续可用）。6 处构造改为调用它。
+- **devDependencies 从 `0.2.2-rc.1` 升到 `0.2.2-rc.3`**（24 个包）。
+
+### 🔍 兼容性核查（结论：其余零破坏）
+
+- `rc.1 → rc.2`：`dsh-llm` 除 `LlmError` 外只有内部重构（`projectToolUpdates` 的 addition-only 基线重建、`LLM_FAILURE_CODES` 常量表、`attribution` 新增 `DSH_USER_AGENT_SUFFIX`）；`dsh-typert-protocol`/`registry`、`dsh-attachment`、`dsh-timeout`、`dsh-brand`、`dsh-launch-environment` **src 零变化**；`ui-slots` 新增 `hoc` slot kind（纯增，插件只用 `InjectFace`/`PropsRuntime`）；`dsh-credentials` 的 `CredentialInfo` 新增可选 `masked`（纯增）；`dsh-fs` 新增导出（纯增）。
+- `rc.2 → rc.3`：`ui-sidebar` 新增 `sidebar.session.action` hoc slot 与 `SidebarSessionActionOwnerProps`、`ui-primitives` 新增 `IconUploadOutline*`（都是纯增）；其余相关包零变化。
+- **工具更新投影的变化不影响本插件**：插件注册的 adapter 没有声明 `toolUpdate` 模式，`projectToolUpdates` 走的是「未声明」的默认路径。
+- **`PLATFORM_MODULES`**（`packages/client/web/src/platform.ts`）在 `rc.1 → rc.3` 之间一字未改，`scripts/build.mjs` 的断言仍然成立。
+- `cordis` 仍是 `4.1.0`，pi-ai peer 仍是 `^1.3.0`（devDep `1.5.0` 满足）。
+
+### 🧪 测试
+
+- 套件 **64 个测试文件 / 567 个用例**全绿，`typecheck`、`build`、`lint` 通过。
+
 ## [0.1.92] - 2026-11-13
 
 设置页新增「桌面版」一栏：一次点击读出官方发布源上最新的桌面端安装包地址。

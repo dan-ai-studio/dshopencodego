@@ -10,7 +10,8 @@
  * @module @dan-ai-studio/dshopencodego/usage/windows
  */
 
-import { attributionHeaders, LlmError } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders } from '@deepseek-ai/dsh-llm'
+import { llmFailure } from '../llm-error.ts'
 import { readBoundedJson } from '../catalog/json-response.ts'
 
 /** One quota window as the gateway reports it. */
@@ -87,7 +88,7 @@ interface UsageReadOptions {
  */
 export async function readUsageWindows(options: UsageReadOptions): Promise<GoUsageWindows> {
   if (options.apiKey === undefined || options.apiKey.length === 0) {
-    throw new LlmError('dshopencodego: no credential is configured for the opencode-go route', 'USAGE_UNAVAILABLE')
+    throw llmFailure('dshopencodego: no credential is configured for the opencode-go route', 'USAGE_UNAVAILABLE')
   }
   const url = `${options.baseURL.replace(/\/+$/, '')}/usage`
   const timeout = AbortSignal.timeout(USAGE_TIMEOUT_MS)
@@ -104,11 +105,11 @@ export async function readUsageWindows(options: UsageReadOptions): Promise<GoUsa
       signal: options.signal === undefined ? timeout : AbortSignal.any([options.signal, timeout]),
     })
   } catch (error: unknown) {
-    throw new LlmError(`could not reach ${url}`, 'USAGE_UNAVAILABLE', { cause: error })
+    throw llmFailure(`could not reach ${url}`, 'USAGE_UNAVAILABLE', { cause: error })
   }
   if (!response.ok) {
     await response.body?.cancel().catch(() => {})
-    throw new LlmError(`${url} answered HTTP ${response.status}`, 'USAGE_UNAVAILABLE')
+    throw llmFailure(`${url} answered HTTP ${response.status}`, 'USAGE_UNAVAILABLE')
   }
   const body = await readBoundedJson(response, url, USAGE_MAX_BYTES)
   try {
@@ -117,6 +118,6 @@ export async function readUsageWindows(options: UsageReadOptions): Promise<GoUsa
       ...options.source === undefined ? {} : { source: options.source },
     }
   } catch (error: unknown) {
-    throw new LlmError(`${url} returned an invalid usage document`, 'USAGE_UNAVAILABLE', { cause: error })
+    throw llmFailure(`${url} returned an invalid usage document`, 'USAGE_UNAVAILABLE', { cause: error })
   }
 }

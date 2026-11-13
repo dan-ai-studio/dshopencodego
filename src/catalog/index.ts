@@ -31,6 +31,7 @@ import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messag
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy'
 import { attributionHeaders, LlmError } from '@deepseek-ai/dsh-llm'
+import { llmFailure } from '../llm-error.ts'
 import type { LlmDiscoveredModel } from '@deepseek-ai/dsh-llm'
 import {
   DISPLAY_NAME,
@@ -504,7 +505,7 @@ export class OpencodeGoCatalog {
     }
     const reason = snapshot.unavailable.get(id)
     if (reason !== undefined) {
-      throw new LlmError(
+      throw llmFailure(
         `opencode-go model "${id}" is advertised but cannot be configured: ${reason};`
         + ' refresh the model list to retry',
         'MODEL_METADATA_UNAVAILABLE',

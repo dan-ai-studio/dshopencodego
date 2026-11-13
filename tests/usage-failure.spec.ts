@@ -10,6 +10,7 @@ import { LlmError } from '@deepseek-ai/dsh-llm'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { catalogFailure } from '../src/catalog/service.ts'
 import { usageFailure } from '../src/usage/service.ts'
+import { llmFailure } from '../src/llm-error.ts'
 
 describe('usageFailure', () => {
   it('reports a missing credential as non-retryable with nothing to retain', () => {
@@ -20,7 +21,7 @@ describe('usageFailure', () => {
   })
 
   it('reports any other failure as retryable, retaining the named source', () => {
-    const error = usageFailure(new LlmError('boom', 'USAGE_UNAVAILABLE'), 'source-1')
+    const error = usageFailure(llmFailure('boom', 'USAGE_UNAVAILABLE'), 'source-1')
     expect(error.details).toMatchObject({ retryable: true, retainPrevious: true, source: 'source-1' })
   })
 

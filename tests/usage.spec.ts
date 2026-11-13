@@ -10,6 +10,7 @@ import { UsageMeter } from '../src/usage/meter.ts'
 import { parseGoUsage, readUsageWindows } from '../src/usage/windows.ts'
 import { parseGoMeter, parseUsageWindows } from '../src/usage/contract.ts'
 import { usageFailure } from '../src/usage/service.ts'
+import { llmFailure } from '../src/llm-error.ts'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { OpencodeGoAdapter } from '../src/adapter.ts'
 import type { OpencodeGoConfig } from '../src/config.ts'
@@ -84,7 +85,7 @@ describe('usage failure semantics', () => {
     const missing = usageFailure(new LlmError('no credential', 'MISSING_CREDENTIAL'), undefined)
     expect(missing.details).toMatchObject({ retryable: false, retainPrevious: false })
 
-    const transport = usageFailure(new LlmError('could not reach', 'USAGE_UNAVAILABLE'), 'src-1')
+    const transport = usageFailure(llmFailure('could not reach', 'USAGE_UNAVAILABLE'), 'src-1')
     expect(transport.details).toMatchObject({ retryable: true, retainPrevious: true, source: 'src-1' })
     expect(transport.message).toBe('could not reach')
   })

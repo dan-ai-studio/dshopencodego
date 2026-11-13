@@ -14,7 +14,8 @@
  * @module @dan-ai-studio/dshopencodego/catalog/go-doc
  */
 
-import { attributionHeaders, LlmError } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders } from '@deepseek-ai/dsh-llm'
+import { llmFailure } from '../llm-error.ts'
 import type { GoQuota } from '../go-limits.ts'
 import { METADATA_FETCH_TIMEOUT_MS } from './constants.ts'
 import { readBoundedText } from './json-response.ts'
@@ -355,7 +356,7 @@ export async function fetchGoDocument(
   // Every reason, not just the first stage's: a user reading this has to be
   // able to tell "the path moved and the discovery could not follow it" from
   // "every source timed out".
-  throw new LlmError(
+  throw llmFailure(
     `could not read the Go documentation (${failures.join('; ')})`,
     'DOCUMENT_UNAVAILABLE',
   )

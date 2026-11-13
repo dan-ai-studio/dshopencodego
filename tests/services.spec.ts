@@ -126,6 +126,6 @@ describe('OpencodeGoUsageService', () => {
 
 describe('LlmError import', () => {
   it('is the same class the services throw', () => {
-    expect(new LlmError('x', 'USAGE_UNAVAILABLE')).toBeInstanceOf(Error)
+    expect(new LlmError('x', 'UNKNOWN')).toBeInstanceOf(Error)
   })
 })
