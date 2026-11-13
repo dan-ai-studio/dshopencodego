@@ -42,22 +42,11 @@ function usedNamespaces(): Set<string> {
 }
 
 describe('client inject declarations', () => {
-  /**
-   * Namespaces the page reads defensively instead of through `inject`.
-   *
-   * Declaring one in the inject list makes it a hard dependency: Cordis runs
-   * the injection only when every name resolves, so a namespace that never
-   * mounts takes the whole section down with it — which is exactly what
-   * `remote.opencodeGoDesktop` did in 0.1.92. The page reads that one inside a
-   * try/catch and renders the download row as "not ready" instead.
-   */
-  const OPTIONAL_READS = new Set(['remote.opencodeGoDesktop'])
-
   it('declares every Remote namespace the settings page reads', () => {
     const declared = declaredNamespaces()
     const used = [...usedNamespaces()].toSorted()
     expect(used.length).toBeGreaterThan(0)
-    expect(used.filter(name => !declared.has(name) && !OPTIONAL_READS.has(name))).toEqual([])
+    expect(used.filter(name => !declared.has(name))).toEqual([])
   })
 
   it('declares every Remote namespace the client entry itself reads', () => {

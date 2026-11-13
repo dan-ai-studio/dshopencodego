@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { CatalogReading } from '../catalog/contract.ts'
-import type { DesktopReading } from '../desktop/contract.ts'
+import type { DesktopReading } from '../update/contract.ts'
 import type { NetworkReading } from '../network/contract.ts'
 import type { RequestLogSnapshot } from '../request-log/contract.ts'
 import type { UpdateStatus } from '../update/contract.ts'
@@ -90,24 +90,6 @@ export interface PluginManagerHolder {
   current?: PluginManagerLike | undefined
 }
 
-/**
- * Holder for the desktop download Remote, filled by its own `scope.inject`.
- *
- * Same pattern as {@link PluginManagerHolder}, and for a sharper reason: a
- * namespace named in the *main* injection is a hard dependency. Cordis runs
- * that callback only when every name resolves, so a namespace that never
- * mounts does not degrade the page — it removes the whole settings section.
- * 0.1.92 did exactly that with `remote.opencodeGoDesktop` and the section
- * vanished for two releases.
- */
-export interface DesktopHolder {
-  /** Explicitly `undefined`-able: cleared when the namespace's fiber goes away. */
-  current?: {
-    readDesktop(): Promise<RemoteResult<DesktopReading>>
-    refreshDesktop(): Promise<RemoteResult<DesktopReading>>
-  } | undefined
-}
-
 /** The subset of the client context this page uses. */
 export interface SectionServices {
   readonly remote: {
@@ -124,6 +106,17 @@ export interface SectionServices {
     readonly opencodeGoUpdate?: {
       readUpdate(): Promise<RemoteResult<UpdateStatus>>
       refreshUpdate(): Promise<RemoteResult<UpdateStatus>>
+      /**
+       * The desktop download feed, added to this namespace in 0.1.97.
+       *
+       * It rides the update Remote rather than one of its own: a separate
+       * namespace has to be listed in both the Host contribution and the
+       * Client's ``, and a namespace missing from either side is
+       * invisible in a way that removes the whole settings section (0.1.92).
+       * Optional because a Host older than 0.1.97 answers neither method.
+       */
+      readDesktop?(): Promise<RemoteResult<DesktopReading>>
+      refreshDesktop?(): Promise<RemoteResult<DesktopReading>>
     }
     /**
      * The gateway's pin.
@@ -150,15 +143,6 @@ export interface SectionServices {
       unset(ref: string): Promise<RemoteResult<unknown>>
     }
   }
-  /**
-   * The desktop download Remote, through the holder `client/index.ts` fills.
-   *
-   * Absent until that namespace is mounted, which is why the page degrades
-   * instead of failing: the download row says it is not ready and every other
-   * panel keeps working. It is deliberately outside the main injection — see
-   * {@link DesktopHolder}.
-   */
-  readonly desktop?: DesktopHolder
   /**
    * The host's own package manager, used only to apply an update.
    *
@@ -583,20 +567,25 @@ export class SectionController {
   }
 
   /**
-   * The desktop download Remote, when the running build mounted it.
+   * The desktop download methods, when the running Host offers them.
    *
-   * Read through the holder rather than from `services.remote`: Cordis refuses
-   * a service read that was not declared in an injection, and declaring this
-   * one in the *main* injection is what removed the whole settings section in
-   * 0.1.92. The holder is filled by its own `scope.inject`, so it is populated
-   * exactly when the namespace exists and empty otherwise.
-   * @returns the mounted desktop Remote, or undefined when it is absent.
+   * They ride `remote.opencodeGoUpdate` — a namespace this page already
+   * injects — so there is no second namespace to keep in sync between the Host
+   * contribution and the Client's `$mount`. That sync is what broke 0.1.92:
+   * a namespace present on one side only leaves the page unable to read it,
+   * and a *declared* missing namespace removes the whole section.
+   * @returns the two zero-argument wire calls, or undefined on an older Host.
    */
   private desktopRemote(): {
     readDesktop(): Promise<RemoteResult<DesktopReading>>
     refreshDesktop(): Promise<RemoteResult<DesktopReading>>
   } | undefined {
-    return this.services.desktop?.current
+    const remote = this.services.remote.opencodeGoUpdate
+    if (remote?.readDesktop === undefined || remote.refreshDesktop === undefined) return undefined
+    return {
+      readDesktop: () => remote.readDesktop!(),
+      refreshDesktop: () => remote.refreshDesktop!(),
+    }
   }
 
   /**

@@ -9,7 +9,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { Section, SectionController } from '../src/client/Section.tsx'
 import type { SectionServices } from '../src/client/Section.tsx'
 import { en } from '../src/client/locales.ts'
-import type { DesktopReading } from '../src/desktop/contract.ts'
+import type { DesktopReading } from '../src/update/contract.ts'
 
 const RELEASE = {
   version: '0.2.2-rc.3',
@@ -37,21 +37,15 @@ function services(desktop: Partial<Record<'readDesktop' | 'refreshDesktop', () =
       opencodeGoUpdate: {
         readUpdate: async () => ok({ current: '0.1.22', latest: '0.1.22', available: false, checkedAt: 0, checked: true }),
         refreshUpdate: async () => ok({ current: '0.1.22', latest: '0.1.22', available: false, checkedAt: 0, checked: true }),
+        // The desktop methods ride this namespace, so they are read here rather
+        // than from a namespace of their own.
+        readDesktop: desktop.readDesktop ?? (async () => ok(READY)),
+        refreshDesktop: desktop.refreshDesktop ?? (async () => ok(READY)),
       },
       credentials: {
         describe: async () => ok({}),
         set: async () => ok(undefined),
         unset: async () => ok(undefined),
-      },
-    },
-    // The page reads the desktop Remote through this holder, which
-    // `client/index.ts` fills from its own `scope.inject` — never from the
-    // main injection, which would make a missing namespace remove the whole
-    // settings section.
-    desktop: {
-      current: {
-        readDesktop: desktop.readDesktop ?? (async () => ok(READY)),
-        refreshDesktop: desktop.refreshDesktop ?? (async () => ok(READY)),
       },
     },
     scope: undefined,
@@ -123,22 +117,21 @@ describe('desktop panel controller', () => {
     expect(controller.snapshot().desktop.message).toContain('feed exploded')
   })
 
-  it('degrades when the holder is empty because the namespace never mounted', async () => {
-    // The holder is filled by a separate `scope.inject`, so an unmounted
-    // namespace leaves it empty. The row must say so — and the rest of the
-    // page must keep rendering, which is what the main injection cannot do.
+  it('degrades when the Host offers no desktop methods', async () => {
+    // The desktop calls ride `opencodeGoUpdate`, so a Host older than 0.1.97
+    // answers the update methods and neither desktop one. The row must say so
+    // and the rest of the page must keep rendering.
     const tracking = services()
-    Object.defineProperty(tracking, 'desktop', { configurable: true, value: { current: undefined } })
+    Object.defineProperty(tracking.remote, 'opencodeGoUpdate', {
+      configurable: true,
+      value: {
+        readUpdate: async () => ok({ current: '0.1.22', latest: '0.1.22', available: false, checkedAt: 0, checked: true }),
+        refreshUpdate: async () => ok({ current: '0.1.22', latest: '0.1.22', available: false, checkedAt: 0, checked: true }),
+      },
+    })
     const controller = new SectionController(tracking)
     await settle()
     expect(controller.snapshot().desktop).toMatchObject({ phase: 'failed', message: 'remote-not-mounted' })
-  })
-
-  it('renders the rest of the page even when the desktop holder stays empty', async () => {
-    const tracking = services()
-    Object.defineProperty(tracking, 'desktop', { configurable: true, value: {} })
-    const controller = new SectionController(tracking)
-    await settle()
     render(page(controller))
     expect(screen.getByText(en.desktopFailed)).toBeTruthy()
     // The panels the main injection owns are still there.

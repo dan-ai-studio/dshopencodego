@@ -13,5 +13,3 @@ export {
 } from './feed.ts'
 export type { DesktopReading, DesktopRelease } from './feed.ts'
 export { createDesktopFeedReader, parseDesktopFeed } from './feed.ts'
-export { OpencodeGoDesktopService } from './service.ts'
-export { desktopRemote, parseDesktopReading } from './contract.ts'

@@ -27,7 +27,6 @@ import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { catalogRemote } from '../catalog/contract.ts'
-import { desktopRemote } from '../desktop/contract.ts'
 import { networkRemote } from '../network/contract.ts'
 import { requestLogRemote } from '../request-log/contract.ts'
 import { updateRemote } from '../update/contract.ts'
@@ -36,7 +35,7 @@ import type { TypertDisposer } from '@deepseek-ai/dsh-typert-protocol'
 import { en, zh } from './locales.ts'
 import type { OpencodeGoKey } from './locales.ts'
 import { Section, SectionController } from './Section.tsx'
-import type { DesktopHolder, PluginManagerHolder, SettingsScopeLike } from './Section.tsx'
+import type { PluginManagerHolder, SettingsScopeLike } from './Section.tsx'
 import { RequestLogPage } from './RequestLogPage.tsx'
 import type { RequestLogFace } from './RequestLogPage.tsx'
 import { RequestLogPanelIcon } from './RequestLogPanelIcon.tsx'
@@ -112,10 +111,10 @@ export function apply(ctx: ClientContext): void {
   // the same mount as usage: a separate `$mount` would leave
   // `remote.opencodeGoCatalog` unregistered, and the settings section's inject
   // would then never be satisfied. Mirrors the Host-side contribution in
-  // `src/remotes.ts` — and the mirror has to be exact. 0.1.92 added
-  // `opencodeGoDesktop` to the Host list only; the namespace then existed on
-  // the Host and nowhere on the Client, so the page's inject never resolved and
-  // the whole settings section silently disappeared. `tests/remote-mount.spec.ts`
+  // `src/remotes.ts` — and the mirror has to be exact. 0.1.92 added a
+  // descriptor to the Host list only; the namespace then existed on the Host
+  // and nowhere on the Client, so the page's inject never resolved and the
+  // whole settings section silently disappeared. `tests/remote-mount.spec.ts`
   // now pins the two lists against each other.
   const mounted = ctx.remote.$mount({
     package: usageRemote.package,
@@ -124,7 +123,6 @@ export function apply(ctx: ClientContext): void {
       ...catalogRemote.descriptors,
       ...updateRemote.descriptors,
       ...networkRemote.descriptors,
-      ...desktopRemote.descriptors,
       ...requestLogRemote.descriptors,
     ],
   })
@@ -145,32 +143,17 @@ export function apply(ctx: ClientContext): void {
   // gateway's pin through it, and reading an undeclared service throws.
   // The request-log namespace is here because the request-log viewer reads
   // its snapshot through it.
-  // The desktop namespace is here because the page's download panel reads the
-  // published installer address through it.
   ctx.inject(['configForms', 'remote.opencodeGoCatalog', 'remote.opencodeGoUpdate', 'remote.opencodeGoNetwork', 'remote.opencodeGoRequestLog', 'remote.credentials'], (scope) => {
     // Profile-entry forms live on `configForms`; the entry id is this
     // plugin's, and a composition without the form renders the page read-only.
     const forms = scope.get('configForms') as
       { get(id: string): SettingsScopeLike | undefined } | undefined
     const pluginManager: PluginManagerHolder = {}
-    const desktop: DesktopHolder = {}
     const profile = forms?.get('dshopencodego')
     const controller = new SectionController({
       remote: scope.remote,
       pluginManager,
-      desktop,
       scope: profile,
-    })
-    // The desktop download Remote, filled the same way as the plugin manager.
-    //
-    // It must not join the required list above: a namespace named there is a
-    // hard dependency, and one that never mounts removes the whole settings
-    // section rather than degrading it — which is what 0.1.92 did to this
-    // page. Its own `inject` also waits for the namespace to be mounted,
-    // which is what a one-shot `scope.get()` cannot do during apply.
-    scope.inject(['remote.opencodeGoDesktop'], (desktopScope) => {
-      desktop.current = desktopScope.remote.opencodeGoDesktop as never
-      return () => { desktop.current = undefined }
     })
     // The package manager is filled separately and reactively.
     //

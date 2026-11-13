@@ -1,12 +1,16 @@
 /**
- * Desktop Remote: the wire codec for a feed reading, and the service that
- * answers from it. The reading is advisory — the address is shown, never
- * downloaded — so there is no install path to test here.
+ * Desktop download readings on the update Remote.
+ *
+ * The feed's parsing and caching live in `desktop/feed.ts` (covered by
+ * `desktop-feed.spec.ts`); what this file pins is the wire contract and the
+ * service that exposes it. The two desktop methods ride the `opencodeGoUpdate`
+ * namespace on purpose — a separate namespace would have to be listed in both
+ * the Host contribution and the Client's `$mount`, and getting that wrong once
+ * (0.1.92) removed the whole settings section.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { parseDesktopReading } from '../src/desktop/contract.ts'
-import { OpencodeGoDesktopService } from '../src/desktop/service.ts'
-import { desktopRemote } from '../src/desktop/contract.ts'
+import { parseDesktopReading, updateRemote } from '../src/update/contract.ts'
+import { OpencodeGoUpdateService } from '../src/update/service.ts'
 
 /** A Cordis context stub: the service base only registers through `reflect`. */
 const CTX = { reflect: { provide: () => {} } } as never
@@ -62,39 +66,42 @@ describe('parseDesktopReading', () => {
   })
 })
 
-describe('desktopRemote', () => {
-  it('declares the read and refresh pair under one namespace', () => {
-    expect(desktopRemote.package).toBe('@dan-ai-studio/dshopencodego')
-    expect(desktopRemote.descriptors.map(descriptor => descriptor.id)).toEqual([
-      '@dan-ai-studio/dshopencodego#opencodeGoDesktop/readDesktop',
-      '@dan-ai-studio/dshopencodego#opencodeGoDesktop/refreshDesktop',
+describe('updateRemote descriptors', () => {
+  it('declares the update and desktop pairs under one namespace', () => {
+    expect(updateRemote.descriptors.map(descriptor => descriptor.id)).toEqual([
+      '@dan-ai-studio/dshopencodego#opencodeGoUpdate/readUpdate',
+      '@dan-ai-studio/dshopencodego#opencodeGoUpdate/refreshUpdate',
+      '@dan-ai-studio/dshopencodego#opencodeGoUpdate/readDesktop',
+      '@dan-ai-studio/dshopencodego#opencodeGoUpdate/refreshDesktop',
     ])
+    // One namespace, so the Host contribution and the Client's `$mount` cannot
+    // disagree about which namespaces exist.
+    expect(new Set(updateRemote.descriptors.map(descriptor => descriptor.namespace))).toEqual(
+      new Set(['opencodeGoUpdate']),
+    )
   })
 
-  it('declares no business parameters, so neither method takes a force flag', () => {
-    for (const descriptor of desktopRemote.descriptors) {
+  it('declares no business parameters, so no method takes a force flag', () => {
+    for (const descriptor of updateRemote.descriptors) {
       expect(descriptor.parameters).toEqual([])
     }
   })
 
-  it('carries the reading codec, which refuses a malformed payload', () => {
-    // The contribution declares a strict codec; the union type also allows a
-    // `src-json` variant that has no schema, so narrow to the one mounted here.
-    const result = desktopRemote.descriptors[0]?.result as unknown as {
-      schema: { parse: (value: unknown) => unknown }
-    }
+  it('carries the desktop codec, which refuses a malformed payload', () => {
+    const descriptor = updateRemote.descriptors.find(entry => entry.method === 'readDesktop')
+    const result = descriptor?.result as unknown as { schema: { parse: (value: unknown) => unknown } }
     expect(result.schema.parse(READING)).toEqual(READING)
     expect(() => result.schema.parse({})).toThrow(/invalid desktop reading/)
   })
 })
 
-describe('OpencodeGoDesktopService', () => {
+describe('OpencodeGoUpdateService desktop methods', () => {
   it('answers read and refresh from one cached feed reader', async () => {
     // The reader captures `fetch` when the service is constructed, so the stub
-    // has to be in place first — a stub installed afterwards would be ignored.
+    // has to be in place first — a stub installed afterwards is ignored.
     const fetchMock = vi.fn(async () => new Response('version: 0.2.2-rc.3\npath: https://example.test/a.exe\n', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
-    const service = new OpencodeGoDesktopService(CTX)
+    const service = new OpencodeGoUpdateService(CTX, { currentVersion: '0.1.97' })
     const first = await service.readDesktop()
     expect(first).toMatchObject({ checked: true, release: { version: '0.2.2-rc.3' } })
     // A cached read costs no second round trip; the forced refresh does.
@@ -106,7 +113,7 @@ describe('OpencodeGoDesktopService', () => {
 
   it('fails silent when the feed is unreachable', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline') }))
-    const service = new OpencodeGoDesktopService(CTX)
+    const service = new OpencodeGoUpdateService(CTX, { currentVersion: '0.1.97' })
     await expect(service.readDesktop()).resolves.toMatchObject({ checked: false })
   })
 })

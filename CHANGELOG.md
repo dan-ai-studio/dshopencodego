@@ -2,6 +2,21 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.97] - 2026-11-14
+
+桌面版下载面板真正可用：不再依赖第二个 Remote 命名空间。
+
+### 🐛 修复
+
+- **桌面下载改走 `opencodeGoUpdate` 命名空间**（`src/update/contract.ts`、`src/update/service.ts`）：一个 Remote 命名空间要在客户端存在，必须同时列在宿主 contribution 和客户端 `$mount` 里；漏掉一侧客户端就读不到，而把它写进主 `inject` 会让整个设置分区消失（0.1.92）。宿主端点 `/api/opencodeGoDesktop/readDesktop` 一直返回 200，客户端却始终没建出对应命名空间——那层过滤在宿主生成代码里，绕开它比继续猜更可靠。两个方法（`readDesktop` / `refreshDesktop`）现在挂在**已验证可用**的 `opencodeGoUpdate` 上：一个命名空间四个方法，两侧列表天然一致。
+- 删除 `src/desktop/contract.ts` 与 `src/desktop/service.ts`；`src/desktop/feed.ts` 保留，解析与缓存逻辑不变。
+- 设置页改为从 `remote.opencodeGoUpdate.readDesktop()` 读取；宿主版本旧、没有这两个方法时该行降级为「服务未就绪」，其余面板不受影响。
+
+### 🧪 测试
+
+- 实测：页面加载后 `/api/opencodeGoUpdate/readDesktop` 正常发出，下载地址进入面板。
+- 套件 **65 个测试文件 / 569 个用例**全绿，`typecheck`、`build`、`lint` 通过。
+
 ## [0.1.96] - 2026-11-14
 
 让桌面版下载面板真正可用：0.1.94/0.1.95 把它修成了「永远未就绪」。

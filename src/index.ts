@@ -46,7 +46,6 @@ import { assertBaseURL, PlainConfig, readConfig } from './config.ts'
 import type { LiveConfig, OpencodeGoConfig } from './config.ts'
 import { registerRemotes } from './remotes.ts'
 import { OpencodeGoCatalogService } from './catalog/service.ts'
-import { OpencodeGoDesktopService } from './desktop/index.ts'
 import { closeDispatcher, gatewayFetch as fetchThroughPin, observePool, resolveGatewayPin } from './network/pinning.ts'
 import { OpencodeGoNetworkService } from './network/service.ts'
 import { OpencodeGoRequestLogService, RequestLog } from './request-log/index.ts'
@@ -269,10 +268,6 @@ export function apply(ctx: Context, raw?: unknown): void {
     },
   })
   ctx.plugin(OpencodeGoUpdateService, { currentVersion: PLUGIN_VERSION })
-  // The desktop download feed is a separate host from the npm registry and
-  // answers a different question: where the newest installer lives. Mounted
-  // beside the update Remote so both are ready when the page is built.
-  ctx.plugin(OpencodeGoDesktopService)
 
   // Warm the catalog while the host is still starting up, and keep warming
   // it on a timer afterwards.

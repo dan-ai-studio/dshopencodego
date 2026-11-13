@@ -51,9 +51,4 @@ describe('Remote mount parity', () => {
     expect(client).toBe(host)
   })
 
-  it('mounts the desktop Remote on the Client', () => {
-    // The regression this spec exists for, asserted by name so a future
-    // refactor cannot quietly drop it again.
-    expect(mountedRemotes(CLIENT)).toContain('desktopRemote')
-  })
 })

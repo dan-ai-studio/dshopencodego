@@ -9,9 +9,11 @@
  */
 
 import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
+import type { DesktopReading, DesktopRelease } from '../desktop/feed.ts'
 import type { UpdateStatus } from './check.ts'
 
 export type { UpdateStatus } from './check.ts'
+export type { DesktopReading, DesktopRelease } from '../desktop/feed.ts'
 
 /** Validate an update reading crossing the wire. */
 export function parseUpdateStatus(value: unknown): UpdateStatus {
@@ -33,11 +35,57 @@ export function parseUpdateStatus(value: unknown): UpdateStatus {
   }
 }
 
+/** Validate one published installer crossing the wire. */
+function parseRelease(value: unknown): DesktopRelease {
+  if (value === null || typeof value !== 'object') throw new Error('invalid desktop release')
+  const row = value as Record<string, unknown>
+  const version = row['version']
+  const url = row['url']
+  if (typeof version !== 'string' || version.length === 0) throw new Error('invalid desktop release')
+  if (typeof url !== 'string' || url.length === 0) throw new Error('invalid desktop release')
+  const size = row['size']
+  const sha512 = row['sha512']
+  const stagingPercentage = row['stagingPercentage']
+  const releaseDate = row['releaseDate']
+  return {
+    version,
+    url,
+    ...typeof size === 'number' && Number.isFinite(size) && size >= 0 ? { size } : {},
+    ...typeof sha512 === 'string' && sha512.length > 0 ? { sha512 } : {},
+    ...typeof stagingPercentage === 'number' && Number.isFinite(stagingPercentage)
+      ? { stagingPercentage }
+      : {},
+    ...typeof releaseDate === 'string' && releaseDate.length > 0 ? { releaseDate } : {},
+  }
+}
+
+/** Validate a desktop download reading crossing the wire. */
+export function parseDesktopReading(value: unknown): DesktopReading {
+  if (value === null || typeof value !== 'object') throw new Error('invalid desktop reading')
+  const row = value as Record<string, unknown>
+  if (typeof row['checked'] !== 'boolean') throw new Error('invalid desktop reading')
+  if (typeof row['checkedAt'] !== 'number' || !Number.isFinite(row['checkedAt'])) {
+    throw new Error('invalid desktop reading')
+  }
+  if (typeof row['platform'] !== 'string') throw new Error('invalid desktop reading')
+  if (typeof row['channel'] !== 'string') throw new Error('invalid desktop reading')
+  const release = row['release']
+  return {
+    checked: row['checked'],
+    checkedAt: row['checkedAt'],
+    platform: row['platform'],
+    channel: row['channel'],
+    ...release === undefined ? {} : { release: parseRelease(release) },
+  }
+}
+
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespaceMap {
     opencodeGoUpdate: {
       readUpdate(): Promise<RemoteResult<UpdateStatus>>
       refreshUpdate(): Promise<RemoteResult<UpdateStatus>>
+      readDesktop(): Promise<RemoteResult<DesktopReading>>
+      refreshDesktop(): Promise<RemoteResult<DesktopReading>>
     }
   }
 }
@@ -76,6 +124,30 @@ export const updateRemote: TypertRemoteContribution = {
       invocation: { kind: 'direct' },
       parameters: [],
       result: codec('@dan-ai-studio/dshopencodego#UpdateStatus', parseUpdateStatus),
+    },
+    // The desktop download feed rides this namespace rather than one of its
+    // own. A separate namespace would need its descriptor listed in both the
+    // Host contribution and the Client's `$mount`, and a namespace missing
+    // from either side is invisible in a way that takes the whole settings
+    // section with it (0.1.92). Riding `opencodeGoUpdate` — a namespace that
+    // already mounts — makes that class of defect impossible here.
+    {
+      id: '@dan-ai-studio/dshopencodego#opencodeGoUpdate/readDesktop',
+      service: 'opencodeGoUpdate',
+      namespace: 'opencodeGoUpdate',
+      method: 'readDesktop',
+      invocation: { kind: 'direct' },
+      parameters: [],
+      result: codec('@dan-ai-studio/dshopencodego#DesktopReading', parseDesktopReading),
+    },
+    {
+      id: '@dan-ai-studio/dshopencodego#opencodeGoUpdate/refreshDesktop',
+      service: 'opencodeGoUpdate',
+      namespace: 'opencodeGoUpdate',
+      method: 'refreshDesktop',
+      invocation: { kind: 'direct' },
+      parameters: [],
+      result: codec('@dan-ai-studio/dshopencodego#DesktopReading', parseDesktopReading),
     },
   ],
 }
