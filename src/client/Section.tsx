@@ -567,21 +567,26 @@ export class SectionController {
   }
 
   /**
-   * The desktop download Remote.
+   * The desktop download Remote, when the running build mounted it.
    *
-   * Declared in `client/index.ts`'s inject list, so the namespace is mounted by
-   * the time this controller exists; the guard is a defensive assertion, not a
-   * wait, for the same reason the update Remote's is.
-   * @returns the mounted desktop Remote.
-   * @throws {Error} `remote-not-mounted` when the namespace is absent.
+   * Deliberately *not* in `client/index.ts`'s inject list. A declared
+   * dependency that never mounts does not degrade — Cordis simply never runs
+   * the injection, so the whole settings section disappears, which is exactly
+   * what a missing desktop namespace did to 0.1.92. Reading it here instead
+   * costs a caught error when it is absent and keeps every other panel on the
+   * page alive; the download row then says it is not ready.
+   * @returns the mounted desktop Remote, or undefined when it is absent.
    */
   private desktopRemote(): {
     readDesktop(): Promise<RemoteResult<DesktopReading>>
     refreshDesktop(): Promise<RemoteResult<DesktopReading>>
-  } {
-    const remote = this.services.remote.opencodeGoDesktop
-    if (remote === undefined) throw new Error('remote-not-mounted')
-    return remote
+  } | undefined {
+    try {
+      return this.services.remote.opencodeGoDesktop
+    } catch {
+      // Cordis throws on an undeclared service read; the absence is the answer.
+      return undefined
+    }
   }
 
   /**
@@ -598,6 +603,7 @@ export class SectionController {
     this.set({ desktop: { ...previous, phase: 'checking', message: undefined, copied: false } })
     try {
       const remote = this.desktopRemote()
+      if (remote === undefined) throw new Error('remote-not-mounted')
       const result = force ? await remote.refreshDesktop() : await remote.readDesktop()
       if (!result.ok) throw result.error
       const reading = result.value

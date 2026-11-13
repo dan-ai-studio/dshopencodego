@@ -120,6 +120,20 @@ describe('desktop panel controller', () => {
     expect(controller.snapshot().desktop).toMatchObject({ phase: 'failed', message: 'remote-not-mounted' })
   })
 
+  it('survives an undeclared service read, the way Cordis refuses one', async () => {
+    // This is the 0.1.92 regression: declaring the namespace in the inject list
+    // made a missing mount swallow the whole settings section, so the page did
+    // not degrade — it vanished. Reading it must therefore tolerate the throw.
+    const tracking = services()
+    Object.defineProperty(tracking.remote, 'opencodeGoDesktop', {
+      configurable: true,
+      get() { throw new Error('cannot get property "opencodeGoDesktop" without inject') },
+    })
+    const controller = new SectionController(tracking)
+    await settle()
+    expect(controller.snapshot().desktop).toMatchObject({ phase: 'failed', message: 'remote-not-mounted' })
+  })
+
   it('copies the address and confirms it', async () => {
     const writeText = vi.fn(async () => {})
     vi.stubGlobal('navigator', { clipboard: { writeText } })
