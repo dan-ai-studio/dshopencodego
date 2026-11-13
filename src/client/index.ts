@@ -27,6 +27,7 @@ import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { catalogRemote } from '../catalog/contract.ts'
+import { desktopRemote } from '../desktop/contract.ts'
 import { networkRemote } from '../network/contract.ts'
 import { requestLogRemote } from '../request-log/contract.ts'
 import { updateRemote } from '../update/contract.ts'
@@ -111,7 +112,11 @@ export function apply(ctx: ClientContext): void {
   // the same mount as usage: a separate `$mount` would leave
   // `remote.opencodeGoCatalog` unregistered, and the settings section's inject
   // would then never be satisfied. Mirrors the Host-side contribution in
-  // `src/remotes.ts`.
+  // `src/remotes.ts` — and the mirror has to be exact. 0.1.92 added
+  // `opencodeGoDesktop` to the Host list only; the namespace then existed on
+  // the Host and nowhere on the Client, so the page's inject never resolved and
+  // the whole settings section silently disappeared. `tests/remote-mount.spec.ts`
+  // now pins the two lists against each other.
   const mounted = ctx.remote.$mount({
     package: usageRemote.package,
     descriptors: [
@@ -119,6 +124,7 @@ export function apply(ctx: ClientContext): void {
       ...catalogRemote.descriptors,
       ...updateRemote.descriptors,
       ...networkRemote.descriptors,
+      ...desktopRemote.descriptors,
       ...requestLogRemote.descriptors,
     ],
   })

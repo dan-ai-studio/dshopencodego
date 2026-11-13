@@ -2,6 +2,19 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.95] - 2026-11-14
+
+补上 0.1.94 没修完的那一半：桌面版下载面板在客户端根本没有对应的命名空间。
+
+### 🐛 修复
+
+- **客户端 `$mount` 漏了 desktop descriptors**（`src/client/index.ts`）：一个 Remote 命名空间要在客户端存在，靠的是客户端自己 `$mount` 的 contribution 里列出它的 descriptor，宿主注册只是另一半。0.1.92 只改了 `src/remotes.ts`，忘了改 `src/client/index.ts` 里那份镜像列表，于是 `opencodeGoDesktop` 在宿主存在、在客户端不存在——`ctx.inject` 因此永远不满足，整个设置分区不注册，用户看到的就是「插件装了，设置里没有」。0.1.94 让分区不再消失（改成防御性读取），但下载那一行仍然只会说「服务未就绪」，因为命名空间确实不存在。现在两侧列表一致。
+- **新增结构性不变量**（`tests/remote-mount.spec.ts`）：对着两个文件断言「客户端挂载的 Remote 集合 == 宿主注册的集合」，并点名 `desktopRemote`，防止下次只改一边。
+
+### 🧪 测试
+
+- 套件 **65 个测试文件 / 571 个用例**全绿，`typecheck`、`build`、`lint` 通过。
+
 ## [0.1.94] - 2026-11-14
 
 修复 0.1.92 引入的回归：设置页里的整块分区消失。
