@@ -90,6 +90,24 @@ export interface PluginManagerHolder {
   current?: PluginManagerLike | undefined
 }
 
+/**
+ * Holder for the desktop download Remote, filled by its own `scope.inject`.
+ *
+ * Same pattern as {@link PluginManagerHolder}, and for a sharper reason: a
+ * namespace named in the *main* injection is a hard dependency. Cordis runs
+ * that callback only when every name resolves, so a namespace that never
+ * mounts does not degrade the page — it removes the whole settings section.
+ * 0.1.92 did exactly that with `remote.opencodeGoDesktop` and the section
+ * vanished for two releases.
+ */
+export interface DesktopHolder {
+  /** Explicitly `undefined`-able: cleared when the namespace's fiber goes away. */
+  current?: {
+    readDesktop(): Promise<RemoteResult<DesktopReading>>
+    refreshDesktop(): Promise<RemoteResult<DesktopReading>>
+  } | undefined
+}
+
 /** The subset of the client context this page uses. */
 export interface SectionServices {
   readonly remote: {
@@ -106,17 +124,6 @@ export interface SectionServices {
     readonly opencodeGoUpdate?: {
       readUpdate(): Promise<RemoteResult<UpdateStatus>>
       refreshUpdate(): Promise<RemoteResult<UpdateStatus>>
-    }
-    /**
-     * The desktop download Remote.
-     *
-     * Optional for the same mount-ordering reason as the update Remote: the
-     * page is built as soon as the catalog and credentials are visible, which
-     * can precede the rest of this package's own Remote contribution.
-     */
-    readonly opencodeGoDesktop?: {
-      readDesktop(): Promise<RemoteResult<DesktopReading>>
-      refreshDesktop(): Promise<RemoteResult<DesktopReading>>
     }
     /**
      * The gateway's pin.
@@ -143,6 +150,15 @@ export interface SectionServices {
       unset(ref: string): Promise<RemoteResult<unknown>>
     }
   }
+  /**
+   * The desktop download Remote, through the holder `client/index.ts` fills.
+   *
+   * Absent until that namespace is mounted, which is why the page degrades
+   * instead of failing: the download row says it is not ready and every other
+   * panel keeps working. It is deliberately outside the main injection — see
+   * {@link DesktopHolder}.
+   */
+  readonly desktop?: DesktopHolder
   /**
    * The host's own package manager, used only to apply an update.
    *
@@ -569,24 +585,18 @@ export class SectionController {
   /**
    * The desktop download Remote, when the running build mounted it.
    *
-   * Deliberately *not* in `client/index.ts`'s inject list. A declared
-   * dependency that never mounts does not degrade — Cordis simply never runs
-   * the injection, so the whole settings section disappears, which is exactly
-   * what a missing desktop namespace did to 0.1.92. Reading it here instead
-   * costs a caught error when it is absent and keeps every other panel on the
-   * page alive; the download row then says it is not ready.
+   * Read through the holder rather than from `services.remote`: Cordis refuses
+   * a service read that was not declared in an injection, and declaring this
+   * one in the *main* injection is what removed the whole settings section in
+   * 0.1.92. The holder is filled by its own `scope.inject`, so it is populated
+   * exactly when the namespace exists and empty otherwise.
    * @returns the mounted desktop Remote, or undefined when it is absent.
    */
   private desktopRemote(): {
     readDesktop(): Promise<RemoteResult<DesktopReading>>
     refreshDesktop(): Promise<RemoteResult<DesktopReading>>
   } | undefined {
-    try {
-      return this.services.remote.opencodeGoDesktop
-    } catch {
-      // Cordis throws on an undeclared service read; the absence is the answer.
-      return undefined
-    }
+    return this.services.desktop?.current
   }
 
   /**

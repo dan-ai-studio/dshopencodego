@@ -2,6 +2,19 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.96] - 2026-11-14
+
+让桌面版下载面板真正可用：0.1.94/0.1.95 把它修成了「永远未就绪」。
+
+### 🐛 修复
+
+- **`remote.opencodeGoDesktop` 读不到**（`src/client/index.ts`、`src/client/Section.tsx`）：Cordis 拒绝对未在 `inject` 里声明过的服务读取（`cannot get property "…" without inject`），所以 0.1.94 把命名空间从主 inject 移除后，页面里的防御性读取永远拿到 `undefined`——分区回来了，下载那一行却永远显示「服务未就绪」。现在改用本项目既有的 holder 模式（与 `pluginManager` 同构）：主 inject 仍不含它，另开一个 `scope.inject(['remote.opencodeGoDesktop'], …)` 填 holder，controller 从 holder 读。命名空间存在时功能可用，不存在时优雅降级，主分区永不消失。
+- **客户端 `$mount` 的 desktop descriptors**（0.1.95 已补）：宿主端点 `/api/opencodeGoDesktop/readDesktop` 一直是 200，缺的一直是客户端这一侧的挂载——`$mount` 的 contribution 里没列出 descriptor，命名空间就不会在客户端存在。
+
+### 🧪 测试
+
+- 套件 **65 个测试文件 / 571 个用例**全绿，`typecheck`、`build`、`lint` 通过。
+
 ## [0.1.95] - 2026-11-14
 
 补上 0.1.94 没修完的那一半：桌面版下载面板在客户端根本没有对应的命名空间。

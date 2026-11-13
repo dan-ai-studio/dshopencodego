@@ -38,18 +38,29 @@ function services(desktop: Partial<Record<'readDesktop' | 'refreshDesktop', () =
         readUpdate: async () => ok({ current: '0.1.22', latest: '0.1.22', available: false, checkedAt: 0, checked: true }),
         refreshUpdate: async () => ok({ current: '0.1.22', latest: '0.1.22', available: false, checkedAt: 0, checked: true }),
       },
-      opencodeGoDesktop: {
-        readDesktop: desktop.readDesktop ?? (async () => ok(READY)),
-        refreshDesktop: desktop.refreshDesktop ?? (async () => ok(READY)),
-      },
       credentials: {
         describe: async () => ok({}),
         set: async () => ok(undefined),
         unset: async () => ok(undefined),
       },
     },
+    // The page reads the desktop Remote through this holder, which
+    // `client/index.ts` fills from its own `scope.inject` — never from the
+    // main injection, which would make a missing namespace remove the whole
+    // settings section.
+    desktop: {
+      current: {
+        readDesktop: desktop.readDesktop ?? (async () => ok(READY)),
+        refreshDesktop: desktop.refreshDesktop ?? (async () => ok(READY)),
+      },
+    },
     scope: undefined,
   }
+}
+
+/** The settings page as the component tree renders it. */
+function page(controller: SectionController): React.JSX.Element {
+  return <Section controller={controller} t={(key: string) => (en as Record<string, string>)[key] ?? key} />
 }
 
 /** Let the constructor's reads settle. */
@@ -112,26 +123,26 @@ describe('desktop panel controller', () => {
     expect(controller.snapshot().desktop.message).toContain('feed exploded')
   })
 
-  it('survives a namespace that is absent when the first check runs', async () => {
+  it('degrades when the holder is empty because the namespace never mounted', async () => {
+    // The holder is filled by a separate `scope.inject`, so an unmounted
+    // namespace leaves it empty. The row must say so — and the rest of the
+    // page must keep rendering, which is what the main injection cannot do.
     const tracking = services()
-    Object.defineProperty(tracking.remote, 'opencodeGoDesktop', { configurable: true, value: undefined })
+    Object.defineProperty(tracking, 'desktop', { configurable: true, value: { current: undefined } })
     const controller = new SectionController(tracking)
     await settle()
     expect(controller.snapshot().desktop).toMatchObject({ phase: 'failed', message: 'remote-not-mounted' })
   })
 
-  it('survives an undeclared service read, the way Cordis refuses one', async () => {
-    // This is the 0.1.92 regression: declaring the namespace in the inject list
-    // made a missing mount swallow the whole settings section, so the page did
-    // not degrade — it vanished. Reading it must therefore tolerate the throw.
+  it('renders the rest of the page even when the desktop holder stays empty', async () => {
     const tracking = services()
-    Object.defineProperty(tracking.remote, 'opencodeGoDesktop', {
-      configurable: true,
-      get() { throw new Error('cannot get property "opencodeGoDesktop" without inject') },
-    })
+    Object.defineProperty(tracking, 'desktop', { configurable: true, value: {} })
     const controller = new SectionController(tracking)
     await settle()
-    expect(controller.snapshot().desktop).toMatchObject({ phase: 'failed', message: 'remote-not-mounted' })
+    render(page(controller))
+    expect(screen.getByText(en.desktopFailed)).toBeTruthy()
+    // The panels the main injection owns are still there.
+    expect(screen.getByText(en.keyTitle)).toBeTruthy()
   })
 
   it('copies the address and confirms it', async () => {
@@ -166,10 +177,6 @@ describe('desktop panel controller', () => {
 })
 
 describe('desktop panel rendering', () => {
-  function page(controller: SectionController): React.JSX.Element {
-    return <Section controller={controller} t={(key: string) => (en as Record<string, string>)[key] ?? key} />
-  }
-
   it('shows the version, size, publication date, and address', async () => {
     const controller = new SectionController(services())
     await settle()

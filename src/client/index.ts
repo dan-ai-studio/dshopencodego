@@ -36,7 +36,7 @@ import type { TypertDisposer } from '@deepseek-ai/dsh-typert-protocol'
 import { en, zh } from './locales.ts'
 import type { OpencodeGoKey } from './locales.ts'
 import { Section, SectionController } from './Section.tsx'
-import type { PluginManagerHolder, SettingsScopeLike } from './Section.tsx'
+import type { DesktopHolder, PluginManagerHolder, SettingsScopeLike } from './Section.tsx'
 import { RequestLogPage } from './RequestLogPage.tsx'
 import type { RequestLogFace } from './RequestLogPage.tsx'
 import { RequestLogPanelIcon } from './RequestLogPanelIcon.tsx'
@@ -153,11 +153,24 @@ export function apply(ctx: ClientContext): void {
     const forms = scope.get('configForms') as
       { get(id: string): SettingsScopeLike | undefined } | undefined
     const pluginManager: PluginManagerHolder = {}
+    const desktop: DesktopHolder = {}
     const profile = forms?.get('dshopencodego')
     const controller = new SectionController({
       remote: scope.remote,
       pluginManager,
+      desktop,
       scope: profile,
+    })
+    // The desktop download Remote, filled the same way as the plugin manager.
+    //
+    // It must not join the required list above: a namespace named there is a
+    // hard dependency, and one that never mounts removes the whole settings
+    // section rather than degrading it — which is what 0.1.92 did to this
+    // page. Its own `inject` also waits for the namespace to be mounted,
+    // which is what a one-shot `scope.get()` cannot do during apply.
+    scope.inject(['remote.opencodeGoDesktop'], (desktopScope) => {
+      desktop.current = desktopScope.remote.opencodeGoDesktop as never
+      return () => { desktop.current = undefined }
     })
     // The package manager is filled separately and reactively.
     //
