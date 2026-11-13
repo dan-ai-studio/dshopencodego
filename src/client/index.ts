@@ -139,7 +139,9 @@ export function apply(ctx: ClientContext): void {
   // gateway's pin through it, and reading an undeclared service throws.
   // The request-log namespace is here because the request-log viewer reads
   // its snapshot through it.
-  ctx.inject(['configForms', 'remote.opencodeGoCatalog', 'remote.opencodeGoUpdate', 'remote.opencodeGoNetwork', 'remote.opencodeGoRequestLog', 'remote.credentials'], (scope) => {
+  // The desktop namespace is here because the page's download panel reads the
+  // published installer address through it.
+  ctx.inject(['configForms', 'remote.opencodeGoCatalog', 'remote.opencodeGoUpdate', 'remote.opencodeGoNetwork', 'remote.opencodeGoDesktop', 'remote.opencodeGoRequestLog', 'remote.credentials'], (scope) => {
     // Profile-entry forms live on `configForms`; the entry id is this
     // plugin's, and a composition without the form renders the page read-only.
     const forms = scope.get('configForms') as

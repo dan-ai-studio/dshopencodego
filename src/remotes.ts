@@ -11,6 +11,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-typert-registry'
 import { catalogRemote } from './catalog/contract.ts'
+import { desktopRemote } from './desktop/contract.ts'
 import { networkRemote } from './network/contract.ts'
 import { requestLogRemote } from './request-log/contract.ts'
 import { updateRemote } from './update/contract.ts'
@@ -24,6 +25,7 @@ const contribution = {
     ...catalogRemote.descriptors,
     ...updateRemote.descriptors,
     ...networkRemote.descriptors,
+    ...desktopRemote.descriptors,
     ...requestLogRemote.descriptors,
   ],
 }

@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { CatalogReading } from '../catalog/contract.ts'
+import type { DesktopReading } from '../desktop/contract.ts'
 import type { NetworkReading } from '../network/contract.ts'
 import type { RequestLogSnapshot } from '../request-log/contract.ts'
 import type { UpdateStatus } from '../update/contract.ts'
@@ -107,6 +108,17 @@ export interface SectionServices {
       refreshUpdate(): Promise<RemoteResult<UpdateStatus>>
     }
     /**
+     * The desktop download Remote.
+     *
+     * Optional for the same mount-ordering reason as the update Remote: the
+     * page is built as soon as the catalog and credentials are visible, which
+     * can precede the rest of this package's own Remote contribution.
+     */
+    readonly opencodeGoDesktop?: {
+      readDesktop(): Promise<RemoteResult<DesktopReading>>
+      refreshDesktop(): Promise<RemoteResult<DesktopReading>>
+    }
+    /**
      * The gateway's pin.
      *
      * Optional because the mount is asynchronous and registers namespace by
@@ -163,6 +175,25 @@ interface UpdatePanel {
   readonly message: string | undefined
 }
 
+/**
+ * Where the desktop download check stands.
+ *
+ * `ready` means the feed named an installer, `empty` means it answered without
+ * one, and `failed` means it did not answer at all — three different facts the
+ * page must not collapse into one another.
+ */
+type DesktopPhase = 'idle' | 'checking' | 'ready' | 'empty' | 'failed'
+
+/** Desktop download panel state; absence-shaped like the update panel. */
+interface DesktopPanel {
+  readonly phase: DesktopPhase
+  readonly reading: DesktopReading | undefined
+  /** Raw host detail; the page prefixes a translated label at render. */
+  readonly message: string | undefined
+  /** Set after a successful copy, so the button can confirm. */
+  readonly copied: boolean
+}
+
 /** Why a settings write did not land, in a form the page can translate. */
 type WriteFailure =
   | { readonly kind: 'rejected' }
@@ -193,6 +224,8 @@ interface SectionState {
   readonly filter: ModelFilter
   /** One-click update panel; `idle` renders nothing. */
   readonly update: UpdatePanel
+  /** Desktop download panel; `idle` renders nothing. */
+  readonly desktop: DesktopPanel
 }
 
 /** How long a burst of switch flips is coalesced before one settings write. */
@@ -225,6 +258,7 @@ const INITIAL: SectionState = {
   saving: false,
   filter: INITIAL_FILTER,
   update: { phase: 'idle', status: undefined, message: undefined },
+  desktop: { phase: 'idle', reading: undefined, message: undefined, copied: false },
 }
 
 /** Read the fields this page owns out of a settings snapshot value. */
@@ -296,6 +330,7 @@ export class SectionController {
     void this.loadKey()
     void this.loadNetwork()
     void this.checkUpdate(false)
+    void this.checkDesktop(false)
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -528,6 +563,81 @@ export class SectionController {
           message: error instanceof Error ? error.message : 'the update check failed',
         },
       })
+    }
+  }
+
+  /**
+   * The desktop download Remote.
+   *
+   * Declared in `client/index.ts`'s inject list, so the namespace is mounted by
+   * the time this controller exists; the guard is a defensive assertion, not a
+   * wait, for the same reason the update Remote's is.
+   * @returns the mounted desktop Remote.
+   * @throws {Error} `remote-not-mounted` when the namespace is absent.
+   */
+  private desktopRemote(): {
+    readDesktop(): Promise<RemoteResult<DesktopReading>>
+    refreshDesktop(): Promise<RemoteResult<DesktopReading>>
+  } {
+    const remote = this.services.remote.opencodeGoDesktop
+    if (remote === undefined) throw new Error('remote-not-mounted')
+    return remote
+  }
+
+  /**
+   * Ask the Host which installer the desktop download host publishes.
+   *
+   * The Host answers from a cached feed reading and fails silent, so an
+   * unreachable download host still answers "no installer known" rather than
+   * erroring the page. Runs once with the page and again only on explicit
+   * refresh — same shape as the update check, and for the same reason: both
+   * wire methods take zero arguments.
+   */
+  async checkDesktop(force: boolean): Promise<void> {
+    const previous = this.state.desktop
+    this.set({ desktop: { ...previous, phase: 'checking', message: undefined, copied: false } })
+    try {
+      const remote = this.desktopRemote()
+      const result = force ? await remote.refreshDesktop() : await remote.readDesktop()
+      if (!result.ok) throw result.error
+      const reading = result.value
+      this.set({
+        desktop: {
+          // An unanswered feed is not "nothing published": rendering the two
+          // alike would report a dead download host as an empty channel.
+          phase: !reading.checked ? 'failed' : reading.release === undefined ? 'empty' : 'ready',
+          reading,
+          message: reading.checked ? undefined : 'feed-unreachable',
+          copied: false,
+        },
+      })
+    } catch (error: unknown) {
+      // A failed check stays visible with its own retry, exactly like the
+      // update panel's: going back to `idle` would hide the failure.
+      this.set({
+        desktop: {
+          phase: 'failed',
+          reading: previous.reading,
+          message: error instanceof Error ? error.message : 'the download check failed',
+          copied: false,
+        },
+      })
+    }
+  }
+
+  /** Copy the installer address to the clipboard; the address stays on screen either way. */
+  async copyDesktopAddress(): Promise<void> {
+    const url = this.state.desktop.reading?.release?.url
+    if (url === undefined) return
+    try {
+      const clipboard = globalThis.navigator?.clipboard
+      if (clipboard === undefined) throw new Error('no clipboard')
+      await clipboard.writeText(url)
+      this.set({ desktop: { ...this.state.desktop, copied: true, message: undefined } })
+    } catch {
+      // A clipboard the browser refuses is not a failed check: the address is
+      // still on screen, so the page says to copy it by hand.
+      this.set({ desktop: { ...this.state.desktop, copied: false, message: 'copy-failed' } })
     }
   }
 
@@ -979,6 +1089,94 @@ function updateFailureText(message: string | undefined, t: (key: string) => stri
   return message
 }
 
+/** A byte count as one human-readable line: "286 MB", "1.2 GB". */
+function formatBytes(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'] as const
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  const rounded = unit === 0 || value >= 10 ? Math.round(value) : Math.round(value * 10) / 10
+  return `${rounded} ${units[unit] ?? 'B'}`
+}
+
+/** An ISO timestamp in the viewer's own zone; unparsable input passes through. */
+function formatReleaseDate(value: string): string {
+  const at = new Date(value)
+  if (Number.isNaN(at.getTime())) return value
+  return at.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+}
+
+/** Desktop download banner; renders nothing while the panel is idle. */
+function DesktopBanner({ controller, t, busy, act, desktop }: {
+  controller: SectionController
+  t: (key: string) => string
+  busy: boolean
+  act: (operation: () => Promise<void>) => void
+  desktop: DesktopPanel
+}): React.JSX.Element | null {
+  if (desktop.phase === 'idle') return null
+  const release = desktop.reading?.release
+  const check = (): void => { void act(async () => { await controller.checkDesktop(true) }) }
+  return <div className={css.block}>
+    <div className={css.row}>
+      <strong>{t('desktopTitle')}</strong>
+      {desktop.phase === 'checking' && <span className={css.hint}>{t('desktopChecking')}</span>}
+      {desktop.phase === 'ready' && release !== undefined && <>
+        <span className={css.hint}>{`${t('desktopVersion')} ${release.version}`}</span>
+        {release.releaseDate !== undefined && (
+          <span className={css.hint}>{`${t('desktopPublished')} ${formatReleaseDate(release.releaseDate)}`}</span>
+        )}
+        {release.size !== undefined && (
+          <span className={css.hint}>{`${t('desktopSize')} ${formatBytes(release.size)}`}</span>
+        )}
+        {release.stagingPercentage !== undefined && (
+          <span className={css.hint}>{`${t('desktopStaging')} ${release.stagingPercentage}%`}</span>
+        )}
+        <button type="button" className={css.button} disabled={busy} onClick={check}>
+          {t('desktopCheck')}
+        </button>
+      </>}
+      {desktop.phase === 'empty' && <>
+        <span className={css.hint}>{t('desktopNoRelease')}</span>
+        <button type="button" className={css.button} disabled={busy} onClick={check}>
+          {t('desktopCheck')}
+        </button>
+      </>}
+      {desktop.phase === 'failed' && <>
+        <span className={css.warn}>{t('desktopFailed')}</span>
+        <span className={css.hint}>{desktopFailureText(desktop.message, t)}</span>
+        <button type="button" className={css.button} disabled={busy} onClick={check}>
+          {t('desktopCheck')}
+        </button>
+      </>}
+    </div>
+    <p className={css.hint}>{t('desktopHint')}</p>
+    {desktop.phase === 'ready' && release !== undefined && <>
+      <div className={css.row}>
+        <span className={css.mono}>{release.url}</span>
+        <button type="button" className={css.button} disabled={busy}
+          onClick={() => { void act(async () => { await controller.copyDesktopAddress() }) }}>
+          {desktop.copied ? t('desktopCopied') : t('desktopCopy')}
+        </button>
+        <a className={css.button} href={release.url} target="_blank" rel="noreferrer">{t('desktopOpen')}</a>
+      </div>
+      {desktop.message === 'copy-failed' && <p className={css.warn}>{t('desktopCopyFailed')}</p>}
+      {release.sha512 !== undefined && <p className={css.hint}>{`SHA-512 ${release.sha512}`}</p>}
+    </>}
+  </div>
+}
+
+/** Translate the desktop panel's sentinel failure notes; raw host detail passes through. */
+function desktopFailureText(message: string | undefined, t: (key: string) => string): string {
+  if (message === undefined || message.length === 0) return ''
+  if (message === 'remote-not-mounted') return t('desktopRemoteMissing')
+  if (message === 'feed-unreachable') return t('desktopUnavailable')
+  return message
+}
+
 /** The settings page. */
 export function Section({ controller, t, getLocale, openRequestLog }: SectionInjected): React.JSX.Element {
   const state = useSyncExternalStore(controller.subscribe, controller.snapshot, controller.snapshot)
@@ -1015,6 +1213,7 @@ export function Section({ controller, t, getLocale, openRequestLog }: SectionInj
     <h2 className={css.title}>{t('nav')}</h2>
     <p className={css.hint}>{t('intro')}</p>
     <UpdateBanner controller={controller} t={t} busy={busy} act={act} update={state.update} />
+    <DesktopBanner controller={controller} t={t} busy={busy} act={act} desktop={state.desktop} />
 
     <div className={css.block}>
       <div className={css.row}>

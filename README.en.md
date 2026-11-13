@@ -82,6 +82,8 @@ Why: Electron owns the Desktop profile, and **the CLI cannot boot or mutate it**
 
 The version constraint matches the CLI: the DSH bundled with the Desktop app must stay inside the declared and verified band (`>=0.2.0-rc.1 <0.3.0`, see "Compatibility"). If the plugin ever breaks startup, the Desktop's native recovery dialog can **disable third-party plugins, back up `cordis.patch.yml`, and restart** in one action — it will not lock the app out.
 
+The settings page also carries a **Desktop app** row: **Check download address** reads the official feed at `https://download.deepseek.com/dsh-desk/feeds/win-x64/nightly.yml` and shows the newest installer's version, publication date, size, staged-rollout share, SHA-512, and address — the address can be copied or opened in a browser. This **only reads the feed and shows the address**: the plugin never downloads, verifies, or installs anything. The Host caches the reading for six hours, and an unreachable feed says so instead of pretending nothing was published.
+
 ## Configuration
 
 Configuration lives in the profile's `cordis.patch.yml`:
@@ -291,7 +293,7 @@ npm run seed        # refresh the bundled catalog seed before a release (see "Re
 
 **Order matters**: `npm run build` must come before `npm test` — `tests/pack-contents.spec.ts` walks every `exports` target, and whether `lib/` exists decides whether that check runs or is silently skipped (it does not fail, it just stops protecting you). `package.json` no longer carries `prepare`, so `npm ci` will not build for you; all three CI workflows run `npm run build` explicitly.
 
-The suite covers configuration validation, the protocol ladder, gateway and online metadata, the catalog projection, the adapter on the wire (all three protocols), Remote contracts and services, session-header invariants, usage windows and the meter, the client controller and usage pill, both halves' mounting and registration, the error mapping for stream idle timeouts and aborts, the exit-code contract of the verification scripts, and several **structural invariants** (inject declarations match the source's reads, peer coverage holds both ways, the READMEs match the manifest, and the READMEs' claims about the upstream match the upstream actually installed). That is **61 test files** — a number `tests/readme-consistency.spec.ts` checks against the `tests/` directory, so it cannot drift.
+The suite covers configuration validation, the protocol ladder, gateway and online metadata, the catalog projection, the adapter on the wire (all three protocols), Remote contracts and services, session-header invariants, usage windows and the meter, the client controller and usage pill, both halves' mounting and registration, the error mapping for stream idle timeouts and aborts, the exit-code contract of the verification scripts, and several **structural invariants** (inject declarations match the source's reads, peer coverage holds both ways, the READMEs match the manifest, and the READMEs' claims about the upstream match the upstream actually installed). That is **64 test files** — a number `tests/readme-consistency.spec.ts` checks against the `tests/` directory, so it cannot drift.
 
 ## Releasing (maintainers)
 

@@ -2,6 +2,26 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.92] - 2026-11-13
+
+设置页新增「桌面版」一栏：一次点击读出官方发布源上最新的桌面端安装包地址。
+
+### ✨ 新增
+
+- **桌面版下载地址检查**（`src/desktop/`）：读取 `https://download.deepseek.com/dsh-desk/feeds/win-x64/nightly.yml`，显示最新安装包的版本、发布时间、大小、灰度比例、SHA-512 与下载地址；地址可一键复制，或用浏览器打开。数据源是官方发布 feed，**只读**——插件不下载、不校验、不安装任何东西，安装决定留在用户手里（校验 `sha512` 意味着先拉一个约 286 MB 的包，这不是设置页一次点击该做的事）。
+  - 该 feed 把安装包地址与摘要写成 `key: >-` 折叠块标量。逐行读 `key: value` 会把这两个最关键的字段读成空串；解析器先把折叠块拼回键上再读。
+  - 三种结果严格区分：有安装包（`ready`）、发布源答了但没为该平台发布包（`empty`）、发布源没响应（`failed`）。第三种不会被渲染成「没有新版本」。
+  - Host 侧缓存 6 小时、单次请求 10 秒超时，失败静默降级为「未知」而不是让设置页报错；「检查下载地址」始终强制重验。
+  - Remote 方法 `opencodeGoDesktop/readDesktop` 与 `refreshDesktop` 都声明零参数，与既有 Remote 一致（网关客户端会拒绝参数个数与声明不符的调用，所以强制刷新是独立方法而不是一个 `force` 标志）。
+
+### 🐛 修复
+
+- **上游 `go.mdx` 又一次搬家**（`src/catalog/go-doc.ts`）：上游把 `services/www` 重命名成 `services/site`，两个镜像（GitHub raw 与 jsDelivr）同时 404，厂商自己声明的端点表随之读不到——那是协议判定的第二级证据。地址已更新；`tests/go-doc-url.spec.ts` 对着线上仓库断言，会继续盯着它。
+
+### 🧪 测试
+
+- 新增 `desktop-feed`、`desktop-contract`、`desktop-panel` 三个测试文件。套件 **64 个测试文件 / 567 个用例**全绿，`typecheck`、`build`、`lint` 通过。
+
 ## [0.1.91] - 2026-11-04
 
 图片预算预设的三个选项改用同一套口径：**像素数 + MiB**。

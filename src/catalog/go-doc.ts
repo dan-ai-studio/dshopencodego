@@ -29,15 +29,16 @@ import type { WireProtocol } from './protocol.ts'
  * same path and is tried when GitHub itself is unreachable.
  *
  * The path is the provider's own, and it moves: `go.mdx` used to live at
- * `packages/web/src/content/docs/go.mdx` and the `packages/web` tree was
- * restructured, after which every request answered 404. A document that cannot
- * be read costs the endpoint table — the provider's own statement of each
- * model's protocol — so the path is asserted against the live repository by
- * `tests/go-doc-url.spec.ts` rather than left to rot unnoticed.
+ * `packages/web/src/content/docs/go.mdx`, then at
+ * `services/www/src/docs/content/console/go.mdx`, and the `www` tree was
+ * renamed to `site` — after which both mirrors answered 404 again. A document
+ * that cannot be read costs the endpoint table — the provider's own statement
+ * of each model's protocol — so the path is asserted against the live
+ * repository by `tests/go-doc-url.spec.ts` rather than left to rot unnoticed.
  */
 export const GO_DOC_URLS: readonly string[] = [
-  'https://raw.githubusercontent.com/anomalyco/opencode/dev/services/www/src/docs/content/console/go.mdx',
-  'https://cdn.jsdelivr.net/gh/anomalyco/opencode@dev/services/www/src/docs/content/console/go.mdx',
+  'https://raw.githubusercontent.com/anomalyco/opencode/dev/services/site/src/docs/content/console/go.mdx',
+  'https://cdn.jsdelivr.net/gh/anomalyco/opencode@dev/services/site/src/docs/content/console/go.mdx',
 ]
 
 /** The document is about 30 KB; the cap leaves room without inviting a flood. */
