@@ -294,6 +294,22 @@ npm run seed        # 发版前刷新捆绑的目录种子（见「发布」）
 
 测试覆盖配置校验、协议阶梯、网关与在线元数据、目录投影、适配器（三种协议的线上请求）、Remote 契约与服务、会话头不变量、用量窗口与计量、客户端控制器与用量组件、两半的挂载与登记、流空闲超时与中止的错误映射、验证脚本的退出码契约、以及几条**结构性不变量**（inject 声明与源码读取一致、peer 覆盖双向、README 与 manifest 一致、README 对上游的断言与实装的上游一致）。共 **65 个测试文件**——这个数字由 `tests/readme-consistency.spec.ts` 对着 `tests/` 目录校验，不会漂移。
 
+### 新增一个 Remote 命名空间时
+
+一个 Remote 命名空间要在**客户端**存在，必须同时列在**两处**；漏掉一边客户端就读不到它，而把它写进主 `inject` 会让整个设置分区消失——0.1.92 就是这么没的，两个版本后才查清。
+
+1. `src/<name>/contract.ts` —— 定义 descriptors；
+2. `src/remotes.ts` —— 加进宿主的 contribution；
+3. `src/client/index.ts` —— 加进客户端 `$mount` 的 `descriptors` 数组。
+
+**能挂到已有命名空间上的方法，就不要新开命名空间**：`opencodeGoUpdate` 现在同时承载插件更新与桌面版下载地址（0.1.97），一个命名空间四个方法，两侧列表天然一致，这一类缺陷在结构上就不存在。
+
+发版前确认三件事：
+
+- `npm run typecheck && npm run lint && npm test` 全绿；
+- 两条结构性不变量仍是绿的——`tests/remote-mount.spec.ts`（宿主与客户端挂载的 descriptors 集合一致）与 `tests/inject-declarations.spec.ts`（`SectionServices.remote` 读的每个命名空间都在 `inject` 列表里）；
+- **装进真实 profile 打开设置页看一眼**。单元测试全绿不等于插件挂上了：判断方法是看页面发出了哪些请求，`/api/<namespace>/<method>` 全部出现才算挂载成功。
+
 ## 发布（维护者）
 
 1. **版本**：把 `package.json` 的 `version` 与即将打出的 tag 对齐（`v<版本>`）。CI 会校验资产名与 tag。

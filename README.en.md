@@ -295,6 +295,22 @@ npm run seed        # refresh the bundled catalog seed before a release (see "Re
 
 The suite covers configuration validation, the protocol ladder, gateway and online metadata, the catalog projection, the adapter on the wire (all three protocols), Remote contracts and services, session-header invariants, usage windows and the meter, the client controller and usage pill, both halves' mounting and registration, the error mapping for stream idle timeouts and aborts, the exit-code contract of the verification scripts, and several **structural invariants** (inject declarations match the source's reads, peer coverage holds both ways, the READMEs match the manifest, and the READMEs' claims about the upstream match the upstream actually installed). That is **65 test files** — a number `tests/readme-consistency.spec.ts` checks against the `tests/` directory, so it cannot drift.
 
+### Adding a Remote namespace
+
+A Remote namespace exists on the **Client** only when its descriptor is listed in **both** places. Miss one and the Client cannot read it; declare it in the main `inject` and the whole settings section disappears instead of degrading — that is exactly what 0.1.92 did, and it took two releases to work out why.
+
+1. `src/<name>/contract.ts` — define the descriptors;
+2. `src/remotes.ts` — add them to the Host contribution;
+3. `src/client/index.ts` — add them to the Client's `$mount` `descriptors` array.
+
+**A method that can ride an existing namespace should not get a namespace of its own.** `opencodeGoUpdate` now carries both the plugin update and the desktop download address (0.1.97): one namespace, four methods, and the two lists cannot disagree about it — that class of defect stops existing.
+
+Before a release, confirm three things:
+
+- `npm run typecheck && npm run lint && npm test` are green;
+- the two structural invariants are still green — `tests/remote-mount.spec.ts` (the Host and the Client mount the same descriptor set) and `tests/inject-declarations.spec.ts` (every namespace `SectionServices.remote` reads is declared in the `inject` list);
+- **install into a real profile and open the settings page**. Green unit tests do not prove the plugin mounted: look at which requests the page issues, and treat it as mounted only when every `/api/<namespace>/<method>` appears.
+
 ## Releasing (maintainers)
 
 1. **Version**: align `package.json`'s `version` with the tag you are about to push (`v<version>`); CI checks the asset name against the tag.
