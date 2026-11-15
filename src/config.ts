@@ -69,16 +69,6 @@ interface OpencodeGoModelLimit {
 /** Per-model capacities; a `null` entry selects both original catalog values. */
 export type OpencodeGoModelLimits = Record<string, OpencodeGoModelLimit | null>
 
-/**
- * Which desktop feed the download panel follows.
- *
- * `auto` defers to the installed app — the channel sealed into its
- * `app-update.yml`, overridden by the channel the user picked in the desktop
- * settings. The other two pin the panel without touching the app's own
- * update channel, which this plugin deliberately cannot change.
- */
-export type DesktopChannel = 'auto' | 'nightly' | 'stable'
-
 /** Runtime configuration for one plugin mount. */
 export interface OpencodeGoConfig {
   /**
@@ -113,15 +103,6 @@ export interface OpencodeGoConfig {
    * numbers a profile that never configured images would get from DSH itself.
    */
   imageBudgetPreset: ImageBudgetPreset
-  /**
-   * Which desktop feed the download panel follows.
-   *
-   * `auto` — the default — follows the installed app: its sealed
-   * `app-update.yml` channel, overridden by the channel the user selected in
-   * the desktop settings. `nightly` and `stable` pin the panel to one feed
-   * without touching the app's own update channel.
-   */
-  desktopChannel: DesktopChannel
   /** Per-model capacity overrides; an absent field inherits the catalog value. */
   modelLimits: OpencodeGoModelLimits
   /**
@@ -174,7 +155,6 @@ const fields = {
   // keeps that unreachable.
   keepAliveTimeoutMs: z.number().step(1).min(1).max(MAX_KEEP_ALIVE_TIMEOUT_MS).default(DEFAULT_KEEP_ALIVE_TIMEOUT_MS),
   imageBudgetPreset: z.union([z.const('dsh'), z.const('dshopencodego'), z.const('pi-ai')]).default('dsh'),
-  desktopChannel: z.union([z.const('auto'), z.const('nightly'), z.const('stable')]).default('auto'),
   modelLimits: z.dict(z.union([z.const(null), z.object({
     contextWindow: z.union([z.const(null), z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER)]),
     maxTokens: z.union([z.const(null), z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER)]),

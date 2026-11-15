@@ -22,7 +22,6 @@ import { PACKAGE_NAME, REPOSITORY } from '../update/check.ts'
 import { DEFAULT_KEEP_ALIVE_TIMEOUT_MS, MAX_KEEP_ALIVE_TIMEOUT_SECONDS } from '../network/keep-alive.ts'
 import { isImageBudgetPreset } from '../image-budget.ts'
 import type { ImageBudgetPreset } from '../image-budget.ts'
-import type { DesktopChannel } from '../config.ts'
 import {
   DEFAULT_REQUEST_LOG_MAX_ENTRIES,
   MAX_REQUEST_LOG_MAX_ENTRIES,
@@ -48,8 +47,6 @@ interface SectionSettings {
   readonly keepAliveTimeoutMs: number
   /** Which image-budget preset shapes request images. */
   readonly imageBudgetPreset: ImageBudgetPreset
-  /** Which desktop feed the download panel follows; `auto` follows the app. */
-  readonly desktopChannel: DesktopChannel
   /** Whether the per-request log records anything at all. */
   readonly requestLogEnabled: boolean
   /** Whether the request log keeps debug detail. */
@@ -285,7 +282,6 @@ function settingsOf(value: unknown): SectionSettings | undefined {
   // An unwritten preset means DSH's own budgets — and an unknown value
   // (from a newer build, say) reads as the default rather than failing.
   const imageBudgetPreset = record['imageBudgetPreset']
-  const desktopChannel = record['desktopChannel']
   // The request-log master switch defaults off; the debug switch stays
   // off. An old profile that never wrote these fields reads the same
   // values the schema fills in.
@@ -298,18 +294,12 @@ function settingsOf(value: unknown): SectionSettings | undefined {
     pinnedAddresses: Object.fromEntries(pinEntries) as Record<string, string>,
     keepAliveTimeoutMs: typeof keepAlive === 'number' ? keepAlive : DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
     imageBudgetPreset: isImageBudgetPreset(imageBudgetPreset) ? imageBudgetPreset : 'dsh',
-    desktopChannel: isDesktopChannel(desktopChannel) ? desktopChannel : 'auto',
     requestLogEnabled: typeof requestLogEnabled === 'boolean' ? requestLogEnabled : false,
     requestLogDebug: typeof requestLogDebug === 'boolean' ? requestLogDebug : false,
     requestLogMaxEntries: typeof requestLogMaxEntries === 'number'
       ? requestLogMaxEntries
       : DEFAULT_REQUEST_LOG_MAX_ENTRIES,
   }
-}
-
-/** Whether a stored value names a desktop channel this build understands. */
-function isDesktopChannel(value: unknown): value is DesktopChannel {
-  return value === 'auto' || value === 'nightly' || value === 'stable'
 }
 
 /** Owns the page's state and talks to the Host Remotes and the settings scope. */
@@ -661,20 +651,6 @@ export class SectionController {
     if (this.state.update.phase === 'ready') {
       this.set({ update: { ...this.state.update, phase: 'confirming' } })
     }
-  }
-
-  /** Pin the desktop download panel to one channel, or let it follow the app. */
-  async setDesktopChannel(channel: DesktopChannel): Promise<void> {
-    const scope = this.services.scope
-    const current = this.state.settings
-    if (scope === undefined || current === undefined || !this.state.writable) return
-    await this.write(
-      () => scope.set('desktopChannel', channel),
-      () => {
-        this.set({ settings: { ...current, desktopChannel: channel } })
-        void this.checkDesktop(true)
-      },
-    )
   }
 
   /** Stand down from the confirm step without doing anything. */
@@ -1139,14 +1115,12 @@ function formatReleaseDate(value: string): string {
 }
 
 /** Desktop download banner; renders nothing while the panel is idle. */
-function DesktopBanner({ controller, t, busy, act, desktop, settings, editable }: {
+function DesktopBanner({ controller, t, busy, act, desktop }: {
   controller: SectionController
   t: (key: string) => string
   busy: boolean
   act: (operation: () => Promise<void>) => void
   desktop: DesktopPanel
-  settings: SectionSettings | undefined
-  editable: boolean
 }): React.JSX.Element | null {
   if (desktop.phase === 'idle') return null
   const release = desktop.reading?.release
@@ -1154,18 +1128,6 @@ function DesktopBanner({ controller, t, busy, act, desktop, settings, editable }
   return <div className={css.block}>
     <div className={css.row}>
       <strong>{t('desktopTitle')}</strong>
-      <label className={css.hint} htmlFor="dshopencodego-desktop-channel">{t('desktopChannelLabel')}</label>
-      <select
-        id="dshopencodego-desktop-channel"
-        className={css.select}
-        disabled={!editable || busy}
-        value={settings?.desktopChannel ?? 'auto'}
-        onChange={event => { void act(async () => { await controller.setDesktopChannel(event.target.value as DesktopChannel) }) }}
-      >
-        <option value="auto">{t('desktopChannelAuto')}</option>
-        <option value="nightly">{t('desktopChannelNightly')}</option>
-        <option value="stable">{t('desktopChannelStable')}</option>
-      </select>
       {desktop.phase === 'checking' && <span className={css.hint}>{t('desktopChecking')}</span>}
       {desktop.phase === 'ready' && release !== undefined && <>
         <span className={css.hint}>{`${t('desktopVersion')} ${release.version}`}</span>
@@ -1265,7 +1227,7 @@ export function Section({ controller, t, getLocale, openRequestLog }: SectionInj
     <h2 className={css.title}>{t('nav')}</h2>
     <p className={css.hint}>{t('intro')}</p>
     <UpdateBanner controller={controller} t={t} busy={busy} act={act} update={state.update} />
-    <DesktopBanner controller={controller} t={t} busy={busy} act={act} desktop={state.desktop} settings={state.settings} editable={editable} />
+    <DesktopBanner controller={controller} t={t} busy={busy} act={act} desktop={state.desktop} />
 
     <div className={css.block}>
       <div className={css.row}>

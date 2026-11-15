@@ -536,7 +536,7 @@ function configFor(baseURL: string): OpencodeGoConfig {
     refreshMinutes: 60,
     streamIdleTimeoutMs: 30_000,
     keepAliveTimeoutMs: 600_000,
-    imageBudgetPreset: 'dsh', desktopChannel: 'auto',
+    imageBudgetPreset: 'dsh',
     modelLimits: {},
     modelProtocols: {},
     pinnedAddresses: {},

@@ -239,10 +239,6 @@ export const en = {
   desktopFeed: 'Feed:',
   desktopFeedInstalled: 'from the installed app',
   desktopFeedFallback: 'shipped default (no desktop configuration found)',
-  desktopChannelLabel: 'Channel',
-  desktopChannelAuto: 'Follow the app',
-  desktopChannelNightly: 'nightly',
-  desktopChannelStable: 'stable',
 } as const
 
 /** Simplified Chinese copy. */
@@ -476,10 +472,6 @@ export const zh: Record<keyof typeof en, string> = {
   desktopFeed: '源：',
   desktopFeedInstalled: '来自已安装的应用',
   desktopFeedFallback: '内置默认（未找到桌面配置）',
-  desktopChannelLabel: '频道',
-  desktopChannelAuto: '跟随应用',
-  desktopChannelNightly: 'nightly',
-  desktopChannelStable: 'stable',
 }
 
 /** Every key this plugin can translate. */

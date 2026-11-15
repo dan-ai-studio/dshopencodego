@@ -267,10 +267,7 @@ export function apply(ctx: Context, raw?: unknown): void {
         ids.join(', ')}; those switches have no effect until the gateway publishes them`)
     },
   })
-  ctx.plugin(OpencodeGoUpdateService, {
-    currentVersion: PLUGIN_VERSION,
-    desktopChannel: () => current().desktopChannel,
-  })
+  ctx.plugin(OpencodeGoUpdateService, { currentVersion: PLUGIN_VERSION })
 
   // Warm the catalog while the host is still starting up, and keep warming
   // it on a timer afterwards.
