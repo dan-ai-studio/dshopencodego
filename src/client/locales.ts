@@ -236,6 +236,9 @@ export const en = {
   desktopFailed: 'The check failed:',
   desktopRemoteMissing: 'The desktop download service is not ready yet; choose Check download address to retry.',
   desktopNoRelease: 'The download host answered, but published no installer for this platform.',
+  desktopFeed: 'Feed:',
+  desktopFeedInstalled: 'from the installed app',
+  desktopFeedFallback: 'shipped default (no desktop configuration found)',
 } as const
 
 /** Simplified Chinese copy. */
@@ -466,6 +469,9 @@ export const zh: Record<keyof typeof en, string> = {
   desktopFailed: '检查失败：',
   desktopRemoteMissing: '桌面版下载服务尚未就绪；请点击“检查下载地址”重试。',
   desktopNoRelease: '下载站有响应，但没有为该平台发布安装包。',
+  desktopFeed: '源：',
+  desktopFeedInstalled: '来自已安装的应用',
+  desktopFeedFallback: '内置默认（未找到桌面配置）',
 }
 
 /** Every key this plugin can translate. */

@@ -70,11 +70,15 @@ export function parseDesktopReading(value: unknown): DesktopReading {
   if (typeof row['platform'] !== 'string') throw new Error('invalid desktop reading')
   if (typeof row['channel'] !== 'string') throw new Error('invalid desktop reading')
   const release = row['release']
+  const feedUrl = row['feedUrl']
+  const feedOrigin = row['feedOrigin']
   return {
     checked: row['checked'],
     checkedAt: row['checkedAt'],
     platform: row['platform'],
     channel: row['channel'],
+    ...typeof feedUrl === 'string' && feedUrl.length > 0 ? { feedUrl } : {},
+    ...feedOrigin === 'app-update.yml' || feedOrigin === 'fallback' ? { feedOrigin } : {},
     ...release === undefined ? {} : { release: parseRelease(release) },
   }
 }

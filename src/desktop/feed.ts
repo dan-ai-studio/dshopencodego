@@ -74,6 +74,16 @@ export interface DesktopReading {
   readonly platform: string
   /** Channel the reading describes. */
   readonly channel: string
+  /**
+   * Address this reading was fetched from.
+   *
+   * Surfaced so the page can say which feed it is following — a reading that
+   * silently came from the shipped fallback looks exactly like one taken from
+   * the installed app's own channel until the address is on screen.
+   */
+  readonly feedUrl?: string
+  /** Where that address came from: the installed app, or the shipped fallback. */
+  readonly feedOrigin?: 'app-update.yml' | 'fallback'
   /** The newest installer, when the feed answered with one. */
   readonly release?: DesktopRelease
 }
@@ -258,7 +268,13 @@ export function createDesktopFeedReader(deps: DesktopFeedDeps = {}): {
     // Resolved per lookup: the channel can change in the desktop settings, and
     // a cache keyed only on time would keep serving the old channel for hours.
     const source = resolveDesktopFeedSource(deps.source)
-    const identity = { checkedAt, platform: source.platform, channel: source.channel }
+    const identity = {
+      checkedAt,
+      platform: source.platform,
+      channel: source.channel,
+      feedUrl: source.url,
+      feedOrigin: source.origin,
+    }
     try {
       const response = await fetchImpl(source.url, {
         signal: AbortSignal.timeout(DESKTOP_TIMEOUT_MS),

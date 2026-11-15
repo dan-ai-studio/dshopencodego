@@ -25,6 +25,8 @@ const READY: DesktopReading = {
   checkedAt: 1_000,
   platform: 'win-x64',
   channel: 'nightly',
+  feedUrl: 'https://download.deepseek.com/dsh-desk/feeds/win-x64/nightly.yml',
+  feedOrigin: 'app-update.yml',
   release: RELEASE,
 }
 
@@ -180,6 +182,9 @@ describe('desktop panel rendering', () => {
     expect(screen.getByText(en.desktopCopy)).toBeTruthy()
     expect(screen.getByText(en.desktopOpen)).toBeTruthy()
     expect(screen.getByText(`SHA-512 ${RELEASE.sha512}`)).toBeTruthy()
+    // The feed the reading came from, so a fallback address is never mistaken
+    // for the app's own channel.
+    expect(screen.getByText(/Feed: .*nightly\.yml · from the installed app · nightly · win-x64/)).toBeTruthy()
   })
 
   it('shows the checking hint while the first lookup is in flight', async () => {

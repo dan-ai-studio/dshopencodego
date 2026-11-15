@@ -178,6 +178,8 @@ describe('createDesktopFeedReader', () => {
       checkedAt: 7,
       platform: 'win-x64',
       channel: 'nightly',
+      feedUrl: DESKTOP_FEED_URL,
+      feedOrigin: 'fallback',
     })
   })
 

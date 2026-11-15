@@ -20,6 +20,8 @@ const READING = {
   checkedAt: 1_000,
   platform: 'win-x64',
   channel: 'nightly',
+  feedUrl: 'https://download.deepseek.com/dsh-desk/feeds/win-x64/nightly.yml',
+  feedOrigin: 'app-update.yml',
   release: {
     version: '0.2.2-rc.3',
     url: 'https://download.deepseek.com/dsh-desk/bin/win-x64/deepseek-harness-0.2.2-rc.3-win-x64.exe',
@@ -37,6 +39,11 @@ describe('parseDesktopReading', () => {
       .toEqual({ checked: false, checkedAt: 7, platform: 'win-x64', channel: 'nightly' })
   })
 
+  it('drops a feed origin it does not recognise', () => {
+    expect(parseDesktopReading({ ...READING, feedOrigin: 'somewhere-else' })).not.toHaveProperty('feedOrigin')
+    expect(parseDesktopReading({ ...READING, feedUrl: 7 })).not.toHaveProperty('feedUrl')
+  })
+
   it('drops optional release fields that are the wrong type', () => {
     expect(parseDesktopReading({
       ...READING,
@@ -46,6 +53,8 @@ describe('parseDesktopReading', () => {
       checkedAt: 1_000,
       platform: 'win-x64',
       channel: 'nightly',
+      feedUrl: 'https://download.deepseek.com/dsh-desk/feeds/win-x64/nightly.yml',
+      feedOrigin: 'app-update.yml',
       release: { version: '1.0.0', url: 'https://example.test/a.exe' },
     })
   })

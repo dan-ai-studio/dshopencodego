@@ -1159,6 +1159,15 @@ function DesktopBanner({ controller, t, busy, act, desktop }: {
       </>}
     </div>
     <p className={css.hint}>{t('desktopHint')}</p>
+    {desktop.reading?.feedUrl !== undefined && (
+      <p className={css.hint}>
+        {`${t('desktopFeed')} ${desktop.reading.feedUrl}`}
+        {desktop.reading.feedOrigin === undefined
+          ? ''
+          : ` · ${desktop.reading.feedOrigin === 'app-update.yml' ? t('desktopFeedInstalled') : t('desktopFeedFallback')}`}
+        {` · ${desktop.reading.channel} · ${desktop.reading.platform}`}
+      </p>
+    )}
     {desktop.phase === 'ready' && release !== undefined && <>
       <div className={css.row}>
         <span className={css.mono}>{release.url}</span>
