@@ -242,8 +242,14 @@ interface DesktopFeedDeps {
   readonly fetchImpl?: typeof fetch
   /** Clock; defaults to `Date.now`. */
   readonly now?: () => number
-  /** Inputs for resolving the installed app's feed; defaults to the real environment. */
-  readonly source?: DesktopFeedSourceDeps
+  /**
+   * Resolver inputs, or a thunk re-evaluated per lookup.
+   *
+   * The thunk exists because the channel is configuration: a profile edit has
+   * to reach the next lookup without rebuilding the reader (which would drop
+   * its cache and its in-flight de-duplication).
+   */
+  readonly source?: DesktopFeedSourceDeps | (() => DesktopFeedSourceDeps)
 }
 
 /**
@@ -263,11 +269,15 @@ export function createDesktopFeedReader(deps: DesktopFeedDeps = {}): {
   let cachedUrl: string | undefined
   let inflight: Promise<DesktopReading> | undefined
 
+  /** Resolve the feed now, so a configuration change is seen on the next call. */
+  const currentSource = (): ReturnType<typeof resolveDesktopFeedSource> =>
+    resolveDesktopFeedSource(typeof deps.source === 'function' ? deps.source() : deps.source)
+
   async function lookup(): Promise<DesktopReading> {
     const checkedAt = now()
     // Resolved per lookup: the channel can change in the desktop settings, and
     // a cache keyed only on time would keep serving the old channel for hours.
-    const source = resolveDesktopFeedSource(deps.source)
+    const source = currentSource()
     const identity = {
       checkedAt,
       platform: source.platform,
@@ -293,7 +303,7 @@ export function createDesktopFeedReader(deps: DesktopFeedDeps = {}): {
 
   return {
     read(force = false): Promise<DesktopReading> {
-      const url = resolveDesktopFeedSource(deps.source).url
+      const url = currentSource().url
       if (!force && cached !== undefined && cachedUrl === url && now() - cached.checkedAt < DESKTOP_CACHE_MS) {
         return Promise.resolve(cached)
       }

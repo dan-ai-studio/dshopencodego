@@ -160,7 +160,7 @@ function configFor(baseURL: string, streamIdleTimeoutMs: number): OpencodeGoConf
     refreshMinutes: 60,
     streamIdleTimeoutMs,
     keepAliveTimeoutMs: 600_000,
-    imageBudgetPreset: 'dsh',
+    imageBudgetPreset: 'dsh', desktopChannel: 'auto',
     modelLimits: {},
     modelProtocols: {},
     pinnedAddresses: {},

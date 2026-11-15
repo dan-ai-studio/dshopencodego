@@ -31,6 +31,13 @@ import type { UpdateStatus } from './check.ts'
 export interface UpdateServiceOptions {
   /** Running build's version. */
   readonly currentVersion: string
+  /**
+   * Which desktop feed the download panel follows.
+   *
+   * `auto` defers to the installed app; the other values pin a channel. Read
+   * per lookup, so a profile edit reaches the next request.
+   */
+  readonly desktopChannel?: () => string
 }
 
 /** Update Remote: the cached registry reading and the desktop download feed. */
@@ -42,7 +49,14 @@ export class OpencodeGoUpdateService extends TypertRemoteService {
     super(ctx, 'opencodeGoUpdate')
     const checker = createUpdateChecker({ currentVersion: options.currentVersion })
     this.check = (force?: boolean) => checker.check(force)
-    const feed = createDesktopFeedReader()
+    const feed = createDesktopFeedReader({
+      // Only the channel is overridden; everything else (install directory,
+      // executable, settings file) keeps the real environment defaults.
+      source: () => {
+        const channel = options.desktopChannel?.()
+        return channel === undefined ? {} : { channel }
+      },
+    })
     this.desktop = (force?: boolean) => feed.read(force)
   }
 

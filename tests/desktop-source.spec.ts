@@ -108,4 +108,32 @@ describe('resolveDesktopFeedSource', () => {
     })
     expect(source.origin).toBe('fallback')
   })
+
+  it('pins a channel over both the sealed one and the desktop setting', () => {
+    // The panel's selector wins over everything, but it only changes which
+    // feed the panel reads — never the app's own update channel.
+    const source = resolveDesktopFeedSource({
+      ...installed({ channel: 'nightly', settings: JSON.stringify({ updates: { channel: 'stable' } }) }),
+      channel: 'nightly',
+    })
+    expect(source).toMatchObject({ channel: 'nightly', url: 'https://download.deepseek.com/dsh-desk/feeds/win-x64/nightly.yml' })
+  })
+
+  it('treats auto as "follow the app" rather than as a channel name', () => {
+    const source = resolveDesktopFeedSource({ ...installed(), channel: 'auto' })
+    expect(source.channel).toBe('nightly')
+    expect(source.url).toBe('https://download.deepseek.com/dsh-desk/feeds/win-x64/nightly.yml')
+  })
+
+  it('applies a pinned channel even when nothing is installed', () => {
+    const source = resolveDesktopFeedSource({
+      env: {},
+      execPath: '/usr/local/bin/node',
+      readText: () => undefined,
+      channel: 'stable',
+    })
+    // The fallback root still names win-x64; only the channel is pinned.
+    expect(source.channel).toBe('stable')
+    expect(source.url).toBe('https://download.deepseek.com/dsh-desk/feeds/win-x64/stable.yml')
+  })
 })

@@ -56,6 +56,13 @@ export interface DesktopFeedSourceDeps {
   readonly execPath?: string
   /** File reader; defaults to `readFileSync` returning `undefined` on failure. */
   readonly readText?: (path: string) => string | undefined
+  /**
+   * Pin the channel instead of following the installed app.
+   *
+   * `auto` (or absent) keeps the app's own order; anything else wins over
+   * both the sealed channel and the user's desktop setting.
+   */
+  readonly channel?: string
 }
 
 /** Read one top-level scalar out of the small YAML documents here. */
@@ -129,6 +136,9 @@ function platformOf(feedRoot: string): string | undefined {
  */
 export function resolveDesktopFeedSource(deps: DesktopFeedSourceDeps = {}): DesktopFeedSource {
   const env = deps.env ?? process.env
+  // A pinned channel wins over both the sealed one and the desktop setting;
+  // `auto` is the panel saying "follow the app", not a channel name.
+  const pinned = deps.channel !== undefined && deps.channel !== 'auto' ? deps.channel : undefined
   const execPath = deps.execPath ?? process.execPath
   const readText = deps.readText ?? ((path: string): string | undefined => {
     try {
@@ -145,16 +155,20 @@ export function resolveDesktopFeedSource(deps: DesktopFeedSourceDeps = {}): Desk
     if (root === undefined) continue
     const sealed = scalar(text, 'channel') ?? DESKTOP_FEED_FALLBACK_CHANNEL
     const settings = settingsText(env, readText)
-    const channel = settings === undefined ? sealed : userChannel(settings) ?? sealed
+    const selected = settings === undefined ? sealed : userChannel(settings) ?? sealed
+    const channel = pinned ?? selected
     const platform = platformOf(root) ?? DESKTOP_FEED_FALLBACK_PLATFORM
     const base = root.endsWith('/') ? root : `${root}/`
     return { url: `${base}${channel}.yml`, platform, channel, origin: 'app-update.yml' }
   }
 
+  // The fallback root still names its platform; a pinned channel replaces only
+  // the document name, so the panel can compare feeds without an installed app.
+  const channel = pinned ?? DESKTOP_FEED_FALLBACK_CHANNEL
   return {
-    url: DESKTOP_FEED_FALLBACK_URL,
+    url: DESKTOP_FEED_FALLBACK_URL.replace(/\/[^/]+\.yml$/, `/${channel}.yml`),
     platform: DESKTOP_FEED_FALLBACK_PLATFORM,
-    channel: DESKTOP_FEED_FALLBACK_CHANNEL,
+    channel,
     origin: 'fallback',
   }
 }

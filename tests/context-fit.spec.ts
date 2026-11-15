@@ -97,7 +97,7 @@ describe('context-fit on the wire', () => {
       refreshMinutes: 60,
       streamIdleTimeoutMs: 30_000,
       keepAliveTimeoutMs: 600_000,
-      imageBudgetPreset: 'dsh',
+      imageBudgetPreset: 'dsh', desktopChannel: 'auto',
       modelLimits: {},
       modelProtocols: {},
       pinnedAddresses: {},
