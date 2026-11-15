@@ -19,15 +19,22 @@
  * @module @dan-ai-studio/dshopencodego/desktop/feed
  */
 
-/** Platform directory of the published feed. */
-export const DESKTOP_FEED_PLATFORM = 'win-x64'
+import { DESKTOP_FEED_FALLBACK_CHANNEL, DESKTOP_FEED_FALLBACK_PLATFORM, DESKTOP_FEED_FALLBACK_URL, resolveDesktopFeedSource } from './source.ts'
+import type { DesktopFeedSourceDeps } from './source.ts'
 
-/** Release channel of the published feed. */
-export const DESKTOP_FEED_CHANNEL = 'nightly'
+/**
+ * Platform directory of the fallback feed.
+ *
+ * The address actually read is resolved per lookup from the installed desktop
+ * app (see `./source.ts`); these three constants only name the last resort.
+ */
+export const DESKTOP_FEED_PLATFORM = DESKTOP_FEED_FALLBACK_PLATFORM
 
-/** Document answering the newest installer for that platform and channel. */
-export const DESKTOP_FEED_URL =
-  `https://download.deepseek.com/dsh-desk/feeds/${DESKTOP_FEED_PLATFORM}/${DESKTOP_FEED_CHANNEL}.yml`
+/** Release channel of the fallback feed. */
+export const DESKTOP_FEED_CHANNEL = DESKTOP_FEED_FALLBACK_CHANNEL
+
+/** Document answering the newest installer, when no installed config is readable. */
+export const DESKTOP_FEED_URL = DESKTOP_FEED_FALLBACK_URL
 
 /** How long one reading answers for before the feed is asked again. */
 export const DESKTOP_CACHE_MS = 6 * 60 * 60 * 1000
@@ -225,6 +232,8 @@ interface DesktopFeedDeps {
   readonly fetchImpl?: typeof fetch
   /** Clock; defaults to `Date.now`. */
   readonly now?: () => number
+  /** Inputs for resolving the installed app's feed; defaults to the real environment. */
+  readonly source?: DesktopFeedSourceDeps
 }
 
 /**
@@ -241,13 +250,17 @@ export function createDesktopFeedReader(deps: DesktopFeedDeps = {}): {
   const now = deps.now ?? Date.now
   const fetchImpl = deps.fetchImpl ?? fetch
   let cached: DesktopReading | undefined
+  let cachedUrl: string | undefined
   let inflight: Promise<DesktopReading> | undefined
 
   async function lookup(): Promise<DesktopReading> {
     const checkedAt = now()
-    const identity = { checkedAt, platform: DESKTOP_FEED_PLATFORM, channel: DESKTOP_FEED_CHANNEL }
+    // Resolved per lookup: the channel can change in the desktop settings, and
+    // a cache keyed only on time would keep serving the old channel for hours.
+    const source = resolveDesktopFeedSource(deps.source)
+    const identity = { checkedAt, platform: source.platform, channel: source.channel }
     try {
-      const response = await fetchImpl(DESKTOP_FEED_URL, {
+      const response = await fetchImpl(source.url, {
         signal: AbortSignal.timeout(DESKTOP_TIMEOUT_MS),
         headers: { accept: 'text/yaml, text/plain, */*' },
       })
@@ -264,11 +277,13 @@ export function createDesktopFeedReader(deps: DesktopFeedDeps = {}): {
 
   return {
     read(force = false): Promise<DesktopReading> {
-      if (!force && cached !== undefined && now() - cached.checkedAt < DESKTOP_CACHE_MS) {
+      const url = resolveDesktopFeedSource(deps.source).url
+      if (!force && cached !== undefined && cachedUrl === url && now() - cached.checkedAt < DESKTOP_CACHE_MS) {
         return Promise.resolve(cached)
       }
       inflight ??= lookup().then((reading) => {
         cached = reading
+        cachedUrl = url
         inflight = undefined
         return reading
       })

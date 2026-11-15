@@ -120,6 +120,12 @@ stagingPercentage: half
   })
 })
 
+/**
+ * No installed desktop app: every lookup must fall back to the shipped
+ * address, so the assertions below do not depend on this machine's config.
+ */
+const NO_INSTALL = { env: {}, execPath: '/nonexistent/dsh', readText: () => undefined } as const
+
 /** A fetch that answers one document and counts its calls. */
 function fetchFeed(body: string, status = 200): { fetchImpl: typeof fetch; calls: () => number } {
   let calls = 0
@@ -133,7 +139,7 @@ function fetchFeed(body: string, status = 200): { fetchImpl: typeof fetch; calls
 describe('createDesktopFeedReader', () => {
   it('answers the published installer and marks the reading checked', async () => {
     const { fetchImpl } = fetchFeed(SERVED)
-    const reader = createDesktopFeedReader({ fetchImpl, now: () => 1_000 })
+    const reader = createDesktopFeedReader({ fetchImpl, now: () => 1_000, source: NO_INSTALL })
     const reading = await reader.read()
     expect(reading).toMatchObject({
       checked: true,
@@ -147,7 +153,7 @@ describe('createDesktopFeedReader', () => {
   it('caches a reading for the cache window and revalidates on force', async () => {
     const { fetchImpl, calls } = fetchFeed(SERVED)
     let clock = 1_000
-    const reader = createDesktopFeedReader({ fetchImpl, now: () => clock })
+    const reader = createDesktopFeedReader({ fetchImpl, now: () => clock, source: NO_INSTALL })
     await reader.read()
     clock += DESKTOP_CACHE_MS - 1
     await reader.read()
@@ -158,14 +164,14 @@ describe('createDesktopFeedReader', () => {
 
   it('shares one in-flight lookup between concurrent callers', async () => {
     const { fetchImpl, calls } = fetchFeed(SERVED)
-    const reader = createDesktopFeedReader({ fetchImpl, now: () => 1_000 })
+    const reader = createDesktopFeedReader({ fetchImpl, now: () => 1_000, source: NO_INSTALL })
     await Promise.all([reader.read(), reader.read(), reader.read()])
     expect(calls()).toBe(1)
   })
 
   it('reports an unreachable host as unchecked rather than as an empty channel', async () => {
     const fetchImpl = (async () => { throw new Error('offline') }) as never
-    const reader = createDesktopFeedReader({ fetchImpl, now: () => 7 })
+    const reader = createDesktopFeedReader({ fetchImpl, now: () => 7, source: NO_INSTALL })
     const reading = await reader.read()
     expect(reading).toEqual({
       checked: false,
@@ -178,7 +184,7 @@ describe('createDesktopFeedReader', () => {
   it('treats a non-2xx answer and a document without a release as unchecked', async () => {
     for (const [body, status] of [['gone', 404], ['version: 1.0.0\n', 200]] as const) {
       const { fetchImpl } = fetchFeed(body, status)
-      const reader = createDesktopFeedReader({ fetchImpl, now: () => 1 })
+      const reader = createDesktopFeedReader({ fetchImpl, now: () => 1, source: NO_INSTALL })
       expect((await reader.read()).checked).toBe(false)
     }
   })
@@ -192,7 +198,7 @@ describe('createDesktopFeedReader', () => {
       return new Response(SERVED, { status: 200 })
     }) as never
     let clock = 0
-    const reader = createDesktopFeedReader({ fetchImpl, now: () => clock })
+    const reader = createDesktopFeedReader({ fetchImpl, now: () => clock, source: NO_INSTALL })
     expect((await reader.read()).checked).toBe(false)
     fail = false
     clock += DESKTOP_CACHE_MS
@@ -202,7 +208,7 @@ describe('createDesktopFeedReader', () => {
 
   it('never rejects, whatever the host answers', async () => {
     const fetchImpl = (async () => ({ ok: false, status: 500 }) as Response) as never
-    const reader = createDesktopFeedReader({ fetchImpl, now: () => 0 })
+    const reader = createDesktopFeedReader({ fetchImpl, now: () => 0, source: NO_INSTALL })
     await expect(reader.read()).resolves.toMatchObject({ checked: false })
   })
 
@@ -212,7 +218,7 @@ describe('createDesktopFeedReader', () => {
       seen.push(url)
       return new Response(SERVED, { status: 200 })
     }) as never
-    await createDesktopFeedReader({ fetchImpl, now: () => 0 }).read()
+    await createDesktopFeedReader({ fetchImpl, now: () => 0, source: NO_INSTALL }).read()
     expect(seen).toEqual([DESKTOP_FEED_URL])
   })
 })
@@ -239,7 +245,7 @@ describe('desktop feed logging', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const fetchImpl = (async () => { throw new Error('offline') }) as never
-    await createDesktopFeedReader({ fetchImpl, now: () => 0 }).read()
+    await createDesktopFeedReader({ fetchImpl, now: () => 0, source: NO_INSTALL }).read()
     expect(warn).not.toHaveBeenCalled()
     expect(error).not.toHaveBeenCalled()
     warn.mockRestore()

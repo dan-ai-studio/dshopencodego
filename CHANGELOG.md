@@ -2,6 +2,22 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.99] - 2026-11-15
+
+桌面版下载地址不再写死：跟随安装时封装的更新源与用户选择的频道。
+
+### ✨ 改进
+
+- **feed 地址按实际配置解析**（`src/desktop/source.ts`）：以前写死 `feeds/win-x64/nightly.yml`，与真实配置脱节——安装时封装的 `app-update.yml` 才是权威来源，用户还可能在桌面设置里切频道。现在每次查询都解析：读 `app-update.yml` 的 `url` 与 `channel`（优先用 `DSH_INSTALL_DIR` 推出的 `resources` 目录，其次可执行文件旁的 `resources` 与 macOS 的 `Contents/Resources`），再用 `%APPDATA%/@deepseek-ai/dsh-desktop/desktop/settings.json` 的 `updates.channel` 覆盖（与 shell 自己的应用顺序一致），平台目录从 `url` 路径里取，最后拼成 `<url>/<channel>.yml`。
+- **缓存按地址失效**：切换频道后不再沿用旧频道的 6 小时缓存。
+- **CLI profile 仍可用**：没有 `app-update.yml` 时回落到原先的固定地址，面板不会因此消失。
+- `DESKTOP_FEED_URL` / `_PLATFORM` / `_CHANNEL` 保留为 fallback 的别名，公开面不变。
+
+### 🧪 测试
+
+- 新增 `tests/desktop-source.spec.ts`（8 条）：封装地址、用户覆盖、坏设置、无尾斜杠、平台推导、无安装回落、可执行文件旁布局、缺 `url` 的配置。
+- 套件 **66 个测试文件 / 577 个用例**全绿，`typecheck`、`build`、`lint` 通过。
+
 ## [0.1.98] - 2026-11-14
 
 文档：把这次事故的教训写成开发约束。

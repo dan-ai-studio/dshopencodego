@@ -13,3 +13,10 @@ export {
 } from './feed.ts'
 export type { DesktopReading, DesktopRelease } from './feed.ts'
 export { createDesktopFeedReader, parseDesktopFeed } from './feed.ts'
+export {
+  DESKTOP_FEED_FALLBACK_CHANNEL,
+  DESKTOP_FEED_FALLBACK_PLATFORM,
+  DESKTOP_FEED_FALLBACK_URL,
+  resolveDesktopFeedSource,
+} from './source.ts'
+export type { DesktopFeedSource, DesktopFeedSourceDeps } from './source.ts'
