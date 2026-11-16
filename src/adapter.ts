@@ -57,8 +57,6 @@ import { estimateInputTokens, resolveFittedMaxTokens } from './context-fit.ts'
 import { providerHeaders } from './session-header.ts'
 import { IMAGE_BUDGETS } from './image-budget.ts'
 import type { RequestRecorder, RequestSpan } from './request-log/store.ts'
-import { costOf, usableRates } from './usage/meter.ts'
-import type { MeteredUsage } from './usage/meter.ts'
 
 /**
  * pi-ai thinking formats that answer an unset effort with an explicit disable.
@@ -235,11 +233,9 @@ export interface OpencodeGoAdapterOptions {
   /**
    * Observe the provider's own usage for one completed call. This is the only
    * honest source of token counts: the gateway's `/usage` endpoint reports
-   * account percentages, not tokens. The value carries the rates that were
-   * published for the model when the call ran, so the meter can price it
-   * without ever looking a rate up after the fact.
+   * account percentages, not tokens.
    */
-  readonly onUsage?: (detail: { model: string; usage: MeteredUsage }) => void
+  readonly onUsage?: (detail: { model: string; usage: TokenUsage }) => void
   /**
    * Record one request's span. The recorder returns undefined unless the
    * profile enabled the log, so a disabled log costs one call and one
@@ -564,10 +560,6 @@ export class OpencodeGoAdapter extends LlmAdapter {
       throw error
     }
     const model = withModelLimit(toPiModel(facts, config.baseURL), config.modelLimits)
-    // The rates this call will be priced at, captured before the first byte:
-    // the catalog may be refreshed long before the meter is read, and a later
-    // price must not re-price tokens that are already spent.
-    const rates = usableRates(facts.cost)
     // Resolved before the first await so an unsupported protocol fails the
     // request before any credential is read or any byte is sent.
     const stop = stopSequencesFor(model, options.stop)
@@ -738,14 +730,11 @@ export class OpencodeGoAdapter extends LlmAdapter {
                 ...reportedReasoning === undefined || reportedReasoning <= 0
                   ? {}
                   : { reasoningTokens: reportedReasoning },
-                ...rates === undefined ? {} : { rates },
               },
             })
           } else if (result.value.type === 'finish') {
             // The usage chunk always precedes the finish chunk, so the span
-            // closes here with the terminal counts in hand. The cost rides
-            // the same rates the meter priced with, computed by the same
-            // function — one row and the since-boot meter can never disagree.
+            // closes here with the terminal counts in hand.
             const reason = result.value.reason
             const ok = reason.kind === 'stop' || reason.kind === 'tool-calls' || reason.kind === 'max-tokens'
             const usage = pendingUsage === undefined ? undefined : {
@@ -765,7 +754,6 @@ export class OpencodeGoAdapter extends LlmAdapter {
               ok,
               ok ? undefined : (reason as { failure?: { code?: string } }).failure?.code,
               usage,
-              usage === undefined ? undefined : costOf(usage, rates),
             )
           }
           yield result.value

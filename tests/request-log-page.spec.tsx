@@ -278,12 +278,11 @@ describe('request-log page', () => {
     expect(within(rows).getByText(/2 messages/)).toBeTruthy()
   })
 
-  it('shows the protocol, price, and reasoning split in the detail', async () => {
+  it('shows the protocol and reasoning split in the detail', async () => {
     render(<RequestLogPage {...faceFor(snapshotOf([entry({
       protocol: 'openai-responses',
       reasoningTokens: 120,
       cacheWriteTokens: 7,
-      costUsd: 0.00130654,
       requestBytes: 3_621_468,
       streamMs: 120,
     })]))} />)
@@ -294,7 +293,6 @@ describe('request-log page', () => {
     })
     expect(within(rows).getByText(/Reasoning 120/)).toBeTruthy()
     expect(within(rows).getByText(/Cache write 7/)).toBeTruthy()
-    expect(within(rows).getByText('$0.001307')).toBeTruthy()
     expect(within(rows).getByText('3.45 MB')).toBeTruthy()
   })
 

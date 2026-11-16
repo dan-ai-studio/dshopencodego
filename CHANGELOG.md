@@ -2,6 +2,21 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.103] - 2026-11-17
+
+去掉估算花费。
+
+### 🔥 移除
+
+- **估算花费**：用量面板不再显示「估算花费」与「未定价 token」，请求日志详情不再显示单条花费。这套估算按 models.dev 单价 × provider 回传 token 计算，面板自己就写着「不是账单」，订阅端点（Go）下连对账价值都没有——删掉它同时去掉了约 200 行定价代码。
+- 连带删除：`MeterRates` / `CatalogRates` / `usableRates` / `spendOf` / `costOf`、`MeterTotals.estimatedUSD` 与 `unpricedTokens`、`RequestLogRecord.costUsd`、`RequestSpan.finish` 的第四个参数、五条本地化文案。
+- **保留**：catalog 的模型单价（模型列表里的 `$input / $output`），那是目录事实，不是估算。
+
+### 🧪 测试
+
+- 删除 `tests/usage-spend.spec.ts`、`tests/usage-pill-spend.spec.tsx`；相关断言从 adapter、meter、请求日志的用例里移除。
+- 套件 **64 个测试文件 / 561 个用例**全绿，`typecheck`、`build`、`lint` 通过。
+
 ## [0.1.102] - 2026-11-15
 
 去掉桌面版面板的频道选择器。

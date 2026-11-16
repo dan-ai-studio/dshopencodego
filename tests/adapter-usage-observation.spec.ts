@@ -162,7 +162,7 @@ async function meterAfterCall(baseURL: string, model: string): Promise<ReturnTyp
 }
 
 describe('usage observation', () => {
-  it('reports the reasoning breakdown and prices the call at the catalog rates', async () => {
+  it('reports the reasoning breakdown without double-counting it', async () => {
     const server = await startGateway()
     gateways.push(server)
     const stub = stubModelsDev(DOCUMENT)
@@ -178,33 +178,11 @@ describe('usage observation', () => {
         totalTokens: 111,
         reasoningTokens: 80,
       })
-      // 6×$1 + 100×$2 + 5×$0.50, per million tokens.
-      expect(reading.totals.estimatedUSD).toBeCloseTo(0.0002085, 12)
-      expect(reading.totals.unpricedTokens).toBeUndefined()
     } finally {
       stub.restore()
     }
   })
 
-  it('leaves a model the catalog does not price unpriced, not free', async () => {
-    const server = await startGateway()
-    gateways.push(server)
-    const stub = stubModelsDev(DOCUMENT)
-    try {
-      const reading = await meterAfterCall(server.baseURL, UNPRICED_MODEL)
-      expect(reading.totals.reasoningTokens).toBe(80)
-      expect(reading.totals.estimatedUSD).toBeUndefined()
-      // No estimate means nothing is "uncovered" — the absence of a figure is
-      // itself the statement that this model has no published rate.
-      expect(reading.totals.unpricedTokens).toBeUndefined()
-      // Absent rather than present-and-zero: `$0` is what a free call looks
-      // like, and this model's price is simply unknown.
-      expect(reading.models[0]?.model).toBe(UNPRICED_MODEL)
-      expect(reading.models[0] !== undefined && 'estimatedUSD' in reading.models[0]).toBe(false)
-    } finally {
-      stub.restore()
-    }
-  })
 
   it('declares no request-image pricing for any model, deliberately', async () => {
     const server = await startGateway()

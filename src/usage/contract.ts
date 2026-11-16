@@ -48,13 +48,11 @@ function parseTotals(value: unknown): GoMeter['totals'] {
     if (typeof entry !== 'number' || !Number.isFinite(entry) || entry < 0) throw new Error(`invalid meter field "${key}"`)
     return entry
   }
-  // Counted fields the host omits when it has nothing to say: an absent spend
-  // estimate means "no published rate", which is not the same reading as a
-  // zero, so the omission has to survive the wire.
+  // Counted fields the host omits when it has nothing to say: an absent count
+  // means "not reported", which is not the same reading as a zero, so the
+  // omission has to survive the wire.
   const optionalCount = (key: string): number | undefined => row[key] === undefined ? undefined : count(key)
   const reasoningTokens = optionalCount('reasoningTokens')
-  const estimatedUSD = optionalCount('estimatedUSD')
-  const unpricedTokens = optionalCount('unpricedTokens')
   return {
     calls: count('calls'),
     inputTokens: count('inputTokens'),
@@ -63,8 +61,6 @@ function parseTotals(value: unknown): GoMeter['totals'] {
     cacheWriteTokens: count('cacheWriteTokens'),
     totalTokens: count('totalTokens'),
     ...reasoningTokens === undefined ? {} : { reasoningTokens },
-    ...estimatedUSD === undefined ? {} : { estimatedUSD },
-    ...unpricedTokens === undefined ? {} : { unpricedTokens },
   }
 }
 

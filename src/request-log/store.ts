@@ -59,12 +59,6 @@ export interface RequestLogEntry {
    */
   readonly reasoningTokens?: number
   /**
-   * Estimated USD for this request at the rates in force when it ran, by the
-   * same function that prices the since-boot meter. Absent for unpriced
-   * models: no zero standing in for "unknown".
-   */
-  readonly costUsd?: number
-  /**
    * Request body size in bytes, as handed to fetch. Explanatory, not
    * sensitive: a multi-megabyte turn uploads slowly no matter the model.
    */
@@ -325,7 +319,6 @@ export interface RequestSpan {
    * @param ok - whether the request completed.
    * @param code - failure code for a request that did not complete.
    * @param usage - provider-reported counts, when the terminal usage arrived.
-   * @param costUsd - estimated USD at the call's rates, when priced.
    */
   finish(ok: boolean, code?: string, usage?: {
     readonly inputTokens: number
@@ -333,7 +326,7 @@ export interface RequestSpan {
     readonly cacheReadTokens?: number
     readonly cacheWriteTokens?: number
     readonly reasoningTokens?: number
-  }, costUsd?: number): void
+  }): void
 }
 
 /** Detail the adapter hands the recorder for one request. */
@@ -510,7 +503,7 @@ export class RequestLog {
         // First sighting wins, like the wire line above it.
         if (record.responseMs === undefined) record.responseMs = Math.max(0, Date.now() - startedAt)
       },
-      finish: (ok, code, usage, costUsd): void => {
+      finish: (ok, code, usage): void => {
         if (finished) return
         finished = true
         const seq = record.seq
@@ -569,7 +562,6 @@ export class RequestLog {
               ? {}
               : { reasoningTokens: usage.reasoningTokens },
           },
-          ...costUsd === undefined ? {} : { costUsd },
           ...record.requestBytes === undefined ? {} : { requestBytes: record.requestBytes },
           ...detail.imageBytes === undefined ? {} : { imageBytes: detail.imageBytes },
           durationMs: Math.max(0, endedAt - startedAt),

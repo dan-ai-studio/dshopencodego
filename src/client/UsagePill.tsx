@@ -61,27 +61,6 @@ function failureOf(error: unknown): Failure {
 const POLL_MS = 5 * 60_000
 
 /**
- * How many unpriced model ids the panel names before it stops listing them.
- * The count is the fact that matters; the ids are the way to act on it.
- */
-const MAX_UNPRICED_IDS = 3
-
-/**
- * Render an estimate without ever rounding it into "free".
- *
- * `$0.00` is reserved for a real zero — a priced model that spent nothing —
- * while anything too small to show at four decimals says so instead of
- * collapsing to a zero that reads as "this cost nothing".
- * @param value - the estimate in USD.
- * @returns the display string.
- */
-function formatUSD(value: number): string {
-  if (value === 0) return '$0.0000'
-  if (value < 0.0001) return '<$0.0001'
-  return value < 1 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`
-}
-
-/**
  * Mount the pill only while the conversation's selected provider is this route.
  */
 export function UsagePill({ directory, ...rest }: UsagePillInjected): React.JSX.Element | null {
@@ -161,13 +140,6 @@ function ActiveUsage({
     : `Go · ${t('usageRolling')} ${windows.rolling.percent}% · ${t('usageWeekly')} ${windows.weekly.percent}%`
       + (failure === undefined ? '' : ` · ${t('usageStale')}`)
 
-  // A model the catalog priced nothing for is named rather than folded into the
-  // estimate: the spend line covers the priced tokens only, and this is how the
-  // panel says which ones those are.
-  const unpriced = (meter?.models ?? []).filter(entry => entry.estimatedUSD === undefined)
-  const unpricedModels = unpriced.slice(0, MAX_UNPRICED_IDS).map(entry => entry.model).join(', ')
-    + (unpriced.length > MAX_UNPRICED_IDS ? ` +${unpriced.length - MAX_UNPRICED_IDS}` : '')
-
   return <span className={css.root} ref={root}>
     <button
       type="button"
@@ -210,19 +182,6 @@ function ActiveUsage({
           <span>{t('usageReasoning')}</span>
           <strong>{meter.totals.reasoningTokens.toLocaleString(getLocale?.())}</strong>
         </div>}
-        <div className={css.row}>
-          <span>{t('usageSpend')}</span>
-          <strong>{meter.totals.estimatedUSD === undefined
-            ? t('usageUnpriced')
-            : formatUSD(meter.totals.estimatedUSD)}</strong>
-        </div>
-        {meter.totals.unpricedTokens !== undefined && <div className={css.hint}>
-          {t('usageSpendPartial')} {meter.totals.unpricedTokens.toLocaleString(getLocale?.())}
-        </div>}
-        {unpriced.length > 0 && <div className={css.hint}>
-          {t('usageUnpricedModels')} {unpricedModels}
-        </div>}
-        <p className={css.hint}>{t('usageSpendHint')}</p>
         <p className={css.hint}>{t('usageLocalHint')}</p>
       </div>}
       {updatedAt !== undefined && <p className={css.hint}>{t('usageLastUpdated')} {new Date(updatedAt).toLocaleString(getLocale?.())}</p>}

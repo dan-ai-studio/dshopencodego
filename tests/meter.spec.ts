@@ -6,7 +6,7 @@
  * cache read.
  */
 import { describe, expect, it } from 'vitest'
-import { costOf, UsageMeter } from '../src/usage/meter.ts'
+import { UsageMeter } from '../src/usage/meter.ts'
 
 describe('UsageMeter', () => {
   it('starts empty', () => {
@@ -41,12 +41,4 @@ describe('UsageMeter', () => {
     expect(meter.snapshot().totals.totalTokens).toBe(22)
   })
 
-  it('prices one call without touching the accumulator', () => {
-    const rates = { input: 1, output: 2, cacheRead: 0.5, cacheWrite: 0.25 }
-    expect(costOf({ inputTokens: 10, outputTokens: 5 }, rates)).toBeCloseTo(20 / 1_000_000, 12)
-    expect(costOf({ inputTokens: 10, outputTokens: 5, cacheReadTokens: 100 }, rates))
-      .toBeCloseTo(70 / 1_000_000, 12)
-    // Unpriced calls have no estimate rather than a zero one.
-    expect(costOf({ inputTokens: 10, outputTokens: 5 }, undefined)).toBeUndefined()
-  })
 })

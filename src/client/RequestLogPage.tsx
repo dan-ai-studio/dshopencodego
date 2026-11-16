@@ -155,12 +155,6 @@ function rate(value: number | undefined): string {
   return value === undefined ? '—' : value.toFixed(1)
 }
 
-/** Estimated USD, trimmed to cents and below. */
-function cost(value: number | undefined): string {
-  if (value === undefined) return '—'
-  return `$${value.toFixed(value < 0.01 ? 6 : 4)}`
-}
-
 /** A byte count in the unit a person reads it in. */
 function bytes(value: number | undefined): string {
   if (value === undefined) return '—'
@@ -837,12 +831,6 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
                     {entry.reasoningTokens !== undefined && ` · ${t('requestLogDetailReasoning')} ${count(entry.reasoningTokens)}`}
                   </span>
                 </div>
-                {entry.costUsd !== undefined && (
-                  <div className={css.detailItem}>
-                    <span className={css.detailLabel}>{t('requestLogDetailCost')}</span>
-                    <span className={css.detailValue}>{cost(entry.costUsd)}</span>
-                  </div>
-                )}
                 <div className={css.detailItem}>
                   <span className={css.detailLabel}>{t('requestLogColCacheRate')}</span>
                   <span className={css.detailValue}>{percent(cacheRate(entry))}</span>

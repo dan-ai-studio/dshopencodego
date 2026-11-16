@@ -453,12 +453,10 @@ describe('RequestLog', () => {
       true,
       undefined,
       { inputTokens: 950, outputTokens: 390, cacheReadTokens: 566_769, reasoningTokens: 120 },
-      0.00130654,
     )
     const entry = log.snapshot().entries[0]!
     expect(entry.protocol).toBe('openai-responses')
     expect(entry.reasoningTokens).toBe(120)
-    expect(entry.costUsd).toBeCloseTo(0.00130654, 8)
     expect(entry.requestBytes).toBe(3_621_468)
     // The second request call never rewrites the first line.
     span?.request('POST', 'https://example.invalid/other', 1)

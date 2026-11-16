@@ -69,7 +69,6 @@ function parseEntry(value: unknown): RequestLogEntry {
     ...row['cacheReadTokens'] === undefined ? {} : { cacheReadTokens: count('cacheReadTokens', row) },
     ...row['cacheWriteTokens'] === undefined ? {} : { cacheWriteTokens: count('cacheWriteTokens', row) },
     ...row['reasoningTokens'] === undefined ? {} : { reasoningTokens: count('reasoningTokens', row) },
-    ...row['costUsd'] === undefined ? {} : { costUsd: rate('costUsd', row) },
     ...row['requestBytes'] === undefined ? {} : { requestBytes: count('requestBytes', row) },
     ...row['prepMs'] === undefined ? {} : { prepMs: count('prepMs', row) },
     ...row['responseMs'] === undefined ? {} : { responseMs: count('responseMs', row) },
