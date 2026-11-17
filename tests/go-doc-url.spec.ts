@@ -32,10 +32,14 @@ describe('the provider document sources', () => {
     // The provider's own statement of each model's protocol: the most
     // authoritative evidence the plugin has, and the one that disappears
     // silently when the path moves.
-    expect(document.protocols.size).toBeGreaterThan(0)
-    // The provider renames models (MiniMax M3.1 Flash lost its `-free`
-    // suffix when the free tier moved to Beam/LongCat), so this pins a
-    // model that exists today rather than one that existed once.
-    expect(document.protocols.get('minimax-m3.1-flash')).toBe('openai-completions')
+    expect(document.protocols.size).toBeGreaterThan(10)
+    // The page states several APIs, not one. A parse that read a single row,
+    // or that mapped every endpoint to the same protocol, would still be
+    // "non-empty" and still be wrong: every model would be described as
+    // whatever the one surviving row happened to name. Pinning a model id
+    // here instead made this case rot — the provider retires and renames
+    // models on its own schedule, and the id that proved the table last
+    // quarter is a tombstone in the retention table this quarter.
+    expect(new Set(document.protocols.values()).size).toBeGreaterThan(1)
   }, NETWORK_TIMEOUT_MS)
 })

@@ -32,14 +32,20 @@ import type { WireProtocol } from './protocol.ts'
  * The path is the provider's own, and it moves: `go.mdx` used to live at
  * `packages/web/src/content/docs/go.mdx`, then at
  * `services/www/src/docs/content/console/go.mdx`, and the `www` tree was
- * renamed to `site` — after which both mirrors answered 404 again. A document
- * that cannot be read costs the endpoint table — the provider's own statement
- * of each model's protocol — so the path is asserted against the live
+ * renamed to `site` — after which both mirrors answered 404 again. Then the
+ * endpoint table itself moved: `go.mdx` was rewritten to state plan prices,
+ * and the `Model ID` / `Endpoint` table now lives in the console's model list.
+ * A document that cannot be read costs the endpoint table — the provider's own
+ * statement of each model's protocol — so the path is asserted against the live
  * repository by `tests/go-doc-url.spec.ts` rather than left to rot unnoticed.
+ *
+ * The allowance table has no successor: the provider states three plan prices
+ * now, not a monthly limit per model, so this document yields no `quotas` and
+ * the transcription in `go-limits.ts` remains the only source for them.
  */
 export const GO_DOC_URLS: readonly string[] = [
-  'https://raw.githubusercontent.com/anomalyco/opencode/dev/services/site/src/docs/content/console/go.mdx',
-  'https://cdn.jsdelivr.net/gh/anomalyco/opencode@dev/services/site/src/docs/content/console/go.mdx',
+  'https://raw.githubusercontent.com/anomalyco/opencode/dev/services/site/src/docs/content/console/models.mdx',
+  'https://cdn.jsdelivr.net/gh/anomalyco/opencode@dev/services/site/src/docs/content/console/models.mdx',
 ]
 
 /** The document is about 30 KB; the cap leaves room without inviting a flood. */
@@ -340,8 +346,14 @@ export async function fetchGoDocument(
       // known paths failed for a reason other than their address — a network
       // hiccup — and asking again rarely differs. A path the provider has
       // actually moved is a different one, and that is the case worth a read.
+      //
+      // The remembered paths are excluded for the same reason: the pass above
+      // just asked them, so a listing that repeats one of them names a
+      // question already answered. A stale entry in the cache used to cost
+      // that duplicate on every build.
       const fresh = merged
         .filter(path => !GO_DOC_URLS.some(url => url.endsWith(path)))
+        .filter(path => !remembered.includes(path))
         .flatMap(mirrorsOf)
       if (fresh.length === 0) {
         failures.push('the provider repository named the path that was already tried')

@@ -21,7 +21,7 @@ import {
   selectDocumentPaths,
   DISCOVERY_COOLDOWN_MS,
 } from '../src/catalog/go-doc-discovery.ts'
-import { fetchGoDocument } from '../src/catalog/go-doc.ts'
+import { fetchGoDocument, GO_DOC_URLS } from '../src/catalog/go-doc.ts'
 
 const directories: string[] = []
 afterEach(() => {
@@ -47,7 +47,7 @@ const DOCUMENT = [
 ].join('\n')
 
 describe('selectDocumentPaths', () => {
-  it('keeps the documentation file and drops everything else', () => {
+  it('keeps the documentation files and drops everything else', () => {
     const paths = selectDocumentPaths([
       'services/www/src/docs/content/console/go.mdx',
       'packages/web/src/content/docs/go.mdx',
@@ -55,14 +55,19 @@ describe('selectDocumentPaths', () => {
       'packages/sdk/src/go.ts',
       'packages/sdk/src/go.mdx',
       'services/www/src/docs/content/console/models.mdx',
+      'packages/sdk/src/models.mdx',
     ])
     expect(paths).toContain('services/www/src/docs/content/console/go.mdx')
     expect(paths).toContain('packages/web/src/content/docs/go.mdx')
+    // The console's model list carries the endpoint table now, so a discovery
+    // that dropped it would lose the table the day the pinned path moves
+    // again — the failure this whole module exists to avoid.
+    expect(paths).toContain('services/www/src/docs/content/console/models.mdx')
     // A Go file that is not the provider's document, and a fixture in a
     // package's source tree, are not candidates.
     expect(paths).not.toContain('packages/sdk/src/go.ts')
     expect(paths).not.toContain('packages/sdk/src/go.mdx')
-    expect(paths).not.toContain('services/www/src/docs/content/console/models.mdx')
+    expect(paths).not.toContain('packages/sdk/src/models.mdx')
   })
 })
 
@@ -201,5 +206,28 @@ describe('fetchGoDocument with discovery', () => {
     } finally {
       spy.mockRestore()
     }
+  })
+
+  it('reads a remembered path once, even when the discovery names it again', async () => {
+    // A remembered path is a candidate, not a promise: the provider may have
+    // deleted it. Asking for it again because the repository listing repeats
+    // it spends two requests to learn the answer the first pair already gave —
+    // which is what every build paid while a stale `services/www` path sat in
+    // the cache and the listing still named it.
+    const directory = cacheDir()
+    rememberPaths(directory, [MOVED])
+    const requested: string[] = []
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      requested.push(String(input))
+      return new Response('gone', { status: 404 })
+    })
+    try {
+      await expect(fetchGoDocument(undefined, { cacheDir: directory, discover: async () => [MOVED] }))
+        .rejects.toMatchObject({ code: 'DOCUMENT_UNAVAILABLE' })
+    } finally {
+      spy.mockRestore()
+    }
+    // The known paths once, the remembered path once, and nothing twice.
+    expect(requested).toEqual([...GO_DOC_URLS, ...mirrorsOf(MOVED)])
   })
 })

@@ -29,8 +29,17 @@ import { join } from 'node:path'
 /** The provider's repository, as the file listing API exposes it. */
 const DISCOVERY_URL = 'https://api.github.com/repos/anomalyco/opencode/git/trees/dev?recursive=1'
 
-/** The document's name may carry a version suffix; `go-v2.mdx` is still it. */
-const DOCUMENT_NAME = /^go[^/]*\.mdx$/i
+/**
+ * The documents that carry what this plugin reads, and their version suffixes.
+ *
+ * Two names now: the Go page, which stated the allowances until the provider
+ * restructured it, and the console's model list, which is where the endpoint
+ * table went. A discovery that knew only `go.mdx` would answer with a document
+ * that no longer holds the table it was asked for — and the caller would then
+ * read a file that exists and still learn nothing. `models-v2.mdx` is still
+ * the model list, the same way `go-v2.mdx` is still the Go page.
+ */
+const DOCUMENT_NAME = /^(?:go|models)[^/]*\.mdx$/i
 
 /** A repository listing is large; the cap keeps a hostile response bounded. */
 export const DISCOVERY_MAX_BYTES = 8 * 1024 * 1024
@@ -69,11 +78,11 @@ interface CacheFile {
 /**
  * The repository paths a discovery run found.
  *
- * A path is only useful if it names the document this plugin parses, and the
+ * A path is only useful if it names a document this plugin parses, and the
  * listing also contains unrelated `go.mdx` files in other packages' fixtures.
  * The path must therefore sit under a documentation tree.
  * @param paths - every repository path the listing mentioned.
- * @returns the paths that name the provider's Go document.
+ * @returns the paths that name a document the parser reads, longest first.
  */
 export function selectDocumentPaths(paths: readonly string[]): readonly string[] {
   const selected: string[] = []

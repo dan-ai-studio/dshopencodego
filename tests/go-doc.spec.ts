@@ -186,3 +186,66 @@ describe('fetchGoDocument', () => {
     expect(spy).toHaveBeenCalledTimes(GO_DOC_URLS.length)
   })
 })
+
+describe('GO_DOC_URLS', () => {
+  it('names the document that carries the endpoint table', () => {
+    // The provider moved the endpoint table out of `go.mdx` and into the
+    // console's model list: `go.mdx` now states plan prices and carries no
+    // table this parser reads, so a source pinned there answers 200 and is
+    // still a failure. The path pinned here is the one that states each
+    // model's protocol, and it is read from the repository and its mirror.
+    expect(GO_DOC_URLS).toEqual([
+      'https://raw.githubusercontent.com/anomalyco/opencode/dev/services/site/src/docs/content/console/models.mdx',
+      'https://cdn.jsdelivr.net/gh/anomalyco/opencode@dev/services/site/src/docs/content/console/models.mdx',
+    ])
+  })
+})
+
+describe('the console model list', () => {
+  // Transcribed from the live `models.mdx`: the table sits inside a scroll
+  // component, its header is padded, and the endpoint column mixes the three
+  // APIs this plugin speaks with one it does not. The rows are what the page
+  // actually renders, so a parser proven against this text is proven against
+  // the page, not against a hand-minimised version of it.
+  const MODEL_LIST = [
+    '<div class="docs-table-scroll" role="region" aria-label="Console model endpoints" tabIndex={0}>',
+    '',
+    '| Model                           | Model ID                        | Endpoint                                                                   | AI SDK Package              |',
+    '| ------------------------------- | ------------------------------- | -------------------------------------------------------------------------- | --------------------------- |',
+    '| GPT 6 Astra                     | gpt-6-astra                     | `https://opencode.ai/inference/openai/v1/responses`                        | `@ai-sdk/openai`            |',
+    '| GLM-5.3                         | glm-5.3                         | `https://opencode.ai/inference/openai/v1/chat/completions`                 | `@ai-sdk/openai-compatible` |',
+    '| Claude Haiku 5.5                | claude-haiku-5.5                | `https://opencode.ai/inference/anthropic/v1/messages`                      | `@ai-sdk/anthropic`         |',
+    '| System One                      | system-one                      | `https://opencode.ai/inference/systemone/v1/systemone`                     | `@ai-sdk/openai-compatible` |',
+    '',
+    '</div>',
+  ].join('\n')
+
+  it('states each model protocol, and drops an endpoint this plugin cannot speak', () => {
+    const doc = parseGoDocument(MODEL_LIST)
+    expect(doc.protocols.get('gpt-6-astra')).toBe('openai-responses')
+    expect(doc.protocols.get('glm-5.3')).toBe('openai-completions')
+    expect(doc.protocols.get('claude-haiku-5.5')).toBe('anthropic-messages')
+    // An endpoint whose tail is not one of the three APIs names no protocol;
+    // guessing one would be worse than leaving the model to the fallback.
+    expect(doc.protocols.has('system-one')).toBe(false)
+  })
+
+  it('carries no allowance table, so the transcription stays the source', () => {
+    // The plan prices are prose now: "$10/month" belongs to Go, not to a
+    // model, and reading one as a model's monthly limit would invent an
+    // allowance that the provider never stated.
+    expect(parseGoDocument(MODEL_LIST).quotas.size).toBe(0)
+  })
+
+  it('is accepted as a document source, because it carries a table', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response(MODEL_LIST, { status: 200 }))
+    try {
+      const doc = await fetchGoDocument()
+      expect(doc.protocols.get('gpt-6-astra')).toBe('openai-responses')
+      expect(doc.quotas.size).toBe(0)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
