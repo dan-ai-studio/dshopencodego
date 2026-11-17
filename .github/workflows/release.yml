@@ -24,6 +24,9 @@ jobs:
           node-version: 22
           package-manager-cache: false
       - run: npm ci
+      # A release is the moment the seed reaches new installs, so it is the
+      # moment its age matters. The threshold is a month: drift, not a day.
+      - run: npm run check:seed
       # This workflow creates the *public* GitHub Release, and it used to run
       # the weakest gate of the three chains: `npm test` (no coverage floor),
       # no lint, no typecheck. It now runs the same gate as ci.yml, in the same

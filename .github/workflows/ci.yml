@@ -31,6 +31,10 @@ jobs:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
       - run: npm ci
+      # The bundled catalog is what a fresh install shows before its first
+      # background refresh, so a stale seed ships retired models to every new
+      # user. One command refreshes it; this step is what makes anyone run it.
+      - run: npm run check:seed
       # Explicit rather than a side effect of `prepare` during `npm ci`: the
       # build is the step most likely to break, so it belongs in the log as
       # itself. `npm pack` below needs `lib/`, and so do the `exports` checks

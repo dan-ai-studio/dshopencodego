@@ -2,6 +2,23 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.105] - 2026-11-18
+
+内置模型快照刷新，并且发版时会拦住过老的快照。
+
+### 🔧 适配
+
+- **刷新内置目录快照**：`seed.snapshot.json` 从 2026-10-30（28 个模型）更新到当前网关（32 个模型，新增 `hy4`、`longcat-2.5-free`、`hy4-flash-free`、`qwen4-max`）。端点表随 0.1.104 的文档源修复一起读到，协议条目由 29 条增至 78 条，并修正两处：`qwen3.8-max` 与 `minimax-m3` 的线协议由 `anthropic-messages` 改为 `openai-completions`，以厂商端点表为准。
+
+### 🐛 修复
+
+- **`npm run seed` 在 Windows 上跑不起来**：esbuild 创建并写入 `scripts/.seed-build` 时稳定返回 `Access is denied`（同一路径用 `mkdir` 与 Node 都能写），快照因此无法刷新。改为直接以 Node 的类型剥离导入 TS 入口，第三方依赖照旧从本包 `node_modules` 解析——这正是原来那层 bundle 要保住的性质。
+
+### 🧪 测试
+
+- 新增 `check:seed`：快照超过 30 天即失败并打印刷新命令，`ci`、`release`、`publish-npm` 三条流水线都会执行它。
+- 套件 **64 个测试文件 / 566 个用例**全绿，`typecheck`、`build`、`lint` 通过。
+
 ## [0.1.104] - 2026-11-18
 
 厂商把端点表搬进了 Console 模型清单，文档源跟上。

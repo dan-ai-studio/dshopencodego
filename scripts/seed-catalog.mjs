@@ -14,35 +14,22 @@
  * release so the bundled data stays young; the runtime treats the seed
  * exactly like a stale disk cache (served at once, refreshed behind it),
  * so an older seed costs one background refresh, never a wrong answer.
+ *
+ * The entry is imported directly rather than bundled through esbuild. Node
+ * strips the types itself (the `engines` floor is a version that has it on by
+ * default), and third-party imports then resolve from the package's own
+ * node_modules exactly as they do at runtime — the guarantee the bundle was
+ * there to preserve. The esbuild step could not write its output directory on
+ * Windows (`mkdir` and Node both could; it failed with `Access is denied`), and
+ * a release script that runs on the machine cutting the release is worth more
+ * than a bundle nobody reads.
  */
-import { rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { build } from 'esbuild'
 
 const packageRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const entry = join(packageRoot, 'scripts', 'seed-catalog.entry.ts')
 const outPath = resolve(packageRoot, process.argv[2] ?? join('src', 'catalog', 'seed.snapshot.json'))
 
-// The bundle lives inside the package (not the temp dir) so bare imports
-// keep resolving through the package's own node_modules at runtime. Only
-// this repo's files are bundled; third-party packages stay external —
-// which also keeps runtime `require('../package.json')` version sniffs
-// inside their own packages working, instead of dangling off a bundle.
-const workDir = join(packageRoot, 'scripts', '.seed-build')
-try {
-  const outfile = join(workDir, 'seed-build.mjs')
-  await build({
-    entryPoints: [entry],
-    outfile,
-    bundle: true,
-    platform: 'node',
-    format: 'esm',
-    packages: 'external',
-    logLevel: 'warning',
-  })
-  const { main } = await import(pathToFileURL(outfile).href)
-  await main(outPath)
-} finally {
-  rmSync(workDir, { recursive: true, force: true })
-}
+const { main } = await import(pathToFileURL(entry).href)
+await main(outPath)

@@ -62,6 +62,9 @@ jobs:
       # tarball with no `lib/` cannot be caught by anything downstream (npm
       # packs whatever exists), and `npm publish` has no undo.
       - run: npm run build
+      # The npm tarball is what most installs start from, and the seed inside
+      # it is the first thing a new user sees. Stale seed, refused release.
+      - run: npm run check:seed
       # Static checks first: they are the fastest way to fail, and a release
       # should not spend minutes on the suite to then die on a lint error.
       - run: npm run lint
