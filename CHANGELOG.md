@@ -2,6 +2,22 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.106] - 2026-11-19
+
+适配 DSH 0.2.2-rc.5。
+
+### 🔧 适配
+
+- **开发依赖升到 `0.2.2-rc.5`**：24 个 `@deepseek-ai/dsh-*` 包从 `0.2.2-rc.3` 升级到 `0.2.2-rc.5`。`engines.dsh` 范围不变（`>=0.2.0-rc.1 <0.3.0-0` 仍覆盖 rc.5）。
+- **显式补 `@deepseek-ai/dsh-error`**：rc.5 的精确 peer 链（`dsh-attachment@0.2.2-rc.5` 要求 `dsh-brand@0.2.2-rc.5`）让 npm 的自动 peer 补齐放不下这个包；`LlmError` 的 `extends HarnessError` 因此断链，`typecheck` 报 11 处 `code` / `message` 不存在。把它列入 `devDependencies` 后恢复。
+- **源码零改动**：rc.3 → rc.5 的实质源码变更只有 12 个文件（web search、liveshare、tool-cordis、`llm-deepseek/translate.ts`，以及 `llm/src/error.ts` 新增 `CONTENT_REFUSED`），都不触及本插件使用的扩展面：`ctx.llm.registerAdapter` / `registerModelDiscovery`、`settings.section`、Remote/typert 与 client slots。
+- **暂未跟进 `CONTENT_REFUSED`**：官方 `llm-deepseek` 现在会把 `stop_reason: "refusal"` 翻成这个错误码，并在失败前先上报已消耗的 usage。本插件的 OpenCode Go 走 pi-ai，网关是否透传 `refusal` 尚未验证，因此这次不改 `mapStopReason`。
+
+### 🧪 测试
+
+- `typecheck`、`lint`、`build` 通过；`npm ci` 干净重装后再跑一次仍通过，锁文件可复现。
+- 套件 **64 个测试文件 / 566 个用例**全绿。
+
 ## [0.1.105] - 2026-11-18
 
 内置模型快照刷新，并且发版时会拦住过老的快照。
