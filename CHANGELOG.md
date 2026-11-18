@@ -2,6 +2,24 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.107] - 2026-11-19
+
+支持范围收窄到 DSH `0.2.2-rc.5` 及以后。
+
+### 💥 破坏性变更
+
+- **最低 DSH 版本改为 `0.2.2-rc.5`**：`engines.dsh` 与 21 个 peer 声明（20 个 `@deepseek-ai/dsh-*` 加 `cordis`）的下界从 `0.2.0-rc.1` 抬到 `0.2.2-rc.5`。此前的版本（含 `0.2.0`、`0.2.1` 全系与 `0.2.2-rc.1`–`rc.4`）不再支持，加载会被 DSH 的兼容门禁拒绝。
+- **`@deepseek-ai/cordis` 只接受 `4.1.0`**：`4.0.x` 分支随旧范围一并移除。
+
+### 🔧 适配
+
+- **删掉 `LlmError` 的构造器回落路径**：`src/llm-error.ts` 原先为 `fromFailure` 出现之前的 `0.2.0-rc.1`–`0.2.2-rc.1` 保留了两条路径；现在直接调用 `LlmError.fromFailure`。
+- **README 与测试同步**：`README.md` / `README.en.md` 的兼容性表与正文改为新范围；`tests/peer-coverage.spec.ts` 断言下界为 `>=0.2.2-rc.5`、cordis 恰为 `4.1.0`。
+
+### 🧪 测试
+
+- `typecheck`、`lint`、`build` 通过；套件 **64 个测试文件 / 566 个用例**全绿。
+
 ## [0.1.106] - 2026-11-19
 
 适配 DSH 0.2.2-rc.5。
