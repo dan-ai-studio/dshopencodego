@@ -2,6 +2,27 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.110] - 2026-11-19
+
+清理文档漂移、收掉已知的假红，并把 jsdom 升到当前最新。
+
+### 🔧 适配
+
+- **`jsdom` 升到 `31.0.1`**（Dependabot #13，`^30.1.3` → `^31.0.1`）：这是 npm 当前 `latest`。测试环境用的 jsdom 只供 `tests/*.tsx` 渲染组件，升级后全量套件通过，无 API 调整。合并 PR 时同步带入了 0.1.107 的 `package-lock` 版本字段。
+- **README 能力表删掉「花费估算」行**（中英文）：该功能在 `0.1.103` 已移除，能力表却一直挂着 ✅——读者按表选插件，这一行是实打实的过期承诺。
+
+### 🐛 修复
+
+- **`tests/pinning.spec.ts` 不再偶发 `fetch failed`**。全量跑里出现过两种失败形态，根因不同：
+  - 「opens a new pool after the old one was closed」：`closeDispatcher()` 只保证 undici 的池子消失，对端 socket 的收尾是异步的，原先固定等 200ms 在负载高时偶尔仍太短。改为轮询 `server.getConnections()` 归零，既消除竞态窗口，通常也比固定等待更快。
+  - 「falls back to the system resolver when the pinned address is gone」：用例把「系统解析目标」的服务器绑在 `::1`，但 `localhost` 在 Windows 上解析到 `::1` 还是 `127.0.0.1` 不是契约；落到 IPv4 时回退连接会失败，表现为该用例偶发 `fetch failed`。改为同一端口再绑一个 `127.0.0.1`，两个家族都能命中同一台服务器（不用通配地址，否则会把 `127.0.0.3` 这个「死地址」也接走，让用例失去意义）。
+- 改动后全量连跑 **20 轮 577 用例无一失败**。
+
+### 🧪 测试
+
+- `readme-consistency` 新增两条守护：能力表不得再出现已退役的能力（`花费估算` / `Estimated spend`），中英文各一条。已用「把该行加回去」反证过，测试会立即变红。
+- `typecheck`、`lint`、`build` 通过；套件 **65 个测试文件 / 577 个用例**全绿，连跑 5 轮无失败。
+
 ## [0.1.109] - 2026-11-19
 
 修复在 DSH master 上 `assertUsableApiKey is not a function` 的崩溃。

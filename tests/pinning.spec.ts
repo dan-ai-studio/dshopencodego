@@ -9,6 +9,7 @@
  * names that resolve nowhere.
  */
 import { createServer } from 'node:http'
+import type { RequestListener } from 'node:http'
 import { createServer as createTlsServer } from 'node:https'
 import { createServer as createNetServer } from 'node:net'
 import { readFileSync } from 'node:fs'
@@ -48,20 +49,59 @@ interface Loop {
  */
 async function serveOn(address: string, port: number, word: string): Promise<Loop> {
   let hits = 0
-  const server = createServer((_request, response) => {
+  const bound = await bindLoopback((_request, response) => {
     hits += 1
     response.writeHead(200, { 'content-type': 'text/plain' })
     response.end(word)
-  })
-  await new Promise<void>((resolve, reject) => {
+  }, port, address)
+  return { port: bound.port, hits: () => hits, close: bound.close }
+}
+
+/**
+ * Bind a server where `localhost` can reach it.
+ *
+ * Cases put the "system's own resolution" server on `::1`, but `localhost` may
+ * resolve to either loopback family and Node's resolver order is not a
+ * contract. A second socket on `127.0.0.1` with the same port answers the
+ * other family, so a case that names the system's resolution does not turn on
+ * which one this machine happens to pick — the mismatch otherwise surfaces as
+ * an intermittent `fetch failed` after the fallback. The wildcard is
+ * deliberately not used: it would also answer a pinned address such as
+ * `127.0.0.3`, and the case under test needs that address to be dead.
+ * @param handler - the request listener both sockets share.
+ * @param port - the port to bind, or zero for any.
+ * @param address - the address to bind; `::1` also binds IPv4 loopback.
+ * @returns the port bound, and a closer for every socket.
+ */
+async function bindLoopback(
+  handler: RequestListener,
+  port: number,
+  address: string,
+): Promise<{ port: number; close: () => Promise<void> }> {
+  const servers: Array<ReturnType<typeof createServer>> = []
+  const primary = createServer(handler)
+  servers.push(primary)
+  await open(primary, port, address)
+  const actual = (primary.address() as AddressInfo).port
+  if (address === '::1') {
+    const mirror = createServer(handler)
+    servers.push(mirror)
+    await open(mirror, actual, '127.0.0.1')
+  }
+  return {
+    port: actual,
+    close: async () => {
+      await Promise.all(servers.map(server => new Promise<void>(resolve => { server.close(() => { resolve() }) })))
+    },
+  }
+}
+
+/** Listen on one address, or reject with the server's own error. */
+function open(server: ReturnType<typeof createServer>, port: number, address: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
     server.once('error', reject)
     server.listen(port, address, () => { resolve() })
   })
-  return {
-    port: (server.address() as AddressInfo).port,
-    hits: () => hits,
-    close: () => new Promise<void>((resolve) => { server.close(() => { resolve() }) }),
-  }
 }
 
 /**
@@ -73,24 +113,41 @@ async function serveOn(address: string, port: number, word: string): Promise<Loo
  */
 async function serveRefusing(address: string, port: number, body: string): Promise<Loop> {
   let hits = 0
-  const server = createServer((_request, response) => {
+  const bound = await bindLoopback((_request, response) => {
     hits += 1
     response.writeHead(403, { 'content-type': 'application/json' })
     response.end(body)
-  })
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(port, address, () => { resolve() })
-  })
-  return {
-    port: (server.address() as AddressInfo).port,
-    hits: () => hits,
-    close: () => new Promise<void>((resolve) => { server.close(() => { resolve() }) }),
-  }
+  }, port, address)
+  return { port: bound.port, hits: () => hits, close: bound.close }
 }
 
 /** The servers this file opened, closed after each case. */
 const opened: Loop[] = []
+
+/**
+ * Resolve once a server holds no connections.
+ *
+ * Closing the dispatcher resolves when undici's pool is gone, but the peer
+ * sees the finished socket later still. Polling the server's own count makes
+ * that hand-over observable instead of sleeping past it, so a test that needs
+ * the old connection really gone neither races it nor pays a fixed delay.
+ * @param server - the server whose connections are watched.
+ */
+async function untilNoConnections(server: ReturnType<typeof createNetServer>): Promise<void> {
+  const connections = (): Promise<number> => new Promise((resolve, reject) => {
+    server.getConnections((error, value) => {
+      if (error === null) resolve(value)
+      else reject(error)
+    })
+  })
+  // One second in ten-millisecond steps: far past any loopback close, and far
+  // short of the test timeout.
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (await connections() === 0) return
+    await new Promise(resolve => { setTimeout(resolve, 10) })
+  }
+  throw new Error('the server still holds connections after the dispatcher was closed')
+}
 
 afterEach(async () => {
   // The dispatcher goes first: it owns the sockets, and a server that is
@@ -433,7 +490,13 @@ describe('the connection kept between requests', () => {
 
     await (await request(`${base}/`)).text()
     await closeDispatcher()
-    await new Promise(resolve => { setTimeout(resolve, 200) })
+    // `closeDispatcher` resolves when undici's pool is gone, but the server
+    // learns about the finished socket asynchronously. A fixed delay was both
+    // slower than this and occasionally too short under a loaded full-suite
+    // run, which surfaced as an `ECONNRESET`-shaped `fetch failed` on the next
+    // request. Waiting for the server's own count to reach zero is the
+    // observable end of that window.
+    await untilNoConnections(server)
 
     const response = await request(`${base}/`)
     expect(await response.text()).toBe('kept')

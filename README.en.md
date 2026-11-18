@@ -12,7 +12,6 @@ A stock DSH route to OpenCode Go already works (`llm-pi-ai` ships the provider).
 | --- | --- | --- |
 | **Live model catalog** | A build-time snapshot: the fixed table pi-ai ships with, so a new gateway model waits for a pi-ai release | Reads the gateway catalog live, with multi-level fallback and TTL caching |
 | **Quota windows** (5-hour / weekly / monthly) | None | ✅ |
-| **Estimated spend** | None | ✅ |
 | **Per-model switches** `modelVisibility` | None | ✅ |
 
 This plugin serves the `opencode-go` route with its own adapter and adds the usage and settings surfaces.

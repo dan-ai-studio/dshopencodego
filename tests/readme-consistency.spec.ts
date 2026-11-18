@@ -33,6 +33,32 @@ function tableRow(text: string, file: string, needle: string): string {
   return row
 }
 
+/**
+ * The comparison table under the "why this plugin" heading, not the version
+ * tables: its header is the only one that names both the plugin and stock DSH.
+ */
+function capabilityTable(text: string, file: string): string {
+  const lines = text.split('\n')
+  const start = lines.findIndex(line => line.startsWith('|') && (line.includes('| 能力 |') || line.includes('| Capability |')))
+  if (start < 0) throw new Error(`${file}: no capability table`)
+  const rows: string[] = []
+  for (const line of lines.slice(start)) {
+    if (!line.startsWith('|')) break
+    rows.push(line)
+  }
+  return rows.join('\n')
+}
+
+/**
+ * Capabilities once advertised but deliberately removed. A reader deciding
+ * whether to install uses this table, so a retired feature left behind as a
+ * ✅ is a false promise — the same class of prose drift the version rows guard.
+ * Keep the pair as it appears in each README so both translations stay honest.
+ */
+const RETIRED_CAPABILITIES: ReadonlyArray<readonly [string, string]> = [
+  ['花费估算', 'Estimated spend'],
+]
+
 describe('README consistency', () => {
   it.each(['README.md', 'README.en.md'])('states the real versions in %s', (file) => {
     const text = readmeText(file)
@@ -47,6 +73,14 @@ describe('README consistency', () => {
     ]
     for (const [needle, declared] of rows) {
       expect(tableRow(text, file, needle), `${file}: the ${needle} row`).toContain(declared)
+    }
+  })
+
+  it.each(['README.md', 'README.en.md'])('does not advertise retired capabilities in %s', (file) => {
+    const table = capabilityTable(readmeText(file), file)
+    for (const [zh, en] of RETIRED_CAPABILITIES) {
+      expect(table, `${file}: retired capability "${zh}"/"${en}"`).not.toContain(zh)
+      expect(table, `${file}: retired capability "${zh}"/"${en}"`).not.toContain(en)
     }
   })
 
