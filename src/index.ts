@@ -41,6 +41,7 @@ import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { AdapterRegistrationHandle, LlmModelDiscoveryRequest } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-fs'
 import { OpencodeGoAdapter } from './adapter.ts'
+import { assertUsableApiKey } from './api-key.ts'
 import { DISPLAY_NAME, MAX_CATALOG_STALENESS_MS, PROVIDER_ID, discoverCatalogModels } from './catalog/index.ts'
 import { assertBaseURL, PlainConfig, readConfig } from './config.ts'
 import type { LiveConfig, OpencodeGoConfig } from './config.ts'
@@ -157,7 +158,7 @@ export function apply(ctx: Context, raw?: unknown): void {
       // Without the credentials seam the process environment is the whole
       // credential plane.
       : launchEnvironmentOf(ctx).get(ref)?.value
-    if (hit !== undefined && hit.length > 0) return llm.assertUsableApiKey(hit, name, ref)
+    if (hit !== undefined && hit.length > 0) return assertUsableApiKey(hit, name, ref)
     throw new LlmError(
       `dshopencodego: no credential; the profile resolves ${ref}, which is not set — store ${ref} through the`
       + ' credentials service (the Web Models page writes it) or export it',

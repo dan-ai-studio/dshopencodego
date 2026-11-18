@@ -2,6 +2,20 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.109] - 2026-11-19
+
+修复在 DSH master 上 `assertUsableApiKey is not a function` 的崩溃。
+
+### 🐞 修复
+
+- **API key 自检改为插件内联，不再依赖 `@deepseek-ai/dsh-llm` 的导出**。上游 `0ab4c8305c`（"refactor(llm): take the API key check from dsh-credentials"）把 `normalizeApiKey` / `assertUsableApiKey` 从 `dsh-llm` 移到了 `@deepseek-ai/dsh-credentials`，该提交只存在于 master，不在任何 `dsh-v*` tag 里——于是同一份插件代码在 `0.2.2-rc.5` 发布版上正常，在 master 构建上报 `llm2.assertUsableApiKey is not a function`，OpenCode Go 的用量面板、模型选择与请求鉴权三条路径全部失败。`0.2.2-rc.5` 的 `dsh-credentials` 还没有 `api-key.ts`，两个发行版没有任何一个共同的导出可导入，因此校验策略（trim 后要求可打印 ASCII、`empty` / `illegalCharacters` 两种拒绝）与 `INVALID_CREDENTIAL` 的错误文本由插件自己持有，两版行为一致。
+- 新增 `src/api-key.ts`（`normalizeApiKey` / `assertUsableApiKey`），`src/index.ts` 的 `resolveApiKey` 改为调用本地实现。
+
+### 🧪 测试
+
+- 新增 `tests/api-key.spec.ts`（9 个用例）：合法 key 原样返回、静默 trim、空值与不可传输字符、可打印 ASCII 全区间、两种拒绝的错误文本与 `INVALID_CREDENTIAL` 代码、诊断不泄露密钥本身。
+- `typecheck`、`lint`、`build` 通过；套件 **65 个测试文件 / 575 个用例**全绿。构建产物已不含对宿主 `assertUsableApiKey` 的调用。
+
 ## [0.1.108] - 2026-11-19
 
 打包的 pi-ai 升到 1.5.2。
