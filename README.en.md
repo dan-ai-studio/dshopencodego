@@ -254,7 +254,7 @@ The verdict:
 | `peerDependencies` (20 `@deepseek-ai/dsh-*` packages) | all `>=0.2.2-rc.5 <0.3.0-0` | takes over only when `engines.dsh` is absent; this plugin declares it, so the peers take no part today |
 | `@deepseek-ai/cordis` | `4.1.0` | the same peer channel |
 | `engines.node` | `^22.19.0 \|\| >=24.0.0` | the package manager |
-| bundled `@earendil-works/pi-ai` | `1.5.0` (within 1.5.x), **compiled into `lib/`** (devDependency) | an independent coupling: a change in pi-ai's request construction changes this plugin's wire behaviour, and its opencode-go builtin catalog is this plugin's fallback data. Bundling leaves the plugin with **no runtime dependencies** for an installer to resolve |
+| bundled `@earendil-works/pi-ai` | `1.5.2` (within 1.5.x), **compiled into `lib/`** (devDependency) | an independent coupling: a change in pi-ai's request construction changes this plugin's wire behaviour, and its opencode-go builtin catalog is this plugin's fallback data. Bundling leaves the plugin with **no runtime dependencies** for an installer to resolve |
 | bundled `@deepseek-ai/schemastery` | `~3.19.0`, **compiled into `lib/`** (devDependency) | a build-time dependency |
 
 Things to keep in mind when maintaining this:

@@ -2,6 +2,20 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.108] - 2026-11-19
+
+打包的 pi-ai 升到 1.5.2。
+
+### 🔧 适配
+
+- **`@earendil-works/pi-ai` 从 `1.5.0` 升到 `1.5.2`**：传递依赖 `@earendil-works/pi-schema`、`@earendil-works/pi-telemetry` 同步到 `1.5.2`。这是当前 npm `latest`（1.5.1 于 2026-11-09 发布，1.5.2 于 11-10 发布）。
+- **核对过兼容性**：两个版本相对 1.5.0 的变化都是新增——可选字段（`refreshModelsAuth`、`disableContinuation`）、新 provider（Qwen Token Plan CN、Microsoft Decision）、cache warming 与 Anthropic message threads。插件用到的 `createProvider`、`getSupportedThinkingLevels`、`isContextOverflow`、`normalizeContext`、`getBuiltinModels` 与各 lazy API 的签名未变，`opencode-go` 内置模型目录逐字节相同。
+- **README 版本表同步**：`README.md` / `README.en.md` 的 pi-ai 行改为 `1.5.2`。Dependabot PR #12 两次 CI 失败并非代码不兼容——全部 566 个功能用例都通过，只有 `readme-consistency` 的 2 个断言失败，因为 Dependabot 不会同步更新 README 里的版本表格。
+
+### 🧪 测试
+
+- `typecheck`、`lint`、`build` 通过；套件 **64 个测试文件 / 566 个用例**全绿。
+
 ## [0.1.107] - 2026-11-19
 
 支持范围收窄到 DSH `0.2.2-rc.5` 及以后。

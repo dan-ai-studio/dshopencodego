@@ -253,7 +253,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 | `peerDependencies`（20 个 `@deepseek-ai/dsh-*`） | 均为 `>=0.2.2-rc.5 <0.3.0-0` | 仅当 `engines.dsh` 缺席时才接管；本插件声明了它，故当前不参与判定 |
 | `@deepseek-ai/cordis` | `4.1.0` | 同上（peer 通道） |
 | `engines.node` | `^22.19.0 \|\| >=24.0.0` | 包管理器 |
-| 已打包依赖 `@earendil-works/pi-ai` | `1.5.0`（1.5.x 内），**打进产物**（devDependency） | 独立耦合：pi-ai 改请求构造即影响本插件的线上行为；其 opencode-go 内置目录同时是本插件的打底数据。打包后本插件**没有任何运行时依赖**，安装者不必再解析它 |
+| 已打包依赖 `@earendil-works/pi-ai` | `1.5.2`（1.5.x 内），**打进产物**（devDependency） | 独立耦合：pi-ai 改请求构造即影响本插件的线上行为；其 opencode-go 内置目录同时是本插件的打底数据。打包后本插件**没有任何运行时依赖**，安装者不必再解析它 |
 | 已打包依赖 `@deepseek-ai/schemastery` | `~3.19.0`，**打进产物**（devDependency） | 构建期依赖 |
 
 维护时需要注意：
