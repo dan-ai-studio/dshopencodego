@@ -2,6 +2,27 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.3.0] - 2026-11-19
+
+额度口径改为网关一手数据：只显示 Go 档每月金额，移除请求数，默认启用改为免费模型优先。
+
+### 🔧 新增能力
+
+- **网关 `/models` 的 `go.monthly_usage.go` 成为金额的一手来源**。`gateway.ts` 新增 `readGatewayQuotas`，逐模型读取 Go 档美元金额；免费模型在该字段为 `null`，解析为 `monthlyUsd: 'unlimited'`，页面显示「无限制」。Plus / Teams 档既不读也不展示——只要 Go 档。快照新增 `gatewayQuotas` 字段：成功的列表读取写入它，断网兜底时保留上一次成功的值；`catalogReading` 按**网关 → 官方文档 → 冻结种子**的优先级逐模型选取金额，`quotaSource` 相应扩展为 `'gateway' | 'document' | 'seed'`，其中只有种子才在页面标注转写日期。
+
+### 🧹 移除
+
+- **请求数功能整体下线**。网关 `/models` 根本没有请求数字段——官方那两张预估表是构建期写死在 opencode web 前端的，没有可用的实时一手 API——既然一手数据只能给出金额，就按请求移除：`GoQuota` 只留 `monthlyUsd`；冻结种子与 `go-doc.ts` 的文档解析不再带 `monthlyRequests`；`contract.ts` 的线协议不再接受该字段；UI 的「$60 · 130K 次/月」改成「$60」，排序文案「每月预估次数」改成「每月额度」，locale 键 `quotaPerMonth` 删除。
+
+### 🔧 默认开关
+
+- **免费模型优先**。`monthlyUsdRank` 把 `unlimited` 当作最高排位，替换原来的 `monthlyRequestsRank`；默认启用的 5 个模型现在是金额最高者，免费模型排在最前（贡献者版仍一律排除）。种子表补上 `beam-free` / `hy4-flash-free` / `longcat-2.5-free` / `iceman-contributor-free` 的 `unlimited` 条目，让网关尚未应答时选择器与设置页也算出同一份免费优先名单。
+
+### 🧪 测试
+
+- `catalog-gateway.spec.ts` 新增 `readGatewayQuotas` 用例：Go 档与 Plus/Teams 的区分、`null → unlimited`、畸形字段跳过、无 `data` 返回空；`catalog-reading.spec.ts` 用 `listingDetail` 注入真实形状的 `go.monthly_usage`，断言网关金额压过文档与种子、`quotaSource === 'gateway'`、免费模型显示无限制且响应里不再出现 `monthlyRequests`；`models.spec.ts` / `model-view.spec.ts` 覆盖免费优先；`go-limits.spec.ts` 改写为金额排位；`go-doc.spec.ts` / `catalog-contract.spec.ts` / `catalog.spec.ts` 去掉请求数断言。README 中英文同步额度来源、排序与默认规则。
+- `typecheck`、`lint`、`build` 通过；套件 **65 个测试文件 / 591 个用例**全绿。
+
 ## [0.2.0] - 2026-11-19
 
 首个 0.2 次版本：opencode 主线对齐——把网关 `/models` 已经返回、却一直被丢弃的协议声明用作证据，并给模型列表加一道面向官方 schema 变化的兜底。此前未发布的 0.1.111 / 0.1.112 改动合并于本版。
