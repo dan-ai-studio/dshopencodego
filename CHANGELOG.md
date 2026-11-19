@@ -16,11 +16,11 @@
 
 ### 🔧 默认开关
 
-- **免费模型优先**。`monthlyUsdRank` 把 `unlimited` 当作最高排位，替换原来的 `monthlyRequestsRank`；默认启用的 5 个模型现在是金额最高者，免费模型排在最前（贡献者版仍一律排除）。种子表补上 `beam-free` / `hy4-flash-free` / `longcat-2.5-free` / `iceman-contributor-free` 的 `unlimited` 条目，让网关尚未应答时选择器与设置页也算出同一份免费优先名单。
+- **所有免费模型默认启用，且不占名额**。`recommendedIds` 现在先把全部免费模型收入默认集合，再按金额补足最多 5 个付费模型；免费模型的数量不受 `DEFAULT_ENABLED_COUNT` 限制。免费判定有两个信号：网关/种子的一手 `unlimited` 标记，或**名字含 `free` / `免费`（词边界匹配）且没有正费率**——两个条件必须同时成立，避免把名字里带 free 的付费模型、或元数据尚未到达的模型误判为免费。贡献者版仍一律排除。`monthlyUsdRank` 同时替换 `monthlyRequestsRank`，让付费模型的金额排序继续生效；种子表补上 `beam-free` / `hy4-flash-free` / `longcat-2.5-free` / `iceman-contributor-free` 的 `unlimited` 条目，让网关尚未应答时选择器与设置页也算出同一份名单。
 
 ### 🧪 测试
 
-- `catalog-gateway.spec.ts` 新增 `readGatewayQuotas` 用例：Go 档与 Plus/Teams 的区分、`null → unlimited`、畸形字段跳过、无 `data` 返回空；`catalog-reading.spec.ts` 用 `listingDetail` 注入真实形状的 `go.monthly_usage`，断言网关金额压过文档与种子、`quotaSource === 'gateway'`、免费模型显示无限制且响应里不再出现 `monthlyRequests`；`models.spec.ts` / `model-view.spec.ts` 覆盖免费优先；`go-limits.spec.ts` 改写为金额排位；`go-doc.spec.ts` / `catalog-contract.spec.ts` / `catalog.spec.ts` 去掉请求数断言。README 中英文同步额度来源、排序与默认规则。
+- `catalog-gateway.spec.ts` 新增 `readGatewayQuotas` 用例：Go 档与 Plus/Teams 的区分、`null → unlimited`、畸形字段跳过、无 `data` 返回空；`catalog-reading.spec.ts` 用 `listingDetail` 注入真实形状的 `go.monthly_usage`，断言网关金额压过文档与种子、`quotaSource === 'gateway'`、免费模型显示无限制且响应里不再出现 `monthlyRequests`；`models.spec.ts` 覆盖免费全开（远超 5 个仍全启用）与 `isFreeModel` 的名字+价格双条件、`model-view.spec.ts` 覆盖按金额排序；`go-limits.spec.ts` 改写为金额排位；`go-doc.spec.ts` / `catalog-contract.spec.ts` / `catalog.spec.ts` 去掉请求数断言。README 中英文同步额度来源、排序与默认规则。
 - `typecheck`、`lint`、`build` 通过；套件 **65 个测试文件 / 591 个用例**全绿。
 
 ## [0.2.0] - 2026-11-19

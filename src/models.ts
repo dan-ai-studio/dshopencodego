@@ -51,13 +51,13 @@ export interface ModelSummary {
   readonly configurationMissing?: string
   /**
    * Whether the default configuration keeps this model enabled when nobody set
-   * an explicit switch — the top few by published monthly allowance, free tiers
-   * first.
+   * an explicit switch — every free tier, plus the few highest-allowance paid
+   * models.
    */
   readonly recommended?: boolean
 }
 
-/** How many models the default configuration keeps enabled. */
+/** How many paid models the default configuration keeps enabled. Free tiers are always enabled on top of these. */
 export const DEFAULT_ENABLED_COUNT = 5
 
 /**
@@ -72,32 +72,64 @@ export function isTrainingTier(model: Pick<ModelSummary, 'id' | 'name'>): boolea
 }
 
 /**
- * The default-enabled ids when nobody configured switches: the models with the
- * largest published monthly allowance first, free tiers (`unlimited`) ahead of
- * every paid tier. Deprecated, unconfigurable, and training-contributor models
- * never qualify, and a model with no published allowance does not displace one
- * that has it.
+ * Whether a model is a free tier, judged from its name and its published token
+ * rates: the name has to call it free (`beam-free`, `Beam Free`, `免费`) and no
+ * positive input/output rate may be published. Both signals are required — a
+ * name alone would enable a paid model that happens to say "free", and a zero
+ * rate alone would enable any model whose metadata has not arrived yet.
  *
- * The allowance is looked up here, by id, rather than read from a `goQuota`
- * field: the Host's picker and the settings page build their model lists from
- * different projections, and a caller that forgot to carry the field would
- * silently fall back to an alphabetical default — which is exactly the
- * two-surfaces-disagree defect this signature exists to prevent.
+ * This covers models the gateway and the frozen seed do not yet mark
+ * `unlimited`, so a newly published free model is enabled without a code change.
+ * The first-party `unlimited` allowance is still honoured by `recommendedIds`.
+ * @param model - the model under test.
+ * @returns true when name and price together identify a free tier.
+ */
+export function isFreeModel(model: Pick<ModelSummary, 'id' | 'name' | 'cost'>): boolean {
+  const freeName = /(?:^|[^a-z])(?:free|免费)(?:[^a-z]|$)/i
+  if (!freeName.test(model.id) && !freeName.test(model.name)) return false
+  const cost = model.cost
+  // An absent cost means "no positive rate published", the same as a zero cost
+  // in the catalog's `rates()` parser — never a fallback-positive price.
+  return cost === undefined || (cost.input <= 0 && cost.output <= 0)
+}
+
+/**
+ * The default-enabled ids when nobody configured switches: **every** free tier
+ * is enabled, then the paid models with the largest published monthly allowance
+ * up to {@link DEFAULT_ENABLED_COUNT}. Free tiers do not consume a paid slot,
+ * so adding a new free model never pushes an existing default off the list.
+ * Deprecated, unconfigurable, and training-contributor models never qualify.
+ *
+ * A free tier is recognised either by the gateway/document `unlimited`
+ * allowance or by name + price (see {@link isFreeModel}); the latter means a
+ * newly published free model is enabled without a seed edit. The allowance is
+ * looked up here, by id, rather than read from a `goQuota` field: the Host's
+ * picker and the settings page build their model lists from different
+ * projections, and a caller that forgot to carry the field would silently fall
+ * back to an alphabetical default — which is exactly the two-surfaces-disagree
+ * defect this signature exists to prevent.
  * @param models - the advertised models, in any order.
  * @returns the ids the default configuration keeps enabled.
  */
 export function recommendedIds(
-  models: readonly Pick<ModelSummary, 'id' | 'name' | 'deprecated' | 'configurationMissing'>[],
+  models: readonly Pick<ModelSummary, 'id' | 'name' | 'deprecated' | 'configurationMissing' | 'cost'>[],
 ): ReadonlySet<string> {
-  const ranked = models
-    .filter(model =>
-      model.configurationMissing === undefined
-      && model.deprecated !== true
-      && !isTrainingTier(model))
-    .toSorted((left, right) =>
-      monthlyUsdRank(goQuotaFor(right.id)) - monthlyUsdRank(goQuotaFor(left.id))
-      || left.id.localeCompare(right.id))
-  return new Set(ranked.slice(0, DEFAULT_ENABLED_COUNT).map(model => model.id))
+  const eligible = models.filter(model =>
+    model.configurationMissing === undefined
+    && model.deprecated !== true
+    && !isTrainingTier(model))
+  const isFree = (model: (typeof eligible)[number]): boolean =>
+    goQuotaFor(model.id)?.monthlyUsd === 'unlimited' || isFreeModel(model)
+  const enabled = [
+    ...eligible.filter(isFree),
+    ...eligible
+      .filter(model => !isFree(model))
+      .toSorted((left, right) =>
+        monthlyUsdRank(goQuotaFor(right.id)) - monthlyUsdRank(goQuotaFor(left.id))
+        || left.id.localeCompare(right.id))
+      .slice(0, DEFAULT_ENABLED_COUNT),
+  ]
+  return new Set(enabled.map(model => model.id))
 }
 
 /**
