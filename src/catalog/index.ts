@@ -114,6 +114,12 @@ export interface CatalogSnapshot {
    * falls back to the frozen seed in `go-limits.ts`.
    */
   readonly documentQuotas?: ReadonlyMap<string, GoQuota>
+  /**
+   * Go-tier monthly allowances read live from the gateway's own `/models`
+   * listing — the authoritative figure, ahead of the documentation and the
+   * frozen seed. Absent when the listing did not answer.
+   */
+  readonly gatewayQuotas?: ReadonlyMap<string, GoQuota>
   /** Retained for explicit discovery when the listing failed. */
   readonly listingFailure?: unknown
   /**
@@ -307,6 +313,8 @@ export class OpencodeGoCatalog {
   private readonly cachedAt: number | undefined
   /** The last parsed documentation; retained across failed fetches. */
   private document: GoDoc | undefined
+  /** Go-tier monthly allowances from the gateway listing; retained across failures. */
+  private gatewayQuotas: ReadonlyMap<string, GoQuota> | undefined
   /** Ids that already forced a revalidation, with the time they did. */
   private readonly probedAt = new Map<string, number>()
   /** The background refresh, kept so a caller can wait for it to be over. */
@@ -561,6 +569,12 @@ export class OpencodeGoCatalog {
     const listing: PromiseSettledResult<ModelListing> = listingResult.status === 'fulfilled' && listingResult.value.ids.length === 0
       ? { status: 'rejected', reason: new Error('the gateway advertised no models') }
       : listingResult
+    // The gateway's own `/models` listing is the authority for Go-tier monthly
+    // allowances. Keep the last successful read across outages so a stale-but-
+    // serving snapshot still carries first-party figures rather than the seed.
+    if (listing.status === 'fulfilled') {
+      this.gatewayQuotas = listing.value.quotas.size > 0 ? listing.value.quotas : undefined
+    }
     const degradations: CatalogDegradation[] = []
     if (metadata.status === 'rejected') {
       degradations.push({ source: 'metadata', reason: reasonText(metadata.reason) })
@@ -614,6 +628,7 @@ export class OpencodeGoCatalog {
         // back-off is the only thing between it and the next attempt.
         fetchedAtMs: previous?.fetchedAtMs ?? 0,
         ...this.documentQuotas(),
+        ...this.gatewayQuotaFields(),
       }
     }
     // A metadata outage keeps the last successful parse: the previous document
@@ -717,7 +732,19 @@ export class OpencodeGoCatalog {
       ...factsCachedAt === undefined ? {} : { factsCachedAt },
       fetchedAtMs: Date.now(),
       ...this.documentQuotas(),
+      ...this.gatewayQuotaFields(),
     }
+  }
+
+  /**
+   * The live gateway allowances as a snapshot field, absent until a listing
+   * that carries them lands. An empty map is not "the provider states no
+   * allowance": it means this build has no first-party figures, so the frozen
+   * seed answers instead.
+   */
+  private gatewayQuotaFields(): { gatewayQuotas?: ReadonlyMap<string, GoQuota> } {
+    if (this.gatewayQuotas === undefined || this.gatewayQuotas.size === 0) return {}
+    return { gatewayQuotas: this.gatewayQuotas }
   }
 
   /**

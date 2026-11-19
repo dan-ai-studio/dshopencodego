@@ -34,7 +34,7 @@ function catalogFor(baseURL: string, overrides: Record<string, string> = {}, obs
     defaults: DEFAULTS,
     overrides,
     observers,
-    readDocument: offlineDocument({ 'glm-5.3': { monthlyUsd: 60, monthlyRequests: 1_080 } }),
+    readDocument: offlineDocument({ 'glm-5.3': { monthlyUsd: 60 } }),
   })
 }
 

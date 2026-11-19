@@ -15,7 +15,7 @@ const MODELS: readonly ModelSummary[] = [
     contextWindow: 100_000,
     maxTokens: 10_000,
     cost: { input: 0.1, output: 0.4 },
-    goQuota: { monthlyUsd: 60, monthlyRequests: 150_000 },
+    goQuota: { monthlyUsd: 60 },
   },
   {
     id: 'bravo',
@@ -24,7 +24,7 @@ const MODELS: readonly ModelSummary[] = [
     contextWindow: 1_000_000,
     maxTokens: 100_000,
     cost: { input: 3, output: 15 },
-    goQuota: { monthlyUsd: 15, monthlyRequests: 490 },
+    goQuota: { monthlyUsd: 15 },
   },
   { id: 'charlie', name: 'Charlie', contextWindow: 200_000, maxTokens: 20_000 },
   {
@@ -42,7 +42,7 @@ const filter = (patch: Partial<ModelFilter> = {}): ModelFilter => ({ ...INITIAL_
 const ids = (rows: readonly ModelSummary[]): string[] => rows.map(row => row.id)
 
 describe('model view', () => {
-  it('opens on the monthly-requests order', () => {
+  it('opens on the monthly-allowance order', () => {
     expect(INITIAL_FILTER.sort).toBe('quota')
   })
 
@@ -73,9 +73,12 @@ describe('model view', () => {
       .toEqual(['bravo', 'charlie', 'alpha'])
   })
 
-  it('orders by monthly requests, most first, unquantified last', () => {
-    expect(ids(visibleModels(MODELS, filter({ sort: 'quota' }), {})))
-      .toEqual(['alpha', 'bravo', 'charlie'])
+  it('orders by monthly allowance, largest first, free tier ahead, unquantified last', () => {
+    const free: ModelSummary = {
+      id: 'echo', name: 'Echo', goQuota: { monthlyUsd: 'unlimited' },
+    }
+    expect(ids(visibleModels([...MODELS, free], filter({ sort: 'quota' }), {})))
+      .toEqual(['echo', 'alpha', 'bravo', 'charlie'])
   })
 
   it('orders by input price, cheapest first, unpriced last', () => {

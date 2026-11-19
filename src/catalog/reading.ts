@@ -55,10 +55,11 @@ export interface CatalogReading {
   /** When the content behind this reading was obtained. */
   readonly fetchedAtMs: number
   /**
-   * Where the per-model allowances came from: the provider's live document, or
-   * the frozen seed (whose transcription date the page shows alongside).
+   * Where the per-model allowances came from: the gateway's live `/models`
+   * listing (the first-party authority), the provider's own document, or the
+   * frozen seed (whose transcription date the page shows alongside).
    */
-  readonly quotaSource: 'document' | 'seed'
+  readonly quotaSource: 'gateway' | 'document' | 'seed'
   /** Counts the settings page shows without walking the list again. */
   readonly counts: {
     readonly total: number
@@ -85,10 +86,17 @@ export function catalogReading(
   listingFailure?: string,
   now?: number,
 ): CatalogReading {
+  const gatewayQuotas = snapshot.gatewayQuotas
   const documentQuotas = snapshot.documentQuotas
+  const quotaSource = gatewayQuotas !== undefined
+    ? 'gateway'
+    : documentQuotas === undefined ? 'seed' : 'document'
   const rows: ModelSummary[] = [
     ...[...snapshot.facts.values()].map(fact => {
-      const quota = documentQuotas === undefined ? goQuotaFor(fact.id) : documentQuotas.get(fact.id)
+      // The gateway's own `/models` figure wins, then the provider's document,
+      // then the frozen seed. A model the authoritative source does not name
+      // still gets a lower-source answer rather than a blank allowance.
+      const quota = gatewayQuotas?.get(fact.id) ?? documentQuotas?.get(fact.id) ?? goQuotaFor(fact.id)
       const priced = fact.cost.input > 0 || fact.cost.output > 0
       return {
         id: fact.id,
@@ -115,7 +123,7 @@ export function catalogReading(
     ...[...snapshot.unavailable].map(([id, reason]) => ({ id, name: id, configurationMissing: reason })),
   ]
   // Nobody configured switches? Then the default configuration keeps the top
-  // few by published monthly estimate, and every row carries that default.
+  // few by published monthly allowance, and every row carries that default.
   const recommended = recommendedIds(rows)
   const models = rows.map(row => ({ ...row, recommended: recommended.has(row.id) }))
   const enabled = models.filter(model => isModelEnabled(model, visibility)).length
@@ -127,7 +135,7 @@ export function catalogReading(
     ...snapshot.factsCachedAt === undefined ? {} : { factsCachedAt: snapshot.factsCachedAt },
     ...snapshot.cached === undefined ? {} : { cached: snapshot.cached },
     fetchedAtMs: snapshot.fetchedAtMs,
-    quotaSource: documentQuotas === undefined ? 'seed' : 'document',
+    quotaSource,
     counts: {
       total: models.length,
       enabled,

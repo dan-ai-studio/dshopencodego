@@ -993,16 +993,11 @@ function priceLabel(model: CatalogReading['models'][number]): string {
   return `$${model.cost.input} / $${model.cost.output}`
 }
 
-/** "$60 · 130K req/mo", or "unlimited" for the free model. */
+/** "$60", or "unlimited" for a free model — the Go-tier monthly allowance. */
 function quotaLabel(model: CatalogReading['models'][number], t: (key: string) => string): string {
   const quota = model.goQuota
   if (quota === undefined) return '—'
-  const usd = quota.monthlyUsd === 'unlimited' ? t('quotaUnlimited') : `$${quota.monthlyUsd}`
-  if (quota.monthlyRequests === undefined) return usd
-  const requests = quota.monthlyRequests === 'unlimited'
-    ? t('quotaUnlimited')
-    : `${compactCount(quota.monthlyRequests)} ${t('quotaPerMonth')}`
-  return `${usd} · ${requests}`
+  return quota.monthlyUsd === 'unlimited' ? t('quotaUnlimited') : `$${quota.monthlyUsd}`
 }
 
 /** One-click update banner; renders nothing while the panel is idle. */

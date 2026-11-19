@@ -15,7 +15,7 @@ const READING: CatalogReading = {
       maxInputTokens: 90_000,
       maxTokens: 10_000,
       releaseDate: '2026-09-20',
-      goQuota: { monthlyUsd: 60, monthlyRequests: 150_400 },
+      goQuota: { monthlyUsd: 60 },
       cost: { input: 0.14, output: 0.28, cacheRead: 0.0028 },
       protocolSource: 'builtin',
       assumedLimits: false,
@@ -38,7 +38,7 @@ describe('parseCatalogReading', () => {
     expect(parsed.models[0]).toMatchObject({
       maxInputTokens: 90_000,
       releaseDate: '2026-09-20',
-      goQuota: { monthlyUsd: 60, monthlyRequests: 150_400 },
+      goQuota: { monthlyUsd: 60 },
       cost: { input: 0.14, output: 0.28, cacheRead: 0.0028 },
       inputModalities: ['text', 'image'],
     })

@@ -16,6 +16,7 @@ import { MODEL_LISTING_MAX_BYTES, METADATA_FETCH_TIMEOUT_MS } from './constants.
 import { readBoundedJson } from './json-response.ts'
 import { protocolOfNpm } from './protocol.ts'
 import type { WireProtocol } from './protocol.ts'
+import type { GoQuota } from '../go-limits.ts'
 
 /** Read the ids out of a model-listing body. */
 export function readModelIds(body: unknown): readonly string[] {
@@ -63,17 +64,50 @@ export function readGatewayProtocols(body: unknown): ReadonlyMap<string, WirePro
   return protocols
 }
 
-/** One gateway listing read: the ids and the protocols the gateway declares. */
+/**
+ * Read the Go-tier monthly allowances the gateway declares.
+ *
+ * Each model's `go.monthly_usage.go` is the Go-tier allowance in USD. A `null`
+ * usage (free models) means no monetary limit — `unlimited`. Models that carry
+ * no `go` block at all are absent from the result: the frozen seed answers for
+ * them. A malformed amount names no allowance rather than failing the listing.
+ * @param body - a model-listing body already known to have a `data` array.
+ * @returns Go-tier allowance by model id.
+ */
+export function readGatewayQuotas(body: unknown): ReadonlyMap<string, GoQuota> {
+  const data = (body as { data?: unknown } | null)?.data
+  const quotas = new Map<string, GoQuota>()
+  if (!Array.isArray(data)) return quotas
+  for (const entry of data) {
+    const id = (entry as { id?: unknown } | null)?.id
+    if (typeof id !== 'string' || id.length === 0 || quotas.has(id)) continue
+    const go = (entry as { go?: unknown }).go
+    if (go === null || typeof go !== 'object' || Array.isArray(go)) continue
+    const usage = (go as { monthly_usage?: unknown }).monthly_usage
+    if (usage === null) {
+      // Free model: no monetary limit.
+      quotas.set(id, { monthlyUsd: 'unlimited' })
+      continue
+    }
+    if (usage === undefined || typeof usage !== 'object' || Array.isArray(usage)) continue
+    const amount = (usage as { go?: unknown }).go
+    if (typeof amount === 'number' && Number.isFinite(amount)) quotas.set(id, { monthlyUsd: amount })
+  }
+  return quotas
+}
+
+/** One gateway listing read: ids, protocols, and Go-tier monthly allowances. */
 export interface ModelListing {
   readonly ids: readonly string[]
   readonly protocols: ReadonlyMap<string, WireProtocol>
+  readonly quotas: ReadonlyMap<string, GoQuota>
 }
 
-/** Read a model-listing body into ids and per-model protocols. */
+/** Read a model-listing body into ids, protocols, and Go-tier allowances. */
 export function readModelListing(body: unknown): ModelListing {
   // readModelIds throws on a body with no data array; keep that failure mode.
   const ids = readModelIds(body)
-  return { ids, protocols: readGatewayProtocols(body) }
+  return { ids, protocols: readGatewayProtocols(body), quotas: readGatewayQuotas(body) }
 }
 
 /**

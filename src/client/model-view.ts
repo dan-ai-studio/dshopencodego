@@ -12,7 +12,7 @@
 import { isModelEnabled } from '../models.ts'
 import type { ModelSummary } from '../models.ts'
 import type { InputModality } from '../catalog/metadata.ts'
-import { monthlyRequestsRank } from '../go-limits.ts'
+import { monthlyUsdRank } from '../go-limits.ts'
 
 /** How the model list is ordered. */
 export type ModelSort = 'default' | 'released' | 'name' | 'context' | 'enabled' | 'quota' | 'price'
@@ -75,8 +75,10 @@ function sortRows(
       return copy.sort((left, right) =>
         Number(isModelEnabled(right, visibility)) - Number(isModelEnabled(left, visibility)) || byName(left, right))
     case 'quota':
+      // Largest monthly allowance first; a free tier (unlimited) leads, and a
+      // model with no published allowance sorts last.
       return copy.sort((left, right) =>
-        monthlyRequestsRank(right.goQuota) - monthlyRequestsRank(left.goQuota) || byName(left, right))
+        monthlyUsdRank(right.goQuota) - monthlyUsdRank(left.goQuota) || byName(left, right))
     case 'price':
       // Cheapest input rate first; models with no published rate sort last.
       return copy.sort((left, right) =>

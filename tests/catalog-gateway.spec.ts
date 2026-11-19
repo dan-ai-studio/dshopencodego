@@ -4,7 +4,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { LlmError } from '@deepseek-ai/dsh-llm'
-import { fetchModelIds, fetchModelListing, readGatewayProtocols, readModelIds, readModelListing } from '../src/catalog/gateway.ts'
+import { fetchModelIds, fetchModelListing, readGatewayProtocols, readGatewayQuotas, readModelIds, readModelListing } from '../src/catalog/gateway.ts'
 import { GO_MODELS_FIXTURE } from './fixtures/go-models.ts'
 import { startMockGateway } from './mock-gateway.ts'
 import type { MockGateway } from './mock-gateway.ts'
@@ -96,6 +96,30 @@ describe('readGatewayProtocols', () => {
     expect(protocols.get('longcat-2.5-free')).toBe('openai-completions')
     expect(protocols.get('muse-spark-1.2-contributor')).toBe('openai-responses')
     expect(protocols.get('muse-spark-1.3-contributor')).toBe('openai-responses')
+  })
+})
+
+describe('readGatewayQuotas', () => {
+  it('reads only the Go tier from go.monthly_usage, and free models as unlimited', () => {
+    const quotas = readGatewayQuotas({
+      data: [
+        { id: 'paid', go: { monthly_usage: { go: 42, 'go-plus': 500, 'go-teams': 900 } } },
+        { id: 'free', go: { monthly_usage: null } },
+        { id: 'no-go', recommended_api: 'chat-completions' },
+        { id: 'malformed', go: { monthly_usage: { go: 'lots' } } },
+        { id: 'not-object', go: 'nope' },
+      ],
+    })
+    // Only the Go figure is kept — the Plus/Teams tiers are not displayed —
+    // and a null usage means no monetary limit, not "no allowance".
+    expect([...quotas]).toEqual([
+      ['paid', { monthlyUsd: 42 }],
+      ['free', { monthlyUsd: 'unlimited' }],
+    ])
+  })
+
+  it('names no allowance for a body with no data array', () => {
+    expect(readGatewayQuotas({ object: 'list' }).size).toBe(0)
   })
 })
 

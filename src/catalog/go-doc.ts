@@ -104,13 +104,6 @@ function parseAllowance(value: string): number | 'unlimited' | undefined {
   return Number.isFinite(amount) ? amount : undefined
 }
 
-/** `6,320` → 6320; `Unlimited` → `unlimited`; anything else → undefined. */
-function parseCount(value: string): number | 'unlimited' | undefined {
-  if (/^unlimited\b/i.test(value) || value.startsWith('无限制')) return 'unlimited'
-  const amount = Number(value.replace(/,/g, ''))
-  return value.length > 0 && Number.isFinite(amount) ? amount : undefined
-}
-
 /**
  * The protocol a documented endpoint names.
  *
@@ -198,14 +191,6 @@ export function parseGoDocument(markdown: string): GoDoc {
     // row wins, and a disagreement drops the model instead of picking a band.
     if (previous === undefined) quotas.set(id, { monthlyUsd })
     else if (previous.monthlyUsd !== monthlyUsd) quotas.delete(id)
-  }
-  for (const row of tableRows(lines, 'requests per month')) {
-    const id = ids.get(baseName(cell(row[0])))
-    if (id === undefined) continue
-    const monthlyRequests = parseCount(cell(row[3]))
-    const quota = quotas.get(id)
-    if (monthlyRequests === undefined || quota === undefined) continue
-    quotas.set(id, { ...quota, monthlyRequests })
   }
   return { quotas, protocols }
 }

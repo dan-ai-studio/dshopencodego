@@ -15,19 +15,32 @@ const model = (id: string, patch: Record<string, unknown> = {}): { id: string; n
   ({ id, name: id, ...patch })
 
 describe('recommendedIds', () => {
-  it('picks the top models by published monthly estimate, looked up by id', () => {
+  it('picks the top models by published monthly allowance, looked up by id', () => {
     const ids = recommendedIds([
-      model('kimi-k3'),             // 490
-      model('mimo-v2.6-flash'),     // 150,400
-      model('mimo-v2.5'),           // 150,400
-      model('deepseek-v4.1-flash'), // 130,000
-      model('deepseek-v4-flash'),   // 65,000
-      model('grok-4.7'),            // 845
-      model('not-in-the-table'),    // no estimate
+      model('kimi-k3'),             // $15
+      model('mimo-v2.6-flash'),     // $60
+      model('mimo-v2.5'),           // $60
+      model('deepseek-v4.1-flash'), // $60
+      model('deepseek-v4-flash'),   // $30
+      model('grok-4.7'),            // $15
+      model('not-in-the-table'),    // no allowance
     ])
     expect(DEFAULT_ENABLED_COUNT).toBe(5)
     expect([...ids].toSorted()).toEqual([
       'deepseek-v4-flash', 'deepseek-v4.1-flash', 'grok-4.7', 'mimo-v2.5', 'mimo-v2.6-flash',
+    ])
+  })
+
+  it('prefers free tiers over every paid allowance', () => {
+    const ids = recommendedIds([
+      model('mimo-v2.6-flash'),  // $60
+      model('beam-free'),        // unlimited
+      model('hy4-flash-free'),   // unlimited
+      model('longcat-2.5-free'), // unlimited
+      model('kimi-k3'),          // $15
+    ])
+    expect([...ids].toSorted()).toEqual([
+      'beam-free', 'hy4-flash-free', 'kimi-k3', 'longcat-2.5-free', 'mimo-v2.6-flash',
     ])
   })
 
@@ -42,7 +55,7 @@ describe('recommendedIds', () => {
 
   it('skips models that trade training rights for a discount', () => {
     const ids = recommendedIds([
-      model('muse-spark-1.3-contributor'), // 226,600 — the largest finite estimate
+      model('muse-spark-1.3-contributor'), // a paid $60 tier, but training rights disqualify it
       model('muse-spark-1.2-contributor'),
       model('kimi-k3'),
     ])
@@ -53,7 +66,7 @@ describe('recommendedIds', () => {
 
   it('does not depend on the caller carrying a quota field', () => {
     // Two projections of the same id: one with a quota field, one without.
-    const withField = recommendedIds([model('mimo-v2.6-pro', { goQuota: { monthlyUsd: 60, monthlyRequests: 999_999 } })])
+    const withField = recommendedIds([model('mimo-v2.6-pro', { goQuota: { monthlyUsd: 60 } })])
     const without = recommendedIds([model('mimo-v2.6-pro')])
     expect([...withField]).toEqual([...without])
   })

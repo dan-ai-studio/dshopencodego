@@ -1,14 +1,16 @@
 /**
  * The frozen Go quota seed: every entry is well-formed, the rank orders
- * "most usable first", and unknown ids stay unknown rather than zero.
+ * "most usable first" (free tiers ahead of paid), and unknown ids stay unknown.
  */
 import { describe, expect, it } from 'vitest'
-import { SEED_QUOTAS, goQuotaFor, monthlyRequestsRank } from '../src/go-limits.ts'
+import { SEED_QUOTAS, goQuotaFor, monthlyUsdRank } from '../src/go-limits.ts'
 
 describe('goQuotaFor', () => {
   it('answers the documented models', () => {
-    expect(goQuotaFor('mimo-v2.6-flash')).toEqual({ monthlyUsd: 60, monthlyRequests: 150_400 })
-    expect(goQuotaFor('kimi-k3')).toEqual({ monthlyUsd: 15, monthlyRequests: 490 })
+    expect(goQuotaFor('mimo-v2.6-flash')).toEqual({ monthlyUsd: 60 })
+    expect(goQuotaFor('kimi-k3')).toEqual({ monthlyUsd: 15 })
+    // A free tier has no monetary limit, even in the frozen seed.
+    expect(goQuotaFor('beam-free')).toEqual({ monthlyUsd: 'unlimited' })
     // space-bunny-free 不在 Go 端点支持的模型之列，断言其配额为 undefined 且不存在于表中
     expect(goQuotaFor('space-bunny-free')).toBeUndefined()
     expect(Object.hasOwn(SEED_QUOTAS, 'space-bunny-free')).toBe(false)
@@ -23,12 +25,6 @@ describe('goQuotaFor', () => {
       expect(id.length, `id ${id}`).toBeGreaterThan(0)
       const usd = quota.monthlyUsd
       expect(usd === 'unlimited' || (typeof usd === 'number' && Number.isFinite(usd) && usd > 0), `usd ${id}`).toBe(true)
-      const requests = quota.monthlyRequests
-      expect(
-        requests === undefined || requests === 'unlimited'
-        || (typeof requests === 'number' && Number.isFinite(requests) && requests > 0),
-        `requests ${id}`,
-      ).toBe(true)
     }
     // A frozen seed still has to carry enough of the catalog to be useful at
     // startup; a model it misses only lacks an allowance until a fetch lands.
@@ -36,14 +32,13 @@ describe('goQuotaFor', () => {
   })
 })
 
-describe('monthlyRequestsRank', () => {
-  it('orders unlimited above any finite estimate, larger above smaller, unknown last', () => {
+describe('monthlyUsdRank', () => {
+  it('orders unlimited above any finite allowance, larger above smaller, unknown last', () => {
     const ranks = [
-      monthlyRequestsRank(undefined),
-      monthlyRequestsRank({ monthlyUsd: 60 }),
-      monthlyRequestsRank({ monthlyUsd: 15, monthlyRequests: 490 }),
-      monthlyRequestsRank({ monthlyUsd: 60, monthlyRequests: 150_400 }),
-      monthlyRequestsRank({ monthlyUsd: 'unlimited', monthlyRequests: 'unlimited' }),
+      monthlyUsdRank(undefined),
+      monthlyUsdRank({ monthlyUsd: 15 }),
+      monthlyUsdRank({ monthlyUsd: 60 }),
+      monthlyUsdRank({ monthlyUsd: 'unlimited' }),
     ]
     const sorted = [...ranks].sort((left, right) => left - right)
     expect(ranks).toEqual(sorted)

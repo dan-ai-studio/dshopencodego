@@ -26,15 +26,7 @@ function parseGoQuota(value: unknown): GoQuota {
   if (usd !== 'unlimited' && (typeof usd !== 'number' || !Number.isFinite(usd))) {
     throw new Error('invalid go quota monthlyUsd')
   }
-  const requests = row['monthlyRequests']
-  if (requests !== undefined && requests !== 'unlimited'
-    && (typeof requests !== 'number' || !Number.isFinite(requests))) {
-    throw new Error('invalid go quota monthlyRequests')
-  }
-  return {
-    monthlyUsd: usd as number | 'unlimited',
-    ...requests === undefined ? {} : { monthlyRequests: requests as number | 'unlimited' },
-  }
+  return { monthlyUsd: usd as number | 'unlimited' }
 }
 
 function parseCost(value: unknown): { input: number; output: number; cacheRead?: number; cacheWrite?: number } {
@@ -123,8 +115,11 @@ export function parseCatalogReading(value: unknown): CatalogReading {
   }
   const quotaSource = row['quotaSource']
   // Absent means the payload predates the field — a cached client bundle with a
-  // newer host — and the seed is what such a reading actually carries.
-  if (quotaSource !== undefined && quotaSource !== 'document' && quotaSource !== 'seed') {
+  // newer host — and the seed is what such a reading actually carries. `gateway`
+  // is the live first-party figure; `document` is the provider's page; `seed` is
+  // the frozen transcription the page dates explicitly.
+  if (quotaSource !== undefined && quotaSource !== 'gateway'
+    && quotaSource !== 'document' && quotaSource !== 'seed') {
     throw new Error('invalid catalog quota source')
   }
   return {

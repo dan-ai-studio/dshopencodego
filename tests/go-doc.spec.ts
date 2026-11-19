@@ -48,10 +48,10 @@ describe('parseGoDocument', () => {
   const doc = parseGoDocument(DOCUMENT)
 
   it('joins the allowance tables to gateway ids through the endpoint table', () => {
-    expect(doc.quotas.get('glm-5.3-flash')).toEqual({ monthlyUsd: 60, monthlyRequests: 31_580 })
+    expect(doc.quotas.get('glm-5.3-flash')).toEqual({ monthlyUsd: 60 })
     // Tiered rows repeat one allowance; the id gets the value, not the band.
     expect(doc.quotas.get('qwen3.7-plus')).toEqual({ monthlyUsd: 60 })
-    expect(doc.quotas.get('space-bunny-free')).toEqual({ monthlyUsd: 'unlimited', monthlyRequests: 'unlimited' })
+    expect(doc.quotas.get('space-bunny-free')).toEqual({ monthlyUsd: 'unlimited' })
   })
 
   it('drops a tiered model whose rows disagree, and skips unusable rows', () => {
@@ -75,11 +75,11 @@ describe('parseGoDocument', () => {
   })
 
   it('reads the provider\'s current format: capitalised headers, struck values, and small print', () => {
-    // The live document capitalises its estimate headers (`Requests per
-    // month`), strikes superseded values (`~~$30~~ **$60**`), and annotates
-    // cells with `<br />` and `<small>`. A parser that only understands the
-    // lowercase test format drops every monthly request estimate on the live
-    // page — and the page then shows dollars without counts.
+    // The live document capitalises its headers (`Monthly limit`), strikes
+    // superseded values (`~~$30~~ **$60**`), and annotates cells with `<br />`
+    // and `<small>`. A parser that only understands the lowercase test format
+    // drops every allowance on the live page — and the page then shows no
+    // amount at all.
     const current = [
       '## Usage limits',
       '',
@@ -104,8 +104,8 @@ describe('parseGoDocument', () => {
     ].join('\n')
     const doc = parseGoDocument(current)
     // The struck $30 is the superseded price; the live one is $60.
-    expect(doc.quotas.get('gemini-4-argon-contributor')).toEqual({ monthlyUsd: 60, monthlyRequests: 2_120 })
-    expect(doc.quotas.get('longcat-2.5-preview-free')).toEqual({ monthlyUsd: 'unlimited', monthlyRequests: 'unlimited' })
+    expect(doc.quotas.get('gemini-4-argon-contributor')).toEqual({ monthlyUsd: 60 })
+    expect(doc.quotas.get('longcat-2.5-preview-free')).toEqual({ monthlyUsd: 'unlimited' })
     expect(doc.protocols.get('longcat-2.5-preview-free')).toBe('openai-completions')
   })
 

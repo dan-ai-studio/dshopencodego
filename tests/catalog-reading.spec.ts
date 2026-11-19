@@ -131,6 +131,38 @@ describe('settings catalog reading', () => {
     }
   })
 
+  it('takes the Go-tier allowance from the gateway listing ahead of document and seed', async () => {
+    const server = await gateway({
+      listing: ['glm-5.3', 'beam-free'],
+      listingDetail: [
+        {
+          id: 'glm-5.3', object: 'model', created: 0, owned_by: 'opencode',
+          go: { monthly_usage: { go: 42, 'go-plus': 200, 'go-teams': 500 } },
+        },
+        { id: 'beam-free', object: 'model', created: 0, owned_by: 'opencode', go: { monthly_usage: null } },
+      ],
+    })
+    const stub = stubModelsDev(modelsDevDocument({
+      'glm-5.3': { name: 'GLM-5.3', reasoning: true, limit: { context: 1000, output: 100 } },
+      'beam-free': { name: 'Beam Free', reasoning: true, limit: { context: 1000, output: 100 } },
+    }))
+    try {
+      const catalog = new OpencodeGoCatalog({
+        baseURL: server.baseURL, refreshMs: 60_000, defaults: DEFAULTS, overrides: {},
+        readDocument: offlineDocument({ 'glm-5.3': { monthlyUsd: 15 } }),
+      })
+      const reading = catalogReading(await catalog.snapshot(), {})
+      // 网关一手数字既压过文档的 15，也压过种子的 15；只取 Go 档。
+      expect(reading.quotaSource).toBe('gateway')
+      expect(reading.models.find(model => model.id === 'glm-5.3')?.goQuota).toEqual({ monthlyUsd: 42 })
+      // 免费模型在网关里是 null，展示为无上限，且没有请求数可供展示。
+      expect(reading.models.find(model => model.id === 'beam-free')?.goQuota).toEqual({ monthlyUsd: 'unlimited' })
+      expect(JSON.stringify(reading)).not.toContain('monthlyRequests')
+    } finally {
+      stub.restore()
+    }
+  })
+
   it('takes allowances and the documented protocol from the live document', async () => {
     const server = await gateway({ listing: ['glm-5.3', 'mystery-model'] })
     const stub = stubModelsDev(modelsDevDocument({
@@ -140,14 +172,14 @@ describe('settings catalog reading', () => {
       const catalog = new OpencodeGoCatalog({
         baseURL: server.baseURL, refreshMs: 60_000, defaults: DEFAULTS, overrides: {},
         readDocument: offlineDocument(
-          { 'glm-5.3': { monthlyUsd: 15, monthlyRequests: 1_080 } },
+          { 'glm-5.3': { monthlyUsd: 15 } },
           { 'mystery-model': 'anthropic-messages' },
         ),
       })
       const reading = catalogReading(await catalog.snapshot(), {})
       expect(reading.quotaSource).toBe('document')
       expect(reading.models.find(model => model.id === 'glm-5.3')?.goQuota)
-        .toEqual({ monthlyUsd: 15, monthlyRequests: 1_080 })
+        .toEqual({ monthlyUsd: 15 })
       // No installed entry and no models.dev record: the provider's own
       // endpoint table outranks the family guess.
       expect(reading.models.find(model => model.id === 'mystery-model')?.protocolSource).toBe('document')
@@ -171,7 +203,7 @@ describe('settings catalog reading', () => {
       // lists, and the source says where those numbers came from.
       expect(reading.quotaSource).toBe('seed')
       expect(reading.models.find(model => model.id === 'glm-5.3')?.goQuota)
-        .toEqual({ monthlyUsd: 15, monthlyRequests: 1_080 })
+        .toEqual({ monthlyUsd: 15 })
     } finally {
       stub.restore()
     }

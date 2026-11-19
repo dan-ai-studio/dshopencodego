@@ -12,7 +12,7 @@
 import type { ProtocolSource } from './catalog/protocol.ts'
 import type { InputModality } from './catalog/metadata.ts'
 import type { GoQuota } from './go-limits.ts'
-import { goQuotaFor, monthlyRequestsRank } from './go-limits.ts'
+import { goQuotaFor, monthlyUsdRank } from './go-limits.ts'
 
 /** One model as the settings page and the picker describe it. */
 export interface ModelSummary {
@@ -51,7 +51,8 @@ export interface ModelSummary {
   readonly configurationMissing?: string
   /**
    * Whether the default configuration keeps this model enabled when nobody set
-   * an explicit switch — the top few by published monthly request estimate.
+   * an explicit switch — the top few by published monthly allowance, free tiers
+   * first.
    */
   readonly recommended?: boolean
 }
@@ -72,12 +73,12 @@ export function isTrainingTier(model: Pick<ModelSummary, 'id' | 'name'>): boolea
 
 /**
  * The default-enabled ids when nobody configured switches: the models with the
- * largest published monthly request estimate first, which is Go's own "most
- * usable" order. Deprecated, unconfigurable, and training-contributor models
- * never qualify, and a model with no published estimate does not displace one
+ * largest published monthly allowance first, free tiers (`unlimited`) ahead of
+ * every paid tier. Deprecated, unconfigurable, and training-contributor models
+ * never qualify, and a model with no published allowance does not displace one
  * that has it.
  *
- * The estimate is looked up here, by id, rather than read from a `goQuota`
+ * The allowance is looked up here, by id, rather than read from a `goQuota`
  * field: the Host's picker and the settings page build their model lists from
  * different projections, and a caller that forgot to carry the field would
  * silently fall back to an alphabetical default — which is exactly the
@@ -94,7 +95,7 @@ export function recommendedIds(
       && model.deprecated !== true
       && !isTrainingTier(model))
     .toSorted((left, right) =>
-      monthlyRequestsRank(goQuotaFor(right.id)) - monthlyRequestsRank(goQuotaFor(left.id))
+      monthlyUsdRank(goQuotaFor(right.id)) - monthlyUsdRank(goQuotaFor(left.id))
       || left.id.localeCompare(right.id))
   return new Set(ranked.slice(0, DEFAULT_ENABLED_COUNT).map(model => model.id))
 }
