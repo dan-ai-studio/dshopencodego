@@ -44,7 +44,7 @@ import {
   BACKGROUND_RETRY_BACKOFF_MS,
   UNKNOWN_MODEL_PROBE_COOLDOWN_MS,
 } from './constants.ts'
-import { fetchModelIds } from './gateway.ts'
+import { fetchModelListing } from './gateway.ts'
 import { fetchGoDocument, GO_DOC_URLS } from './go-doc.ts'
 import type { GoDoc } from './go-doc.ts'
 import { readBoundedJson } from './json-response.ts'
@@ -54,10 +54,12 @@ import { readFactsCache, writeFactsCache } from './metadata-cache.ts'
 import { parseSnapshotFile, readSnapshotCache, writeSnapshotCache } from './snapshot-cache.ts'
 import type { ParsedSnapshotFile } from './snapshot-cache.ts'
 import { asWireProtocol } from './protocol.ts'
+import type { WireProtocol } from './protocol.ts'
 import type { GoQuota } from '../go-limits.ts'
 
 export { PROVIDER_ID, DISPLAY_NAME, DEFAULT_BASE_URL, CONSOLE_BASE_URL, MAX_CATALOG_STALENESS_MS } from './constants.ts'
-export { readModelIds, fetchModelIds } from './gateway.ts'
+export { readModelIds, readGatewayProtocols, readModelListing, fetchModelIds, fetchModelListing } from './gateway.ts'
+export type { ModelListing } from './gateway.ts'
 export { readOnlineMetadata, toPiModel, modelBaseURL } from './metadata.ts'
 export type { ModelFacts, OnlineMetadata, ModelDefaults } from './metadata.ts'
 export { decideProtocol, inferProtocol, protocolOfNpm } from './protocol.ts'
@@ -544,7 +546,7 @@ export class OpencodeGoCatalog {
     const readDocument = this.options.readDocument
       ?? ((signal?: AbortSignal) => fetchGoDocument(signal, { cacheDir: this.options.cacheDir }))
     const [listing, metadata, documentation] = await Promise.allSettled([
-      fetchModelIds(this.options.baseURL, undefined, this.options.fetch?.()),
+      fetchModelListing(this.options.baseURL, undefined, this.options.fetch?.()),
       this.refreshMetadata(builtin, retry),
       readDocument(signal),
     ])
@@ -617,11 +619,12 @@ export class OpencodeGoCatalog {
       ? metadata.value
       : (this.lastMetadata ?? this.cachedMetadata)
     const snapshot = this.assemble(
-      listing.value,
+      listing.value.ids,
       online,
       builtin,
       degradations,
       fromCache ? this.cachedAt : undefined,
+      listing.value.protocols,
     )
     // Remember the catalog as it stands, so the next process can serve it
     // without asking the network anything.
@@ -641,7 +644,17 @@ export class OpencodeGoCatalog {
     builtin: ReadonlyMap<string, Model<Api>>,
     degradations: readonly CatalogDegradation[] = [],
     factsCachedAt?: number,
+    gatewayProtocols: ReadonlyMap<string, WireProtocol> = new Map(),
   ): CatalogSnapshot {
+    // The gateway's own `recommended_api` declaration and the endpoint table in
+    // the provider documentation are both first-party statements of the wire
+    // protocol, and both are folded into the same `document` evidence level.
+    // The documentation (when it answered) wins where the two disagree: it is
+    // the explicit per-model table; the gateway fills the ids it does not list.
+    // No new ProtocolSource is needed — neither is a guess, and both are the
+    // provider's own word.
+    const documentedProtocols = new Map<string, WireProtocol>(gatewayProtocols)
+    for (const [id, protocol] of this.document?.protocols ?? []) documentedProtocols.set(id, protocol)
     const facts = new Map<string, ModelFacts>()
     const unavailable = new Map<string, string>()
     for (const id of ids) {
@@ -651,7 +664,7 @@ export class OpencodeGoCatalog {
         // a model the document names is not left carrying the online answer.
         // `withDocumentedProtocol` never touches a builtin entry, so the wire
         // quirks the adapter relies on stay intact.
-        facts.set(id, this.withDocumentedProtocol(parsed))
+        facts.set(id, this.withDocumentedProtocol(parsed, documentedProtocols))
         continue
       }
       const reason = online?.errors.get(id)
@@ -677,7 +690,7 @@ export class OpencodeGoCatalog {
       // (`@ai-sdk/openai-compatible`) makes Chat Completions the best available
       // guess, and the route defaults size it; the settings surface marks it as
       // inferred so a wrong guess is visible and overridable.
-      facts.set(id, this.withDocumentedProtocol(this.inferredFacts(id, builtin)))
+      facts.set(id, this.withDocumentedProtocol(this.inferredFacts(id, builtin), documentedProtocols))
     }
     if (unavailable.size > 0) {
       this.options.observers?.onUnconfigured?.(
@@ -717,10 +730,15 @@ export class OpencodeGoCatalog {
    * a known answer for ids the installed catalog misses. It never overrides a
    * builtin entry or a configured override: those carry the wire quirks the
    * adapter relies on.
+   * @param protocols - the merged first-party protocols: the provider's endpoint
+   *   table where it answered, filled by the gateway's own `recommended_api`.
    */
-  private withDocumentedProtocol(facts: ModelFacts): ModelFacts {
+  private withDocumentedProtocol(
+    facts: ModelFacts,
+    protocols: ReadonlyMap<string, WireProtocol>,
+  ): ModelFacts {
     if (facts.protocolSource !== 'inferred' && facts.protocolSource !== 'online') return facts
-    const documented = this.document?.protocols.get(facts.id)
+    const documented = protocols.get(facts.id)
     return documented === undefined ? facts : { ...facts, api: documented, protocolSource: 'document' }
   }
 

@@ -287,6 +287,54 @@ describe('live catalog', () => {
     }
   })
 
+  it('turns a gateway-declared protocol into first-party evidence for a new model', async () => {
+    // A model the installed catalog and models.dev both miss would normally be
+    // only `inferred`. The gateway's own `recommended_api` is the provider's word,
+    // so it promotes that id to `document` evidence — with no endpoint table
+    // read at all — and the model is not served on a guessed protocol.
+    const server = await gateway({ listingDetail: [
+      { id: 'brand-new', recommended_api: 'responses', api: { responses: { sdk: { aisdk: '@ai-sdk/openai' } } } },
+      { id: 'image-only', recommended_api: 'generate-content', api: { 'generate-content': { sdk: { aisdk: '@ai-sdk/google' } } } },
+    ] })
+    const stub = stubModelsDev(modelsDevDocument({}))
+    try {
+      const snapshot = await catalogFor(server.baseURL).snapshot()
+      expect(snapshot.facts.get('brand-new')).toMatchObject({
+        api: 'openai-responses', protocolSource: 'document', assumedLimits: true,
+      })
+      // An image protocol the plugin cannot drive stays inferred; the id is
+      // still listed and still callable over the gateway's default.
+      expect(snapshot.facts.get('image-only')?.protocolSource).toBe('inferred')
+    } finally {
+      stub.restore()
+    }
+  })
+
+  it('lets the endpoint table win over the gateway when the two disagree', async () => {
+    // Both are first-party, but the explicit per-model table is authoritative.
+    // Use an id no installed entry describes, so only these two sources speak.
+    const server = await gateway({ listingDetail: [
+      { id: 'brand-new', recommended_api: 'responses', api: { responses: { sdk: { aisdk: '@ai-sdk/openai' } } } },
+    ] })
+    const stub = stubModelsDev(modelsDevDocument({}))
+    try {
+      const catalog = new OpencodeGoCatalog({
+        baseURL: server.baseURL,
+        refreshMs: 60_000,
+        defaults: DEFAULTS,
+        overrides: {},
+        observers: {},
+        readDocument: offlineDocument({}, { 'brand-new': 'openai-completions' }),
+      })
+      const snapshot = await catalog.snapshot()
+      expect(snapshot.facts.get('brand-new')).toMatchObject({
+        api: 'openai-completions', protocolSource: 'document',
+      })
+    } finally {
+      stub.restore()
+    }
+  })
+
   it('serves a cached snapshot inside the refresh interval', async () => {
     const server = await gateway({ listing: ['glm-5.3'] })
     const stub = stubModelsDev(modelsDevDocument({}))

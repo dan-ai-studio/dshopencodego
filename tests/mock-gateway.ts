@@ -32,6 +32,8 @@ export interface RecordedRequest {
 export interface MockGatewayOptions {
   /** Ids the `/models` listing advertises. */
   readonly listing?: readonly string[]
+  /** Full records the `/models` listing advertises, for protocol-declaring tests. */
+  readonly listingDetail?: readonly unknown[]
   /** Usage windows the `/usage` endpoint reports. */
   readonly usage?: unknown
   /** Answer the listing with this status instead of 200. */
@@ -198,7 +200,7 @@ export async function startMockGateway(options: MockGatewayOptions = {}): Promis
         response.writeHead(listingStatus, { 'content-type': 'application/json' })
         response.end(JSON.stringify({
           object: 'list',
-          data: listing.map(id => ({ id, object: 'model', created: 0, owned_by: 'opencode' })),
+          data: options.listingDetail ?? listing.map(id => ({ id, object: 'model', created: 0, owned_by: 'opencode' })),
         }))
         return
       }

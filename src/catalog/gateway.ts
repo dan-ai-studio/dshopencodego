@@ -1,9 +1,12 @@
 /**
  * The gateway model listing: which ids the subscription can call right now.
  *
- * The endpoint answers an OpenAI-shaped `{ object: 'list', data: [{ id, … }] }`
- * with no capability information at all, so it decides *membership* and nothing
- * else. A malformed reply is a failure (never "the gateway serves nothing").
+ * The endpoint answers an OpenAI-shaped `{ object: 'list', data: [{ id, … }] }`.
+ * It decides *membership* — which ids the subscription can call right now — and
+ * also carries each model's `recommended_api` and AI SDK package, which name the
+ * wire protocol the provider itself serves. Models.dev stays the authority for
+ * capacities and lifecycle. A malformed reply is a failure (never "the gateway
+ * serves nothing").
  *
  * @module @dan-ai-studio/dshopencodego/catalog/gateway
  */
@@ -11,6 +14,8 @@
 import { attributionHeaders, LlmError } from '@deepseek-ai/dsh-llm'
 import { MODEL_LISTING_MAX_BYTES, METADATA_FETCH_TIMEOUT_MS } from './constants.ts'
 import { readBoundedJson } from './json-response.ts'
+import { protocolOfNpm } from './protocol.ts'
+import type { WireProtocol } from './protocol.ts'
 
 /** Read the ids out of a model-listing body. */
 export function readModelIds(body: unknown): readonly string[] {
@@ -22,6 +27,53 @@ export function readModelIds(body: unknown): readonly string[] {
     if (typeof id === 'string' && id.length > 0) ids.push(id)
   }
   return [...new Set(ids)]
+}
+
+/**
+ * Read the per-model wire protocols the gateway declares.
+ *
+ * Each entry names its `recommended_api` and the AI SDK package behind that
+ * API; the package maps to a wire protocol exactly as models.dev's `npm` field
+ * does. Models whose recommended API this plugin cannot drive (e.g.
+ * `generate-content`, an image protocol) are simply absent from the result —
+ * the gateway listing still includes them, but no protocol is claimed for
+ * them. A malformed `api` block names no protocol rather than failing the whole
+ * listing: membership is the endpoint's contract; protocol is a bonus.
+ * @param body - a model-listing body already known to have a `data` array.
+ * @returns protocol by model id, for the ids the gateway names explicitly.
+ */
+export function readGatewayProtocols(body: unknown): ReadonlyMap<string, WireProtocol> {
+  const data = (body as { data?: unknown } | null)?.data
+  const protocols = new Map<string, WireProtocol>()
+  if (!Array.isArray(data)) return protocols
+  for (const entry of data) {
+    const id = (entry as { id?: unknown } | null)?.id
+    if (typeof id !== 'string' || id.length === 0 || protocols.has(id)) continue
+    const row = entry as { recommended_api?: unknown; api?: unknown }
+    const recommended = typeof row['recommended_api'] === 'string' ? row['recommended_api'] : undefined
+    const api = row['api'] !== null && typeof row['api'] === 'object' && !Array.isArray(row['api'])
+      ? row['api'] as Record<string, unknown> : undefined
+    const detail = recommended === undefined || api === undefined ? undefined : api[recommended]
+    const sdk = detail !== null && typeof detail === 'object' && !Array.isArray(detail)
+      ? (detail as { sdk?: { aisdk?: unknown } }).sdk?.aisdk
+      : undefined
+    const protocol = protocolOfNpm(sdk)
+    if (protocol !== undefined) protocols.set(id, protocol)
+  }
+  return protocols
+}
+
+/** One gateway listing read: the ids and the protocols the gateway declares. */
+export interface ModelListing {
+  readonly ids: readonly string[]
+  readonly protocols: ReadonlyMap<string, WireProtocol>
+}
+
+/** Read a model-listing body into ids and per-model protocols. */
+export function readModelListing(body: unknown): ModelListing {
+  // readModelIds throws on a body with no data array; keep that failure mode.
+  const ids = readModelIds(body)
+  return { ids, protocols: readGatewayProtocols(body) }
 }
 
 /**
@@ -42,6 +94,24 @@ export async function fetchModelIds(
   signal?: AbortSignal,
   request: typeof fetch = globalThis.fetch,
 ): Promise<readonly string[]> {
+  return (await fetchModelListing(baseURL, signal, request)).ids
+}
+
+/**
+ * Fetch the gateway listing: the advertised ids and the protocols the gateway
+ * itself declares for them. The request and failure semantics are identical to
+ * {@link fetchModelIds}; this is the richer read used by the catalog.
+ * @param baseURL - normalized gateway base without a trailing slash.
+ * @param signal - caller cancellation, if any.
+ * @param request - the fetch to use; the system's own when none is given.
+ * @returns the listing in endpoint order, with per-model protocol declarations.
+ * @throws {LlmError} `DISCOVERY_FAILED` on any endpoint or body failure.
+ */
+export async function fetchModelListing(
+  baseURL: string,
+  signal?: AbortSignal,
+  request: typeof fetch = globalThis.fetch,
+): Promise<ModelListing> {
   const url = `${baseURL.replace(/\/+$/, '')}/models`
   const timeout = AbortSignal.timeout(METADATA_FETCH_TIMEOUT_MS)
   const response = await request(url, {
@@ -61,7 +131,7 @@ export async function fetchModelIds(
   }
   const body = await readBoundedJson(response, url, MODEL_LISTING_MAX_BYTES)
   try {
-    return readModelIds(body)
+    return readModelListing(body)
   } catch (error: unknown) {
     throw new LlmError(`${url} returned an invalid model listing`, 'DISCOVERY_FAILED', { cause: error })
   }
