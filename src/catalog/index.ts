@@ -44,7 +44,7 @@ import {
   BACKGROUND_RETRY_BACKOFF_MS,
   UNKNOWN_MODEL_PROBE_COOLDOWN_MS,
 } from './constants.ts'
-import { fetchModelListing } from './gateway.ts'
+import { fetchModelListing, type ModelListing } from './gateway.ts'
 import { fetchGoDocument, GO_DOC_URLS } from './go-doc.ts'
 import type { GoDoc } from './go-doc.ts'
 import { readBoundedJson } from './json-response.ts'
@@ -545,11 +545,22 @@ export class OpencodeGoCatalog {
     const builtin = builtinModels(this.options.baseURL)
     const readDocument = this.options.readDocument
       ?? ((signal?: AbortSignal) => fetchGoDocument(signal, { cacheDir: this.options.cacheDir }))
-    const [listing, metadata, documentation] = await Promise.allSettled([
+    const [listingResult, metadata, documentation] = await Promise.allSettled([
       fetchModelListing(this.options.baseURL, undefined, this.options.fetch?.()),
       this.refreshMetadata(builtin, retry),
       readDocument(signal),
     ])
+    // A gateway that answers 200 with an empty listing — because its schema
+    // changed and the ids no longer parse, or because it genuinely published
+    // nothing — is not a usable catalog. Treating it as a successful empty
+    // result would clear every model, which is indistinguishable to the user
+    // from an outage. Normalize it to a rejected listing so the outage branch
+    // below keeps the last good snapshot and reports the fallback.
+    // The low-level fetchModelIds (used by diagnostic tooling) keeps its
+    // "empty ids" semantics; only the catalog's serving path is hardened here.
+    const listing: PromiseSettledResult<ModelListing> = listingResult.status === 'fulfilled' && listingResult.value.ids.length === 0
+      ? { status: 'rejected', reason: new Error('the gateway advertised no models') }
+      : listingResult
     const degradations: CatalogDegradation[] = []
     if (metadata.status === 'rejected') {
       degradations.push({ source: 'metadata', reason: reasonText(metadata.reason) })

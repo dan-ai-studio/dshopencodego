@@ -459,6 +459,31 @@ describe('live catalog', () => {
     }
   })
 
+  it('keeps the last good listing when the gateway answers with an empty list', async () => {
+    // A schema drift that renames the id field, or a gateway that starts
+    // answering { data: [] }, must not clear the model list. The serving path
+    // treats an empty listing like an outage: it keeps the last good snapshot,
+    // marks it stale, and reports the fallback.
+    const server = await gateway({ listing: ['glm-5.3'] })
+    const stub = stubModelsDev(modelsDevDocument({}))
+    const fallbacks: unknown[] = []
+    try {
+      const catalog = catalogFor(server.baseURL, {}, { onFallback: (detail: unknown) => fallbacks.push(detail) })
+      const first = await catalog.snapshot()
+      expect(first.live).toBe(true)
+      expect([...first.facts.keys()]).toEqual(['glm-5.3'])
+      // Same healthy HTTP response, but now advertising nothing.
+      server.setListing([])
+      const stale = await catalog.snapshot(true)
+      expect(stale.live).toBe(false)
+      expect([...stale.facts.keys()]).toEqual(['glm-5.3'])
+      expect(fallbacks).toHaveLength(1)
+      expect(String((fallbacks[0] as { error?: unknown }).error)).toContain('no models')
+    } finally {
+      stub.restore()
+    }
+  })
+
   it('reports an unconfigured id instead of failing the whole listing', async () => {
     const server = await gateway({ listing: ['glm-5.3', 'bad-model'] })
     const stub = stubModelsDev(modelsDevDocument({

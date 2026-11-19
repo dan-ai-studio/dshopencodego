@@ -2,6 +2,20 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.1.112] - 2026-11-19
+
+给网关模型列表加一道兜底：官方 schema 变化导致列表静默变空时，不再清空模型。
+
+### 🐛 修复
+
+- **空 `/models` 列表现在按故障处理，不再当成"官方把模型删光了"**。此前若网关返回 `200` 但 `data` 为空——比如字段改名导致 id 全部解析不出，或官方真的返回空数组——`fetchModelListing` 会正常返回空 ids，`build()` 据此 assemble 出空快照，用户所有模型瞬间不可用。现在 `build()` 把"fulfilled 但 ids 为空"归一化为失败，走既有 outage 兜底：保留上次成功的快照、标记为 stale、`onFallback` 上报，并保持退避重试。
+- 加固只在**插件的服务路径**（`build()`）生效；底层 `fetchModelIds` 仍保留"空列表返回空数组"的语义，`tools/verify/live-check.mjs` 诊断脚本的 `advertised no models` 精确提示不受影响。
+
+### 🧪 测试
+
+- `catalog.spec.ts` 新增「网关返回空列表时保留上次成功快照」集成用例；`catalog-gateway.spec.ts` 补一条锁定低层读取器字面上返回空数组的契约用例。两条都已反证（撤掉归一化 / 移除加固后变红）。
+- `typecheck`、`lint`、`build` 通过；套件 **65 个测试文件 / 587 个用例**全绿。
+
 ## [0.1.111] - 2026-11-19
 
 把网关 `/models` 已经返回、却一直被丢弃的协议声明用起来（opencode 主线对齐第一阶段）。

@@ -76,6 +76,17 @@ describe('readGatewayProtocols', () => {
     expect(listing.protocols.size).toBe(31)
   })
 
+  it('reads an empty listing as zero ids (the low-level reader stays literal)', () => {
+    // Hardening against empty listings happens in the catalog's serving path,
+    // not here: the diagnostic tooling calls fetchModelIds and relies on an
+    // empty array to emit its precise "advertised no models" message.
+    expect(readModelListing({ object: 'list', data: [] }).ids).toEqual([])
+    expect(readModelListing({
+      object: 'list',
+      data: [{ model: 'x', object: 'model' }, { name: 'y' }],
+    }).ids).toEqual([])
+  })
+
   it('reads the protocols of the models shown in the console', () => {
     const { protocols } = readModelListing(GO_MODELS_FIXTURE)
     expect(protocols.get('deepseek-v4.1-flash')).toBe('openai-completions')
