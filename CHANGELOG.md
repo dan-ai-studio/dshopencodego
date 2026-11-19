@@ -2,9 +2,15 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
-## [0.1.112] - 2026-11-19
+## [0.2.0] - 2026-11-19
 
-给网关模型列表加一道兜底：官方 schema 变化导致列表静默变空时，不再清空模型。
+首个 0.2 次版本：opencode 主线对齐——把网关 `/models` 已经返回、却一直被丢弃的协议声明用作证据，并给模型列表加一道面向官方 schema 变化的兜底。此前未发布的 0.1.111 / 0.1.112 改动合并于本版。
+
+### 🔧 新增能力
+
+- **网关 `/models` 的 `recommended_api` 现在会成为协议证据**。此前 `readModelIds` 只从列表里读 id，注释还写着「不含任何能力信息」——但当前网关对每个模型都返回 `recommended_api` 及其 AI SDK 包名，足以指出厂商自己声明的线协议。`gateway.ts` 新增 `readGatewayProtocols` / `readModelListing` / `fetchModelListing`，经既有 `protocolOfNpm` 映射包名到三种可驱动协议（`openai-completions` / `openai-responses` / `anthropic-messages`）；`fetchModelIds` 保留为兼容层，内部复用新读取。
+- **网关协议折叠进现有 `document` 证据级**，不新增 `ProtocolSource`。它和厂商文档端点表一样是「厂商自己的声明」：文档端点表优先，网关为其未覆盖的 id 补缺；两者都只提升 `inferred` / `online` 的模型，绝不覆盖带线协议 quirks 的 builtin 条目或用户 override。`gemini-4-argon` 的 `generate-content` 是图片协议，插件不支持，因此该模型不声明协议、维持原推断。
+- 实测价值在未来新模型的快响与元数据降级时的鲁棒性：当前 32 个模型里网关协议与现有结果一致（唯一差异是上面那个不支持的图片协议模型），本次不改变任何现有模型的最终协议。
 
 ### 🐛 修复
 
@@ -13,24 +19,9 @@
 
 ### 🧪 测试
 
-- `catalog.spec.ts` 新增「网关返回空列表时保留上次成功快照」集成用例；`catalog-gateway.spec.ts` 补一条锁定低层读取器字面上返回空数组的契约用例。两条都已反证（撤掉归一化 / 移除加固后变红）。
-- `typecheck`、`lint`、`build` 通过；套件 **65 个测试文件 / 587 个用例**全绿。
-
-## [0.1.111] - 2026-11-19
-
-把网关 `/models` 已经返回、却一直被丢弃的协议声明用起来（opencode 主线对齐第一阶段）。
-
-### 🔧 适配
-
-- **网关 `/models` 的 `recommended_api` 现在会成为协议证据**。此前 `readModelIds` 只从列表里读 id，注释还写着「不含任何能力信息」——但当前网关对每个模型都返回 `recommended_api` 及其 AI SDK 包名，足以指出厂商自己声明的线协议。`gateway.ts` 新增 `readGatewayProtocols` / `readModelListing` / `fetchModelListing`，经既有 `protocolOfNpm` 映射包名到三种可驱动协议（`openai-completions` / `openai-responses` / `anthropic-messages`）；`fetchModelIds` 保留为兼容层，内部复用新读取。
-- **网关协议折叠进现有 `document` 证据级**，不新增 `ProtocolSource`。它和厂商文档端点表一样是「厂商自己的声明」：文档端点表优先，网关为其未覆盖的 id 补缺；两者都只提升 `inferred` / `online` 的模型，绝不覆盖带线协议 quirks 的 builtin 条目或用户 override。`gemini-4-argon` 的 `generate-content` 是图片协议，插件不支持，因此该模型不声明协议、维持原推断。
-- 实测价值在未来新模型的快响与元数据降级时的鲁棒性：当前 32 个模型里网关协议与现有结果一致（唯一差异是上面那个不支持的图片协议模型），本次不改变任何现有模型的最终协议。
-
-### 🧪 测试
-
-- 新增 `tests/fixtures/go-models.ts`（线上 `/models` 精简录制，id + `recommended_api` + SDK 包名，32 模型）；`catalog-gateway.spec.ts` 覆盖三种协议映射、不可驱动协议与畸形字段的跳过、控制台所示模型的协议读取、真实 fixture；`catalog.spec.ts` 覆盖「网关声明把新模型从 `inferred` 提升为 `document`」与「文档端点表与网关冲突时文档优先」。集成用例已用「去掉网关协议折叠」反证变红。
+- 新增 `tests/fixtures/go-models.ts`（线上 `/models` 精简录制，id + `recommended_api` + SDK 包名，32 模型）；`catalog-gateway.spec.ts` 覆盖三种协议映射、不可驱动协议与畸形字段的跳过、控制台所示模型的协议读取、真实 fixture 与低层读取器的空列表契约；`catalog.spec.ts` 覆盖「网关声明把新模型从 `inferred` 提升为 `document`」「文档端点表与网关冲突时文档优先」以及「网关返回空列表时保留上次成功快照」。关键用例均已反证变红。
 - `tests/mock-gateway.ts` 新增 `listingDetail` 选项，可在 `/models` 里返回完整记录。
-- `typecheck`、`lint`、`build` 通过；套件 **65 个测试文件 / 585 个用例**全绿。
+- `typecheck`、`lint`、`build` 通过；套件 **65 个测试文件 / 587 个用例**全绿。
 
 ## [0.1.110] - 2026-11-19
 
