@@ -293,7 +293,7 @@ function settingsOf(value: unknown): SectionSettings | undefined {
     refreshMinutes: minutes,
     pinnedAddresses: Object.fromEntries(pinEntries) as Record<string, string>,
     keepAliveTimeoutMs: typeof keepAlive === 'number' ? keepAlive : DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
-    imageBudgetPreset: isImageBudgetPreset(imageBudgetPreset) ? imageBudgetPreset : 'dsh',
+    imageBudgetPreset: isImageBudgetPreset(imageBudgetPreset) ? imageBudgetPreset : 'default',
     requestLogEnabled: typeof requestLogEnabled === 'boolean' ? requestLogEnabled : false,
     requestLogDebug: typeof requestLogDebug === 'boolean' ? requestLogDebug : false,
     requestLogMaxEntries: typeof requestLogMaxEntries === 'number'
@@ -1364,11 +1364,11 @@ export function Section({ controller, t, getLocale, openRequestLog }: SectionInj
           id="dshopencodego-image-budget"
           className={css.select}
           disabled={!editable || state.saving}
-          value={state.settings?.imageBudgetPreset ?? 'dsh'}
+          value={state.settings?.imageBudgetPreset ?? 'default'}
           onChange={event => { void act(async () => { await controller.setImageBudgetPreset(event.target.value) }) }}
         >
+          <option value="default">{t('imageBudgetPresetDefault')}</option>
           <option value="dsh">{t('imageBudgetPresetDsh')}</option>
-          <option value="dshopencodego">{t('imageBudgetPresetDshopencodego')}</option>
           <option value="pi-ai">{t('imageBudgetPresetPiAi')}</option>
         </select>
         <span className={css.hint}>{t('imageBudgetPresetHint')}</span>

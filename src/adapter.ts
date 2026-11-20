@@ -55,7 +55,7 @@ import type { PiImageRequestContext } from './conversion/index.ts'
 import { isModelEnabled, recommendedIds } from './models.ts'
 import { estimateInputTokens, resolveFittedMaxTokens } from './context-fit.ts'
 import { providerHeaders } from './session-header.ts'
-import { IMAGE_BUDGETS } from './image-budget.ts'
+import { IMAGE_BUDGETS, isHostImageBudget } from './image-budget.ts'
 import type { RequestRecorder, RequestSpan } from './request-log/store.ts'
 
 /**
@@ -661,8 +661,13 @@ export class OpencodeGoAdapter extends LlmAdapter {
         imageRequest = {
           attachments: store,
           resolveImageAccess: ref => access.resolveImageAccess(store, ref),
-          maxRequestImageBytes: imageBudget.maxRequestBytes,
-          requestImagePolicy: { maxPixels: imageBudget.maxPixels, maxBytes: imageBudget.maxBytes },
+          // `default` names no budget at all: the conversion layer falls back
+          // to DSH's own route defaults, so a host upgrade changes the budget
+          // without this plugin having to republish its idea of those numbers.
+          ...isHostImageBudget(config.imageBudgetPreset) ? {} : {
+            maxRequestImageBytes: imageBudget.maxRequestBytes,
+            requestImagePolicy: { maxPixels: imageBudget.maxPixels, maxBytes: imageBudget.maxBytes },
+          },
         }
       }
       const context = imageRequest === undefined

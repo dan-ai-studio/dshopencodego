@@ -102,7 +102,7 @@ Configuration lives in the profile's `cordis.patch.yml`:
                                                # the timer restarts on every answer, so a connection in
                                                # frequent use is never dropped; a long pause in a
                                                # conversation costs one handshake (about 200ms)
-    imageBudgetPreset: dsh                    # image budget preset: dsh / dshopencodego / pi-ai (default dsh, the host's own values)
+    imageBudgetPreset: default                # image budget preset: default / dsh / pi-ai (default: the plugin names none, DSH decides)
     modelVisibility:                          # per-model switches; unlisted models follow the default rule (see "The model list in the settings page")
       glm-5: true
     modelLimits:                              # per-model capacity overrides
@@ -155,12 +155,12 @@ The API key comes from the Harness credential store (reference name `OPENCODE_GO
 - The log is a ring buffer (oldest dropped first) that dies with the process; snapshots are read on open and on manual refresh, plus once a second while any request is running, so a page nobody opens costs no traffic.
 - The credential never enters a record: the recorder takes no headers argument at all, only the allowlisted session id and user agent. A request gets a "Requesting" placeholder row the moment it starts (the status column counts its seconds) and the row is completed in place when it ends. Failed requests are recorded with their error code — including failures before the first byte (unresolvable models, missing credentials), whose rows carry the reason but no usage. A stream the consumer abandoned early is recorded as `ABORTED` instead of vanishing silently.
 
-**Images**: an over-budget image is refused explicitly rather than silently downscaled or dropped. The budgets ride one preset `imageBudgetPreset` (three choices, default `dsh`), not three numbers:
+**Images**: an over-budget image is refused explicitly rather than silently downscaled or dropped. The budgets ride one preset `imageBudgetPreset`, not three numbers. `default` (the default) names no budget at all and lets DSH's own defaults decide — the numbers below are for reference only; `dsh` names those same values explicitly, and `pi-ai` uses the per-model profile in pi-ai's catalog:
 
 | Preset | Per-image pixels | Per-image bytes (pre-base64) | Whole-request bytes (post-base64) |
 | --- | --- | --- | --- |
-| `dsh` (default) | 2048×2048 | 1MB | 20 MiB |
-| `dshopencodego` | 1.44M px | 400 KB | 6 MiB |
+| `default` (default, plugin names none) | 2048×2048 | 1MB | 20 MiB |
+| `dsh` | 2048×2048 | 1MB | 20 MiB |
 | `pi-ai` | 2000×2000 | 4.5MB | 20 MiB |
 
 A model that does not accept image input is rejected before the request is sent (`UNSUPPORTED_CONTENT`), so nothing is uploaded only to be refused by the gateway.

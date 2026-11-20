@@ -232,7 +232,11 @@ export async function toPiContext(
   assertSupportedImageRoles(options.messages)
   const split = splitSystemPrompt(options)
   const resolveImageAccess: ImageAttachmentAccessResolver = images?.resolveImageAccess ?? (() => undefined)
-  const policy = images?.requestImagePolicy ?? { maxPixels: 1_440_000, maxBytes: 400_000 }
+  // No policy named by the caller: use DSH's own route defaults
+  // (`DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET` / `DEFAULT_REQUEST_IMAGE_MAX_BYTES`
+  // in llm-pi-ai), not this plugin's historic tighter numbers. This is what
+  // the "take the default" preset relies on to let the host decide.
+  const policy = images?.requestImagePolicy ?? { maxPixels: 2048 * 2048, maxBytes: 1024 * 1024 }
   const requestImages = images === undefined
     ? new Map<AttachmentId, RequestImageAttachment>()
     : await prepareRequestImages(split.messages, images.attachments, policy, options.signal)

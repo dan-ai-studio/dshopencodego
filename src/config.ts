@@ -154,7 +154,7 @@ const fields = {
   // once and say so only in a warning on stderr. The bound here is what
   // keeps that unreachable.
   keepAliveTimeoutMs: z.number().step(1).min(1).max(MAX_KEEP_ALIVE_TIMEOUT_MS).default(DEFAULT_KEEP_ALIVE_TIMEOUT_MS),
-  imageBudgetPreset: z.union([z.const('dsh'), z.const('dshopencodego'), z.const('pi-ai')]).default('dsh'),
+  imageBudgetPreset: z.union([z.const('default'), z.const('dsh'), z.const('pi-ai')]).default('default'),
   modelLimits: z.dict(z.union([z.const(null), z.object({
     contextWindow: z.union([z.const(null), z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER)]),
     maxTokens: z.union([z.const(null), z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER)]),
