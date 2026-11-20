@@ -382,15 +382,15 @@ async function readSources(
   if (cached !== undefined && urls.includes(cached.url)) {
     const attempt = await readSource(cached.url, signal, cached.etag)
     if ('notModified' in attempt) {
-      // The registry says the document has not changed, so the one this
-      // process wrote down is the one it would have been sent.
-      const document = parseGoDocument(cached.body)
+      // The registry says the document has not changed. The cache holds the
+      // parsed tables, so a 304 costs one round trip and no reparse.
+      const document = cached.document
       if (document.quotas.size > 0 || document.protocols.size > 0) {
         return { document, failures }
       }
       failures.push(`${attempt.url} answered 304, and the remembered copy carries no table this build can read`)
     } else if ('document' in attempt) {
-      writeDocCache(cacheDir, { url: attempt.url, etag: attempt.etag, body: attempt.body })
+      writeDocCache(cacheDir, { url: attempt.url, etag: attempt.etag, document: attempt.document })
       return { document: attempt.document, failures }
     } else {
       failures.push(attempt.failure)
@@ -401,7 +401,7 @@ async function readSources(
   const attempts = await Promise.all(rest.map(url => readSource(url, signal)))
   for (const attempt of attempts) {
     if ('document' in attempt) {
-      writeDocCache(cacheDir, { url: attempt.url, etag: attempt.etag, body: attempt.body })
+      writeDocCache(cacheDir, { url: attempt.url, etag: attempt.etag, document: attempt.document })
       return { document: attempt.document, failures }
     }
     // A `notModified` cannot happen here: these requests carry no ETag, so

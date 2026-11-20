@@ -28,6 +28,17 @@ import { compactCount } from './model-view.ts'
 import { MIN_STREAM_MS_FOR_RATE } from '../request-log/store.ts'
 import css from './request-log.module.css'
 
+/**
+ * 轮询只为 running 行的进度；写完后记录便不再变化。内容未变时保留旧快照
+ * 引用，让整张表不必每两秒重渲染一遍。
+ */
+function unchangedLog(previous: RequestLogSnapshot, next: RequestLogSnapshot): boolean {
+  if (previous.totalRecords !== next.totalRecords || previous.entries.length !== next.entries.length) return false
+  const running = (snapshot: RequestLogSnapshot): string =>
+    JSON.stringify(snapshot.entries.filter(entry => entry.running === true))
+  return running(previous) === running(next)
+}
+
 /** What the page reads from the Host. */
 export interface RequestLogFace {
   /** Read one snapshot; the caller unwraps the Remote result. */
@@ -391,7 +402,7 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
     setRefreshing(true)
     try {
       const next = await readLog()
-      setSnapshot(next)
+      setSnapshot(previous => previous !== undefined && unchangedLog(previous, next) ? previous : next)
       setFailure(undefined)
     } catch (error: unknown) {
       setFailure(error instanceof Error ? error.message : String(error))

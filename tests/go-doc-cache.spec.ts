@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readDocCache, writeDocCache } from '../src/catalog/go-doc-cache.ts'
-import { fetchGoDocument, GO_DOC_URLS } from '../src/catalog/go-doc.ts'
+import { fetchGoDocument, GO_DOC_URLS, parseGoDocument } from '../src/catalog/go-doc.ts'
 
 const directories: string[] = []
 afterEach(() => {
@@ -40,11 +40,12 @@ const DOCUMENT = [
 describe('the document cache', () => {
   it('remembers the document and where it came from', () => {
     const directory = cacheDir()
-    writeDocCache(directory, { url: GO_DOC_URLS[0]!, etag: '"v1"', body: DOCUMENT })
+    const document = parseGoDocument(DOCUMENT)
+    writeDocCache(directory, { url: GO_DOC_URLS[0]!, etag: '"v1"', document })
     const cached = readDocCache(directory)
     expect(cached?.url).toBe(GO_DOC_URLS[0])
     expect(cached?.etag).toBe('"v1"')
-    expect(cached?.body).toBe(DOCUMENT)
+    expect(cached?.document.protocols.get('glm-5.3')).toBe('openai-completions')
   })
 
   it('treats an unreadable or corrupt cache as no cache', () => {
@@ -61,7 +62,7 @@ describe('the document cache', () => {
 describe('fetchGoDocument with a remembered document', () => {
   it('asks whether it changed and uses the copy it has when it did not', async () => {
     const directory = cacheDir()
-    writeDocCache(directory, { url: GO_DOC_URLS[0]!, etag: '"v1"', body: DOCUMENT })
+    writeDocCache(directory, { url: GO_DOC_URLS[0]!, etag: '"v1"', document: parseGoDocument(DOCUMENT) })
     const asked: (string | null)[] = []
     const bodies: number[] = []
     const realFetch = globalThis.fetch
@@ -95,7 +96,7 @@ describe('fetchGoDocument with a remembered document', () => {
 
   it('takes the new document when the registry says it changed', async () => {
     const directory = cacheDir()
-    writeDocCache(directory, { url: GO_DOC_URLS[0]!, etag: '"old"', body: DOCUMENT })
+    writeDocCache(directory, { url: GO_DOC_URLS[0]!, etag: '"old"', document: parseGoDocument(DOCUMENT) })
     const realFetch = globalThis.fetch
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
@@ -121,7 +122,7 @@ describe('fetchGoDocument with a remembered document', () => {
 
   it('falls back to the other sources when the remembered copy carries no table', async () => {
     const directory = cacheDir()
-    writeDocCache(directory, { url: GO_DOC_URLS[0]!, etag: '"v1"', body: '# nothing useful here' })
+    writeDocCache(directory, { url: GO_DOC_URLS[0]!, etag: '"v1"', document: parseGoDocument('# nothing useful here') })
     const realFetch = globalThis.fetch
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url

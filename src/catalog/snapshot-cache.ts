@@ -22,8 +22,7 @@
  * @module @dan-ai-studio/dshopencodego/catalog/snapshot-cache
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readCacheFileSync, writeCacheFile } from './cache-write.ts'
 import type { GoQuota } from '../go-limits.ts'
 import type { ModelFacts } from './metadata.ts'
 import type { WireProtocol } from './protocol.ts'
@@ -112,9 +111,10 @@ export function parseSnapshotFile(value: unknown): ParsedSnapshotFile | undefine
  * @returns the remembered catalog, or undefined.
  */
 export function readSnapshotCache(cacheDir: string | undefined): ParsedSnapshotFile | undefined {
-  if (cacheDir === undefined) return undefined
+  const text = readCacheFileSync(cacheDir, CACHE_FILE)
+  if (text === undefined) return undefined
   try {
-    return parseSnapshotFile(JSON.parse(readFileSync(join(cacheDir, CACHE_FILE), 'utf8')))
+    return parseSnapshotFile(JSON.parse(text))
   } catch {
     return undefined
   }
@@ -136,17 +136,13 @@ export function writeSnapshotCache(
   protocols: ReadonlyMap<string, WireProtocol>,
 ): void {
   if (cacheDir === undefined || facts.size === 0) return
-  try {
-    mkdirSync(cacheDir, { recursive: true })
-    const file: SnapshotFile = {
-      version: CACHE_VERSION,
-      facts: Object.fromEntries(facts),
-      ...quotas.size === 0 ? {} : { quotas: Object.fromEntries(quotas) },
-      ...protocols.size === 0 ? {} : { protocols: Object.fromEntries(protocols) },
-      updatedAt: Date.now(),
-    }
-    writeFileSync(join(cacheDir, CACHE_FILE), `${JSON.stringify(file)}\n`, 'utf8')
-  } catch {
-    // A cache that cannot be written is not an error the user can act on.
+  const file: SnapshotFile = {
+    version: CACHE_VERSION,
+    facts: Object.fromEntries(facts),
+    ...quotas.size === 0 ? {} : { quotas: Object.fromEntries(quotas) },
+    ...protocols.size === 0 ? {} : { protocols: Object.fromEntries(protocols) },
+    updatedAt: Date.now(),
   }
+  // fire-and-forget: a cache that cannot be written costs a cold build, not a request.
+  writeCacheFile(cacheDir, CACHE_FILE, `${JSON.stringify(file)}\n`)
 }

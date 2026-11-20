@@ -52,6 +52,17 @@ export interface FittableRequest {
   readonly tools?: GenerateOptions['tools']
 }
 
+/** 工具声明可能很大；按数组引用记住序列化长度，避免每次请求重算。 */
+const toolsLength = new WeakMap<object, number>()
+
+function serializedToolsLength(tools: readonly unknown[]): number {
+  const cached = toolsLength.get(tools)
+  if (cached !== undefined) return cached
+  const length = JSON.stringify(tools).length
+  toolsLength.set(tools, length)
+  return length
+}
+
 /**
  * 保守估算一次请求的输入 token 数（上界，非精确计数）。
  * @param options - 本次请求的消息、系统提示与工具声明。
@@ -94,8 +105,8 @@ export function estimateInputTokens(options: FittableRequest): number {
     }
   }
   if (options.tools !== undefined && options.tools.length > 0) {
-    // 工具声明每次全量发送：序列化一次，只为量长度。
-    chars += JSON.stringify(options.tools).length
+    // 工具声明每次全量发送：只需长度，且宿主通常复用同一个数组引用。
+    chars += serializedToolsLength(options.tools)
   }
   const estimate = Math.ceil(chars / CHARS_PER_TOKEN)
     + options.messages.length * TOKENS_PER_MESSAGE

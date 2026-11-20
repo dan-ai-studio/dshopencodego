@@ -17,8 +17,7 @@
  * @module @dan-ai-studio/dshopencodego/catalog/metadata-cache
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readCacheFileSync, writeCacheFile } from './cache-write.ts'
 import type { ModelFacts } from './metadata.ts'
 
 /** The cache file inside the plugin's cache directory. */
@@ -65,8 +64,10 @@ export function readFactsCache(
   readonly etag: string | undefined
 } | undefined {
   if (cacheDir === undefined) return undefined
+  const text = readCacheFileSync(cacheDir, CACHE_FILE)
+  if (text === undefined) return undefined
   try {
-    const parsed = JSON.parse(readFileSync(join(cacheDir, CACHE_FILE), 'utf8')) as Partial<FactsFile>
+    const parsed = JSON.parse(text) as Partial<FactsFile>
     if (parsed.version !== CACHE_VERSION || parsed.facts === null || typeof parsed.facts !== 'object') return undefined
     const facts = new Map<string, ModelFacts>()
     for (const [id, fact] of Object.entries(parsed.facts)) {
@@ -101,16 +102,12 @@ export function writeFactsCache(
   etag?: string,
 ): void {
   if (cacheDir === undefined || facts.size === 0) return
-  try {
-    mkdirSync(cacheDir, { recursive: true })
-    const file: FactsFile = {
-      version: CACHE_VERSION,
-      facts: Object.fromEntries(facts),
-      updatedAt: Date.now(),
-      ...etag === undefined ? {} : { etag },
-    }
-    writeFileSync(join(cacheDir, CACHE_FILE), `${JSON.stringify(file)}\n`, 'utf8')
-  } catch {
-    // A cache that cannot be written is not an error the user can act on.
+  const file: FactsFile = {
+    version: CACHE_VERSION,
+    facts: Object.fromEntries(facts),
+    updatedAt: Date.now(),
+    ...etag === undefined ? {} : { etag },
   }
+  // fire-and-forget: a cache that cannot be written costs a degraded restart.
+  writeCacheFile(cacheDir, CACHE_FILE, `${JSON.stringify(file)}\n`)
 }
