@@ -15,7 +15,7 @@
  * @module @dan-ai-studio/dshopencodego/client/RequestLogPage
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -149,6 +149,14 @@ function sortValue(entry: RequestLogEntry, key: SortKey): string | number {
 
 /** Rows per page; the snapshot's own bound caps the whole table. */
 const PAGE_SIZE = 50
+
+/** The phase class a timeline block draws with, shared by the row and the detail view. */
+function kindClass(kind: TimelineBlock['kind']): string | undefined {
+  return kind === 'prep' ? css.timelinePrep
+    : kind === 'wait' ? css.timelineWait
+    : kind === 'stream' ? css.timelineStream
+    : css.timelineStreamAlt
+}
 
 /** One reading, or a dash when the provider never reported one. */
 function count(value: number | undefined): string {
@@ -402,7 +410,15 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
     setRefreshing(true)
     try {
       const next = await readLog()
-      setSnapshot(previous => previous !== undefined && unchangedLog(previous, next) ? previous : next)
+      setSnapshot(previous => {
+        if (previous !== undefined && unchangedLog(previous, next)) return previous
+        // running 行是宿主原地 mutate 的同一个对象。浅拷贝只作用于它，
+        // 让 memo 行收到新引用并刷新进度；已完成行保持原引用，不再重渲染。
+        return {
+          ...next,
+          entries: next.entries.map(entry => entry.running === true ? { ...entry } : entry),
+        }
+      })
       setFailure(undefined)
     } catch (error: unknown) {
       setFailure(error instanceof Error ? error.message : String(error))
@@ -502,16 +518,8 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
     <th title={hint}>{label}</th>
   )
 
-  // String, in practice: the classes exist, and the annotation stays
-  // honest about the index signature.
-  const kindClass = (kind: TimelineBlock['kind']): string | undefined =>
-    kind === 'prep' ? css.timelinePrep
-    : kind === 'wait' ? css.timelineWait
-    : kind === 'stream' ? css.timelineStream
-    : css.timelineStreamAlt
-
   /** One phase total, for the compact bar's spoken summary. */
-  const phaseSummary = (timeline: PhaseTimeline): string => {
+  const phaseSummary = useCallback((timeline: PhaseTimeline): string => {
     const totals = new Map<string, { label: string; total: number }>()
     const order: string[] = []
     for (const block of timeline.blocks) {
@@ -533,14 +541,14 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
       parts.push(`${t('requestLogTimelineFirstByte')} ${duration(timeline.responseAt)}`)
     }
     return parts.join(', ')
-  }
+  }, [t])
 
   /**
    * The shared phase blocks: preparation, wait and the cut-up streaming
    * stretch plus the response tick. The detail timeline and the row's
    * mini bar draw the same blocks; only the frame around them differs.
    */
-  const phaseBlocks = (timeline: PhaseTimeline, live: boolean): React.JSX.Element[] => {
+  const phaseBlocks = useCallback((timeline: PhaseTimeline, live: boolean): React.JSX.Element[] => {
     const percent = (at: number): string => `${((at / timeline.end) * 100).toFixed(2)}%`
     // The tail shimmers only while the request is still alive; a finished
     // row is fully static.
@@ -569,7 +577,7 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
       )
     }
     return out
-  }
+  }, [t])
 
   /** How many invoked tools one row names before folding the rest. */
   const MAX_ROW_TOOLS = 3
@@ -578,7 +586,7 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
    * The tools this request actually invoked, as chips with call counts —
    * the row-level echo of the Harness's own per-turn execution summary.
    */
-  const toolChips = (entry: RequestLogEntry): React.JSX.Element | string => {
+  const toolChips = useCallback((entry: RequestLogEntry): React.JSX.Element | string => {
     const calls = entry.toolCalls ?? []
     if (calls.length === 0) return '—'
     const full = calls.map(call => `${call.name} ×${call.count}`).join(', ')
@@ -594,27 +602,101 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
         {extra > 0 && <span className={css.toolChipMore} title={full}>+{extra}</span>}
       </span>
     )
-  }
+  }, [])
 
   /** The fitted context reading: estimated input, plus the shrunk cap when clamped. */
-  const fitText = (entry: RequestLogEntry): string => {
+  const fitText = useCallback((entry: RequestLogEntry): string => {
     if (entry.estimatedInputTokens === undefined) return '—'
     const estimate = `~${compactCount(Math.round(entry.estimatedInputTokens))}`
     if (entry.maxTokensClamped === true && entry.fittedMaxTokens !== undefined) {
       return `${estimate} → ${compactCount(entry.fittedMaxTokens)}`
     }
     return estimate
-  }
+  }, [])
 
   /** The fitted context reading spelled out, for the hover title. */
-  const fitTitle = (entry: RequestLogEntry): string => {
+  const fitTitle = useCallback((entry: RequestLogEntry): string => {
     if (entry.estimatedInputTokens === undefined) return t('requestLogColContextHint')
     const estimate = `~${count(Math.round(entry.estimatedInputTokens))}`
     const fitted = entry.maxTokensClamped === true && entry.fittedMaxTokens !== undefined
       ? ` → ${count(entry.fittedMaxTokens)}`
       : ''
     return `${t('requestLogColContextHint')}: ${estimate}${fitted}`
-  }
+  }, [t])
+
+  const toggleExpanded = useCallback((seq: number): void => {
+    setExpanded(previous => previous === seq ? null : seq)
+  }, [])
+  const onSessionResult = useCallback((ok: boolean): void => {
+    setSessionOpenFailed(!ok)
+  }, [])
+
+  // A row is memoized: only the running row's progress changes between polls,
+  // so the other forty-nine rows are reconciled away instead of re-rendered.
+  // The component type itself is memoized too, so the helpers it closes over
+  // stay stable across renders and the memo comparison is not defeated.
+  const Row = useMemo(() => React.memo(function Row({ entry }: { entry: RequestLogEntry }): React.JSX.Element {
+    const state = entry.running === true ? 'rowRunning' : !entry.ok ? 'rowFail' : (entry.tps !== undefined && entry.tps < 5 ? 'rowSlow' : 'rowOk')
+    const session = sessionLabel(entry.session)
+    return (
+      <tr
+        className={`${css.row} ${css[state]}`}
+        onClick={() => { toggleExpanded(entry.seq) }}
+      >
+        <td>{new Date(entry.atMs).toLocaleTimeString(getLocale(), { hour12: false })}</td>
+        <td className={css.mono}>
+          <span className={css.modelText} title={entry.model}>{entry.model}</span>
+        </td>
+        <td className={session.titled ? undefined : css.mono}>
+          {session.titled && canOpenSession()
+            ? (
+              <button
+                type="button"
+                className={`${css.sessionLink} ${css.sessionText}`}
+                title={`${session.text} · ${entry.session}`}
+                onClick={() => { onSessionResult(openSession(entry.session)) }}
+              >
+                {session.text}
+              </button>
+            )
+            : (
+              <span
+                className={css.sessionText}
+                title={session.titled ? `${session.text} · ${entry.session}` : entry.session}
+              >
+                {session.text}
+              </span>
+            )}
+        </td>
+        <td>{count(entry.inputTokens)}</td>
+        <td>{count(entry.outputTokens)}</td>
+        <td>{count(entry.cacheReadTokens)}</td>
+        <td>{percent(cacheRate(entry))}</td>
+        <td>{rate(entry.tps)}</td>
+        <td>{duration(entry.prepMs)}</td>
+        <td>{duration(waitMs(entry))}</td>
+        <td>{duration(entry.firstTokenMs)}</td>
+        <td>{(() => {
+          const timeline = timelineOf(entry, t)
+          if (timeline === undefined) return '—'
+          return (
+            <div className={css.phaseBar} role="img" aria-label={phaseSummary(timeline)}>
+              {phaseBlocks(timeline, false)}
+            </div>
+          )
+        })()}</td>
+        <td>{toolChips(entry)}</td>
+        <td
+          className={entry.maxTokensClamped === true ? css.fitClamped : undefined}
+          title={fitTitle(entry)}
+        >
+          {fitText(entry)}
+        </td>
+        <td>{entry.running === true ? duration(Math.max(0, Date.now() - entry.atMs)) : duration(entry.durationMs)}</td>
+        <td>{entry.running === true ? `${t('requestLogRunning')} · ${duration(Math.max(0, Date.now() - entry.atMs))}` : entry.ok ? (entry.status === undefined ? '✓' : String(entry.status)) : (entry.code ?? '✗')}</td>
+      </tr>
+    )
+  }), [sessionLabel, getLocale, canOpenSession, openSession, onSessionResult, toggleExpanded, t, phaseSummary, phaseBlocks, toolChips, fitText, fitTitle])
 
   const rows = (): React.JSX.Element[] => {
     const out: React.JSX.Element[] = []
@@ -631,67 +713,10 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
           </tr>,
         )
       }
-      const state = entry.running === true ? 'rowRunning' : !entry.ok ? 'rowFail' : (entry.tps !== undefined && entry.tps < 5 ? 'rowSlow' : 'rowOk')
+      // The detail row below still names the conversation; only the data row
+      // moved into the memoized component.
       const session = sessionLabel(entry.session)
-      out.push(
-        <tr
-          key={entry.seq}
-          className={`${css.row} ${css[state]}`}
-          onClick={() => { setExpanded(expanded === entry.seq ? null : entry.seq) }}
-        >
-          <td>{new Date(entry.atMs).toLocaleTimeString(getLocale(), { hour12: false })}</td>
-          <td className={css.mono}>
-            <span className={css.modelText} title={entry.model}>{entry.model}</span>
-          </td>
-          <td className={session.titled ? undefined : css.mono}>
-            {session.titled && canOpenSession()
-              ? (
-                <button
-                  type="button"
-                  className={`${css.sessionLink} ${css.sessionText}`}
-                  title={`${session.text} · ${entry.session}`}
-                  onClick={() => { setSessionOpenFailed(!openSession(entry.session)) }}
-                >
-                  {session.text}
-                </button>
-              )
-              : (
-                <span
-                  className={css.sessionText}
-                  title={session.titled ? `${session.text} · ${entry.session}` : entry.session}
-                >
-                  {session.text}
-                </span>
-              )}
-          </td>
-          <td>{count(entry.inputTokens)}</td>
-          <td>{count(entry.outputTokens)}</td>
-          <td>{count(entry.cacheReadTokens)}</td>
-          <td>{percent(cacheRate(entry))}</td>
-          <td>{rate(entry.tps)}</td>
-          <td>{duration(entry.prepMs)}</td>
-          <td>{duration(waitMs(entry))}</td>
-          <td>{duration(entry.firstTokenMs)}</td>
-          <td>{(() => {
-            const timeline = timelineOf(entry, t)
-            if (timeline === undefined) return '—'
-            return (
-              <div className={css.phaseBar} role="img" aria-label={phaseSummary(timeline)}>
-                {phaseBlocks(timeline, false)}
-              </div>
-            )
-          })()}</td>
-          <td>{toolChips(entry)}</td>
-          <td
-            className={entry.maxTokensClamped === true ? css.fitClamped : undefined}
-            title={fitTitle(entry)}
-          >
-            {fitText(entry)}
-          </td>
-          <td>{entry.running === true ? duration(Math.max(0, Date.now() - entry.atMs)) : duration(entry.durationMs)}</td>
-          <td>{entry.running === true ? `${t('requestLogRunning')} · ${duration(Math.max(0, Date.now() - entry.atMs))}` : entry.ok ? (entry.status === undefined ? '✓' : String(entry.status)) : (entry.code ?? '✗')}</td>
-        </tr>,
-      )
+      out.push(<Row key={entry.seq} entry={entry} />)
       if (expanded === entry.seq) {
         out.push(
           <tr key={`detail-${entry.seq}`} className={css.detail}>

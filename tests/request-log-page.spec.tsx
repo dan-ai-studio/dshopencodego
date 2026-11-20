@@ -100,6 +100,27 @@ function runningEntry(seq: number, withFirstToken = false): RequestLogEntry {
 }
 
 describe('request-log page', () => {
+  it('refreshes a memoized running row when its progress changes', async () => {
+    const running = runningEntry(1, true)
+    const face = faceFor(snapshotOf([running]))
+    const view = render(<RequestLogPage {...face} />)
+    await table()
+    const rowOf = (): HTMLElement =>
+      within(screen.getByRole('table')).getByText('glm-5.3').closest('tr') as HTMLElement
+    expect(within(rowOf()).queryByText('20')).toBeNull()
+
+    // The Host mutates a running row in place; a poll hands back an updated
+    // shape. The memoized row must still show the newly reported output count.
+    const updated = { ...running, firstTokenMs: 900, outputTokens: 20 }
+    view.rerender(<RequestLogPage {...{
+      ...face,
+      readLog: async () => snapshotOf([updated]),
+    }} />)
+    await waitFor(() => {
+      expect(within(rowOf()).getByText('20')).toBeTruthy()
+    })
+  })
+
   it('shows the readings of every recorded request', async () => {
     render(<RequestLogPage {...faceFor(snapshotOf([entry({ prepMs: 100 })]))} />)
     const rows = await table()
