@@ -2,7 +2,7 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
-## [Unreleased]
+## [0.2.4] - 2026-11-20
 
 请求日志页面美化，按截图逐项打磨：
 
