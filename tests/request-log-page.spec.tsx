@@ -121,6 +121,28 @@ describe('request-log page', () => {
     })
   })
 
+  it('folds a repeated session into a continuation mark', async () => {
+    render(<RequestLogPage {...faceFor(snapshotOf([
+      entry({ seq: 1 }),
+      entry({ seq: 2, session: 'session-a' }),
+    ]))} />)
+    const rows = await table()
+    const cells = within(rows).getAllByRole('cell')
+    const sessionCells = cells.filter(cell => cell.textContent === 'session-a' || cell.textContent === '↳')
+    // First row names the conversation; the repeat is a quiet continuation.
+    expect(sessionCells.map(cell => cell.textContent)).toEqual(['session-a', '↳'])
+  })
+
+  it('marks a multi-second local preparation as a stall', async () => {
+    render(<RequestLogPage {...faceFor(snapshotOf([
+      entry({ seq: 1, prepMs: 9_000, durationMs: 10_000, firstTokenMs: 9_500 }),
+    ]))} />)
+    const rows = await table()
+    // The prep cell carries the warn class; the exact figure is still shown.
+    const prepCell = within(rows).getByText('9.00s')
+    expect(prepCell.className).toContain('prepHeavy')
+  })
+
   it('shows the readings of every recorded request', async () => {
     render(<RequestLogPage {...faceFor(snapshotOf([entry({ prepMs: 100 })]))} />)
     const rows = await table()
@@ -542,11 +564,14 @@ describe('request-log page', () => {
     expect(order()).toEqual(['fast-model', 'slow-model'])
     fireEvent.click(screen.getByText(/Latency/))
     await waitFor(() => { expect(order()).toEqual(['slow-model', 'fast-model']) })
-    // The flipped direction is marked on the head.
-    expect(screen.getByText(/Latency ▼/)).toBeTruthy()
+    // The flipped direction is marked on the head, in text and in aria-sort.
+    const latencyHead = (): HTMLElement => screen.getByRole('columnheader', { name: /Latency/ })
+    expect(latencyHead().getAttribute('aria-sort')).toBe('descending')
+    expect(latencyHead().textContent).toContain('▼')
     fireEvent.click(screen.getByText(/Latency/))
     await waitFor(() => { expect(order()).toEqual(['fast-model', 'slow-model']) })
-    expect(screen.getByText(/Latency ▲/)).toBeTruthy()
+    expect(latencyHead().getAttribute('aria-sort')).toBe('ascending')
+    expect(latencyHead().textContent).toContain('▲')
   })
 
   it('shows the cache-hit share of each request', async () => {

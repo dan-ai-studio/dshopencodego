@@ -150,6 +150,9 @@ function sortValue(entry: RequestLogEntry, key: SortKey): string | number {
 /** Rows per page; the snapshot's own bound caps the whole table. */
 const PAGE_SIZE = 50
 
+/** Local preparation past this is a stall (normally milliseconds), not waiting on the wire. */
+const HEAVY_PREP_MS = 2_000
+
 /** The phase class a timeline block draws with, shared by the row and the detail view. */
 function kindClass(kind: TimelineBlock['kind']): string | undefined {
   return kind === 'prep' ? css.timelinePrep
@@ -504,11 +507,20 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
    * @param hint - the hover text, when the name alone misleads.
    * @returns the head cell.
    */
-  const head = (key: SortKey, label: string, hint?: string): React.JSX.Element => (
-    <th className={css.thSortable} onClick={() => { toggleSort(key) }} title={hint}>
-      {label}{sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
-    </th>
-  )
+  const head = (key: SortKey, label: string, hint?: string): React.JSX.Element => {
+    const active = sortKey === key
+    return (
+      <th
+        className={`${css.thSortable}${active ? ` ${css.thActive}` : ''}`}
+        onClick={() => { toggleSort(key) }}
+        title={hint}
+        aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      >
+        {label}
+        <span className={css.sortMark}>{active ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ' ⇅'}</span>
+      </th>
+    )
+  }
 
   /**
    * A head cell for a column no click can order. Phases and tools read as
@@ -555,10 +567,14 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
     const liveIndex = live
       ? timeline.blocks.findLastIndex(block => block.kind === 'stream' || block.kind === 'streamAlt')
       : -1
+    // Preparation dwarfing the rest is the local-stall shape: color its bar
+    // warn so it reads without comparing the prep column against the latency.
+    const prepHeavy = timeline.blocks.some(block =>
+      block.kind === 'prep' && (block.to - block.from) / timeline.end >= 0.8)
     const out: React.JSX.Element[] = timeline.blocks.map((block, index) => (
       <div
         key={`${block.kind}-${index}`}
-        className={`${css.timelineSeg} ${kindClass(block.kind)}${index === liveIndex ? ` ${css.timelineLive}` : ''}`}
+        className={`${css.timelineSeg} ${kindClass(block.kind)}${block.kind === 'prep' && prepHeavy ? ` ${css.timelinePrepHeavy}` : ''}${index === liveIndex ? ` ${css.timelineLive}` : ''}`}
         style={{
           left: percent(block.from),
           width: percent(Math.max(0, block.to - block.from)),
@@ -635,9 +651,10 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
   // so the other forty-nine rows are reconciled away instead of re-rendered.
   // The component type itself is memoized too, so the helpers it closes over
   // stay stable across renders and the memo comparison is not defeated.
-  const Row = useMemo(() => React.memo(function Row({ entry }: { entry: RequestLogEntry }): React.JSX.Element {
+  const Row = useMemo(() => React.memo(function Row({ entry, repeatSession }: { entry: RequestLogEntry; repeatSession: boolean }): React.JSX.Element {
     const state = entry.running === true ? 'rowRunning' : !entry.ok ? 'rowFail' : (entry.tps !== undefined && entry.tps < 5 ? 'rowSlow' : 'rowOk')
     const session = sessionLabel(entry.session)
+    const prepHeavy = entry.prepMs !== undefined && entry.prepMs >= HEAVY_PREP_MS
     return (
       <tr
         className={`${css.row} ${css[state]}`}
@@ -647,33 +664,40 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
         <td className={css.mono}>
           <span className={css.modelText} title={entry.model}>{entry.model}</span>
         </td>
-        <td className={session.titled ? undefined : css.mono}>
-          {session.titled && canOpenSession()
-            ? (
-              <button
-                type="button"
-                className={`${css.sessionLink} ${css.sessionText}`}
-                title={`${session.text} · ${entry.session}`}
-                onClick={() => { onSessionResult(openSession(entry.session)) }}
-              >
-                {session.text}
-              </button>
-            )
-            : (
-              <span
-                className={css.sessionText}
-                title={session.titled ? `${session.text} · ${entry.session}` : entry.session}
-              >
-                {session.text}
-              </span>
-            )}
+        <td className={session.titled && !repeatSession ? undefined : css.mono}>
+          {repeatSession
+            ? <span className={css.sessionRepeat} title={`↳ ${session.titled ? session.text : entry.session}`}>↳</span>
+            : session.titled && canOpenSession()
+              ? (
+                <button
+                  type="button"
+                  className={`${css.sessionLink} ${css.sessionText}`}
+                  title={`${session.text} · ${entry.session}`}
+                  onClick={() => { onSessionResult(openSession(entry.session)) }}
+                >
+                  {session.text}
+                </button>
+              )
+              : (
+                <span
+                  className={css.sessionText}
+                  title={session.titled ? `${session.text} · ${entry.session}` : entry.session}
+                >
+                  {session.text}
+                </span>
+              )}
         </td>
         <td>{count(entry.inputTokens)}</td>
         <td>{count(entry.outputTokens)}</td>
         <td>{count(entry.cacheReadTokens)}</td>
         <td>{percent(cacheRate(entry))}</td>
         <td>{rate(entry.tps)}</td>
-        <td>{duration(entry.prepMs)}</td>
+        <td
+          className={prepHeavy ? css.prepHeavy : undefined}
+          title={prepHeavy ? t('requestLogColPrep') : undefined}
+        >
+          {duration(entry.prepMs)}
+        </td>
         <td>{duration(waitMs(entry))}</td>
         <td>{duration(entry.firstTokenMs)}</td>
         <td>{(() => {
@@ -701,10 +725,13 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
   const rows = (): React.JSX.Element[] => {
     const out: React.JSX.Element[] = []
     let lastGroup: string | undefined
+    let lastSession: string | undefined
     for (const entry of pageEntries) {
       const group = groupKey(entry, groupBy)
       if (group !== undefined && group !== lastGroup) {
         lastGroup = group
+        // A new group always starts its session label fresh.
+        lastSession = undefined
         out.push(
           <tr key={`group-${group}-${entry.seq}`} className={css.group}>
             {/* A session group names the conversation when the catalog knows it. */}
@@ -714,9 +741,12 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
         )
       }
       // The detail row below still names the conversation; only the data row
-      // moved into the memoized component.
+      // moved into the memoized component. A repeat of the previous row's
+      // session folds into a continuation mark to cut the visual noise.
       const session = sessionLabel(entry.session)
-      out.push(<Row key={entry.seq} entry={entry} />)
+      const repeatSession = entry.session === lastSession
+      lastSession = entry.session
+      out.push(<Row key={entry.seq} entry={entry} repeatSession={repeatSession} />)
       if (expanded === entry.seq) {
         out.push(
           <tr key={`detail-${entry.seq}`} className={css.detail}>
@@ -727,8 +757,10 @@ export function RequestLogPage({ readLog, enabled, canOpenSession, openSession, 
                   if (timeline === undefined) return null
                   // Legend dots are solid by phase (bars may be translucent),
                   // so the key stays readable at 8px.
+                  const prepHeavy = timeline.blocks.some(block =>
+                    block.kind === 'prep' && (block.to - block.from) / timeline.end >= 0.8)
                   const legendSwatch = (key: string): string | undefined =>
-                    key === 'prep' ? css.timelineSwatchPrep
+                    key === 'prep' ? (prepHeavy ? css.timelineSwatchPrepHeavy : css.timelineSwatchPrep)
                     : key === 'wait' ? css.timelineSwatchWait
                     : key === 'stream' ? css.timelineSwatchStream
                     : css.timelineTickSwatch

@@ -227,6 +227,13 @@
   text-decoration: underline;
 }
 
+/* A repeat of the previous row's session is shown as a quiet continuation
+   mark; the first row of a run keeps the title and the hover carries the id. */
+.sessionRepeat {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: default;
+}
+
 /* A session title can be a whole sentence: without a cap it hogs the row
    and pushes the token columns out of view. Truncate it, and let the hover
    carry the full title plus the id. */
@@ -290,6 +297,35 @@
 
 .thSortable:hover {
   color: var(--dsw-alias-label-primary);
+}
+
+/* Every orderable head keeps a faint marker so the column reads as clickable
+   before the hover; the active one brightens and shows its direction. */
+.sortMark {
+  opacity: 0.4;
+}
+
+.thActive,
+.thActive .sortMark {
+  color: var(--dsw-alias-label-primary);
+  opacity: 1;
+}
+
+/* Numeric columns read as a table of magnitudes when their digits line up.
+   Column order here matches the header: time, model, session, in, out, cache,
+   hit%, tok/s, prep, wait, first, phase, tools, context, latency, status.
+   Group/detail rows carry a single colspan cell (nth-child 1) and are spared. */
+.table :is(th, td):nth-child(4),
+.table :is(th, td):nth-child(5),
+.table :is(th, td):nth-child(6),
+.table :is(th, td):nth-child(7),
+.table :is(th, td):nth-child(8),
+.table :is(th, td):nth-child(9),
+.table :is(th, td):nth-child(10),
+.table :is(th, td):nth-child(11),
+.table :is(th, td):nth-child(14),
+.table :is(th, td):nth-child(15) {
+  text-align: right;
 }
 
 .table td {
@@ -415,6 +451,12 @@
   background: var(--dsw-alias-state-idle-primary);
 }
 
+/* Preparation dominating a request (80%+) is a local stall, not idle time:
+   the same warn hue as a slow row marks it at a glance. */
+.timelinePrepHeavy {
+  background: var(--dsw-alias-state-warn-primary);
+}
+
 /* Waiting for the first token: warm amber — the intuitive "pending" hue. */
 .timelineWait {
   background: var(--dsw-alias-state-warn-primary);
@@ -488,12 +530,18 @@
   min-width: 110px;
   border-radius: 999px;
   background: var(--dsw-alias-bg-layer-1);
+  /* A min-width segment can spill a few pixels; clip it to the rounded bar. */
+  overflow: hidden;
 }
 
 .phaseBar .timelineSeg {
   top: 1px;
   bottom: 1px;
   border-radius: 3px;
+  /* A sub-second stream beside a nine-second preparation is sub-pixel at
+     true scale; keep every non-empty phase visible, the title carries the
+     exact figure. */
+  min-width: 5px;
 }
 
 .phaseBar .timelineRespTick {
@@ -545,6 +593,13 @@
   color: var(--dsw-alias-state-warn-primary);
 }
 
+/* Local preparation past a couple of seconds is the anomaly worth seeing:
+   normal paths are milliseconds, a multi-second prep is a stall before the
+   wire. The title still spells the exact figure and which column it is. */
+.prepHeavy {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
 .timelineLegend {
   display: flex;
   flex-wrap: wrap;
@@ -573,6 +628,10 @@
 
 .timelineSwatchPrep {
   background: var(--dsw-alias-state-idle-primary);
+}
+
+.timelineSwatchPrepHeavy {
+  background: var(--dsw-alias-state-warn-primary);
 }
 
 .timelineSwatchWait {
