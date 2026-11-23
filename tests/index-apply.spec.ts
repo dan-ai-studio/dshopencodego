@@ -96,10 +96,9 @@ describe('apply route gate', () => {
 
 /**
  * The `internal/config` waterfall is the only place a profile edit is checked
- * before it is persisted. Cordis 4.0.6 (DSH 0.2.2-alpha.3) moved the owning
- * fiber from `this` into the first argument, which used to carry the candidate
- * config — so the listener has to recognise both shapes, and the engine range
- * spans both releases.
+ * before it is persisted. Cordis hands the owning fiber as the first argument
+ * and the candidate config behind `next`, so the listener compares that fiber
+ * with the mount's own and passes everything else through untouched.
  */
 describe('internal/config validation listener', () => {
   type Listener = (this: unknown, ...args: unknown[]) => unknown
@@ -115,15 +114,7 @@ describe('internal/config validation listener', () => {
   // without any other field being wrong.
   const candidate = { enabled: true, baseURL: 'http://example.com' }
 
-  it('validates when the fiber arrives as `this` (cordis 4.0.5)', () => {
-    const { ctx } = context({ enabled: true, configured: true })
-    const fiber = {}
-    ctx.fiber = fiber
-    apply(ctx as never, { enabled: true })
-    expect(() => listenerOf(ctx).call(fiber, candidate, () => candidate)).toThrow(/must use https/)
-  })
-
-  it('validates when the fiber arrives as the first argument (cordis 4.0.6)', () => {
+  it('validates the candidate when the owning fiber is the first argument', () => {
     const { ctx } = context({ enabled: true, configured: true })
     const fiber = {}
     ctx.fiber = fiber
@@ -131,21 +122,19 @@ describe('internal/config validation listener', () => {
     expect(() => listenerOf(ctx).call(undefined, fiber, () => candidate)).toThrow(/must use https/)
   })
 
-  it('leaves another fiber\'s config alone in both shapes', () => {
+  it("leaves another fiber's config alone", () => {
     const { ctx } = context({ enabled: true, configured: true })
     ctx.fiber = {}
     apply(ctx as never, { enabled: true })
-    const listener = listenerOf(ctx)
     const other = {}
-    expect(listener.call(other, candidate, () => candidate)).toBe(candidate)
-    expect(listener.call(undefined, other, () => candidate)).toBe(candidate)
+    expect(listenerOf(ctx).call(undefined, other, () => candidate)).toBe(candidate)
   })
 
   it('does not validate before the mount has a fiber', () => {
     const { ctx } = context({ enabled: true, configured: true })
     apply(ctx as never, { enabled: true })
-    // `ctx.fiber` is undefined here, which is also what `this` is under the
-    // 4.0.6 shape — the guard must not read that as "this is my fiber".
+    // `ctx.fiber` is undefined here; the guard must not read a missing mount
+    // fiber as "this candidate is mine".
     expect(listenerOf(ctx).call(undefined, undefined, () => candidate)).toBe(candidate)
   })
 })

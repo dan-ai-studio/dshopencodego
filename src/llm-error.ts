@@ -4,8 +4,8 @@
  * `LlmError`'s constructor narrows `code` to DSH's built-in union, so the
  * codes this package chooses for a usage probe or a document fetch
  * (`USAGE_UNAVAILABLE`, `DOCUMENT_UNAVAILABLE`, `MODEL_METADATA_UNAVAILABLE`)
- * cannot use it. `LlmError.fromFailure` accepts any code, and the declared
- * peer range now starts at `0.2.2-rc.5`, where it is the only path needed.
+ * cannot use it. `LlmError.fromFailure` accepts any code, which is the path
+ * this package takes for every failure it defines itself.
  *
  * @module @dan-ai-studio/dshopencodego/llm-error
  */

@@ -422,16 +422,13 @@ export function apply(ctx: Context, raw?: unknown): void {
 
   // Validate a profile edit before it is persisted, then re-evaluate the gate.
   //
-  // Cordis 4.0.6 (DSH 0.2.2-alpha.3) moved the owning fiber from `this` into the
-  // first argument, which used to carry the candidate config:
-  //   4.0.5        'internal/config'(this: Fiber, config: any, next: () => any)
-  //   4.0.6-alpha  'internal/config'(fiber: Fiber, next: () => any)
-  // `next` is the second argument in both, so read it positionally and treat
-  // whichever of `this`/`first` is our own fiber as the owner. The engine range
-  // spans both releases, so neither shape may be assumed.
-  ctx.on('internal/config', function (this: unknown, first: unknown, second: () => unknown) {
-    const value: unknown = second()
-    if (ctx.fiber !== undefined && (first === ctx.fiber || this === ctx.fiber)) {
+  // Cordis hands the owning fiber as the first argument and the candidate
+  // config behind `next`; only this plugin's own fiber owns the profile, so a
+  // hook running for another plugin's context passes the candidate through
+  // untouched.
+  ctx.on('internal/config', function (fiber: unknown, next: () => unknown) {
+    const value: unknown = next()
+    if (ctx.fiber !== undefined && fiber === ctx.fiber) {
       assertBaseURL(PlainConfig(value as OpencodeGoConfig).baseURL)
     }
     return value

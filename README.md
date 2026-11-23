@@ -225,9 +225,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 
 ## 兼容性
 
-**支持**：DSH `0.2.3` 系列（`0.2.3-alpha.2` 及之后）。插件在 `engines.dsh` 与每个 `@deepseek-ai/dsh-*` 的 `peerDependencies` 上声明 `>=0.2.3-alpha.2 <0.3.0-0`；`0.2.3-alpha.2` 之前的版本（含 `0.2.0`、`0.2.1` 全系）不再支持。
-
-**不再支持 `0.2.0` 之前**：`0.1.7` 系列及更早的版本自 v0.1.36 起被移除支持——那段范围内的运行时接口与本插件当前依赖的接口已经不同，继续声明只会让门禁放行一个未经验证的组合。`0.1.8`、`0.1.9` 从未发布。
+**支持**：DSH `0.2.3` 系列（`0.2.3-alpha.2` 及之后）。插件在 `engines.dsh` 与每个 `@deepseek-ai/dsh-*` 的 `peerDependencies` 上声明 `>=0.2.3-alpha.2 <0.3.0-0`；更早的版本一律不支持。
 
 **机制（不是写死）**：DSH 在挂载插件前会读取插件 `package.json` 的声明，对**运行时的 DSH 版本**做 semver 判定（含预发布，即 `includePrerelease`）。判定分两级，先命中先赢：
 
@@ -240,7 +238,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 - 不满足 → **该插件行被禁用并打印原因**（`Plugin … is incompatible with dsh …`），其他插件不受影响；
 - 需要冒险时可用**精确版本豁免**：`dsh plugin --profile <profile> allow-version <包>@<版本> --dsh-version <精确版本> --accept-risk`（只对该包与该精确版本生效）；`dsh plugin --profile <profile> version-exemptions` 可列出当前 profile 的豁免。
 
-**本插件声明了 `engines.dsh`，所以生效的门禁就是它**；peer 范围是给读者与包管理器的声明，只在 `engines.dsh` 被删除之后才会接管判定。上界写成 `<0.3.0-0` 而不是 `<0.3.0`，正是因为判定含预发布：`<0.3.0` 会把 `0.3.0-rc.1` 这类**预发布版判为兼容**并放行，`<0.3.0-0` 才真正封住整条 `0.3.0` 线。`@deepseek-ai/cordis` 单独声明为 `4.2.0-alpha.1`——DSH `0.2.2-rc.1` 起的运行时就是它；随 `0.2.3-alpha.2` 收窄后，更早的 `4.0.x` 分支不再接受。
+**本插件声明了 `engines.dsh`，所以生效的门禁就是它**；peer 范围是给读者与包管理器的声明，只在 `engines.dsh` 被删除之后才会接管判定。上界写成 `<0.3.0-0` 而不是 `<0.3.0`，正是因为判定含预发布：`<0.3.0` 会把 `0.3.0-rc.1` 这类**预发布版判为兼容**并放行，`<0.3.0-0` 才真正封住整条 `0.3.0` 线。`@deepseek-ai/cordis` 单独声明为 `4.2.0-alpha.1`——这就是 DSH `0.2.3-alpha.2` 带的运行时版本。
 
 **声明范围之外**：`0.2.3-alpha.2` 之前的所有版本、以及整条 `0.3.0` 线（含预发布）都会被拒绝加载。如果 DSH 侧接口兼容，可自行放宽或删除该插件的 **`engines.dsh`** 后重新构建（改 peer 范围是无效的——它不参与判定）；否则请等插件跟进发版。
 
@@ -258,7 +256,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 维护时需要注意：
 
 - **必选与可选之分**：21 个 peer（20 个 `dsh-*` 加框架 `cordis`）中 9 个标了 `optional`（`dsh-api-remotes`、`dsh-client-locale`、`dsh-client-store`、`dsh-client-ui-layout`、`dsh-client-ui-model-selection`、`dsh-client-ui-primitives`、`dsh-client-ui-settings`、`dsh-client-ui-sidebar`、`dsh-client-ui-slots`）；其余 12 个是运行时必需的——`cordis`、`dsh-attachment`、`dsh-brand`、`dsh-client-ui-conversation`、`dsh-client-ui-renderer`、`dsh-credentials`、`dsh-fs`、`dsh-launch-environment`、`dsh-llm`、`dsh-timeout`、`dsh-typert-protocol`、`dsh-typert-registry`。这 21 个当前都**不参与加载判定**（见上：`engines.dsh` 单独决定），它们的价值在于声明依赖并供包管理器与读者使用。其中 `dsh-llm` 是最重的一处耦合（源码 import 二十余处）。
-- **名义范围 ≠ 实测范围**：声明范围是 `>=0.2.3-alpha.2 <0.3.0-0`，当前开发依赖与验证基线是 `0.2.3-alpha.2`（门禁判定 + typecheck + 全量用例 + `npm ci`）。0.1.107 收窄支持范围后，之前验证过的 `0.2.0-rc.1` 至 `0.2.2-rc.3` 不再声明支持；范围内的其他版本也没有逐个验证过。
+- **名义范围 ≠ 实测范围**：声明范围是 `>=0.2.3-alpha.2 <0.3.0-0`，当前开发依赖与验证基线是 `0.2.3-alpha.2`（门禁判定 + typecheck + 全量用例 + `npm ci`）。范围内的其他版本没有逐个验证过。
 - **上界就是跟版线**：`<0.3.0-0` 意味着 DSH 一旦发布 `0.3.0-0`（`0.3.0` 线的第一个预发布版），本插件必须同批发新版，否则所有用户加载失败。`tests/peer-coverage.spec.ts` 会同时断言下界接受已安装版本、上界拒绝 `0.3.0-0`，所以这条线漂移会在本地测试里先失败，而不是等用户加载失败。调整范围后用 `npm test` 验证即可（本地 mock 网关，零网络零 token）——范围以接口声明为准，不要用线上探测来"测"出一个范围。
 - **peer 覆盖已双向守住**：`dsh-typert-registry`、`dsh-client-ui-conversation`、`dsh-client-ui-renderer` 曾被源码 import 却未声明、门禁管不到，现已补进 `peerDependencies`；`tests/peer-coverage.spec.ts` 双向断言——源码用到的必须声明，声明了却没人用的必须删（`dsh-settings` 就这样被移除：设置表单实际由 `dsh-client-ui-settings` 提供）。
 - **豁免是按 profile 记的**：只有显式执行过 `dsh plugin allow-version` 的 profile 才享有豁免；没有记录就代表必须落在声明范围内。用 `dsh plugin version-exemptions` 可查看当前 profile 的豁免。
