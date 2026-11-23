@@ -20,7 +20,7 @@ This plugin serves the `opencode-go` route with its own adapter and adds the usa
 
 ## Install
 
-Prerequisites: a DSH `0.2.2` release (`0.2.2-rc.5` or later; see "Compatibility"); Node `^22.19.0 || >=24.0.0`; `dsh` and `pnpm` on PATH.
+Prerequisites: a DSH `0.2.3` release (`0.2.3-alpha.2` or later; see "Compatibility"); Node `^24.22.3 || >=26.13.1`; `dsh` and `pnpm` on PATH.
 
 > **One owner per route**: a profile can have exactly one adapter for `opencode-go`. Remove the previous plugin (`dsh plugin --profile <p> remove @dan-ai-studio/dsh-opencode-go`) or clear any `opencode-go` provider in `llm-pi-ai` first. Otherwise the plugin logs an explicit ownership diagnostic and does not register the route — everything else keeps working.
 
@@ -79,7 +79,7 @@ Installation **must** go through the in-app UI — do not use the `dsh plugin` c
 
 Why: Electron owns the Desktop profile, and **the CLI cannot boot or mutate it** (Desktop README: *The CLI cannot boot or mutate this profile.*). Plugin management runs through the app's authenticated HTTP APIs and Desktop's bundled pnpm, so no `pnpm` on `PATH` is required. Upgrades and removals happen on the Plugins page too.
 
-The version constraint matches the CLI: the DSH bundled with the Desktop app must stay inside the declared and verified band (`>=0.2.2-rc.5 <0.3.0`, see "Compatibility"). If the plugin ever breaks startup, the Desktop's native recovery dialog can **disable third-party plugins, back up `cordis.patch.yml`, and restart** in one action — it will not lock the app out.
+The version constraint matches the CLI: the DSH bundled with the Desktop app must stay inside the declared and verified band (`>=0.2.3-alpha.2 <0.3.0`, see "Compatibility"). If the plugin ever breaks startup, the Desktop's native recovery dialog can **disable third-party plugins, back up `cordis.patch.yml`, and restart** in one action — it will not lock the app out.
 
 The settings page also carries a **Desktop app** row: **Check download address** reads the official feed at `https://download.deepseek.com/dsh-desk/feeds/win-x64/nightly.yml` and shows the newest installer's version, publication date, size, staged-rollout share, SHA-512, and address — the address can be copied or opened in a browser. This **only reads the feed and shows the address**: the plugin never downloads, verifies, or installs anything. The Host caches the reading for six hours, and an unreachable feed says so instead of pretending nothing was published.
 
@@ -102,7 +102,7 @@ Configuration lives in the profile's `cordis.patch.yml`:
                                                # the timer restarts on every answer, so a connection in
                                                # frequent use is never dropped; a long pause in a
                                                # conversation costs one handshake (about 200ms)
-    imageBudgetPreset: default                # image budget preset: default / dsh / pi-ai (default: the plugin names none, DSH decides)
+    imageBudgetPreset                          # removed: the plugin always uses DSH's own image budgets
     modelVisibility:                          # per-model switches; unlisted models follow the default rule (see "The model list in the settings page")
       glm-5: true
     modelLimits:                              # per-model capacity overrides
@@ -155,13 +155,13 @@ The API key comes from the Harness credential store (reference name `OPENCODE_GO
 - The log is a ring buffer (oldest dropped first) that dies with the process; snapshots are read on open and on manual refresh, plus once a second while any request is running, so a page nobody opens costs no traffic.
 - The credential never enters a record: the recorder takes no headers argument at all, only the allowlisted session id and user agent. A request gets a "Requesting" placeholder row the moment it starts (the status column counts its seconds) and the row is completed in place when it ends. Failed requests are recorded with their error code — including failures before the first byte (unresolvable models, missing credentials), whose rows carry the reason but no usage. A stream the consumer abandoned early is recorded as `ABORTED` instead of vanishing silently.
 
-**Images**: an over-budget image is refused explicitly rather than silently downscaled or dropped. The budgets ride one preset `imageBudgetPreset`, not three numbers. `default` (the default) names no budget at all and lets DSH's own defaults decide — the numbers below are for reference only; `dsh` names those same values explicitly, and `pi-ai` uses the per-model profile in pi-ai's catalog:
+**Images**: an over-budget image is refused explicitly rather than silently downscaled or dropped. The budgets are **not configurable**: the plugin uses DSH's own route defaults, because a preset menu with three identical values only misleads.
 
-| Preset | Per-image pixels | Per-image bytes (pre-base64) | Whole-request bytes (post-base64) |
+| | Per-image pixels | Hard byte limit (pre-base64) | Whole-request bytes (post-base64) |
 | --- | --- | --- | --- |
-| `default` (default, plugin names none) | 2048×2048 | 1MB | 20 MiB |
-| `dsh` | 2048×2048 | 1MB | 20 MiB |
-| `pi-ai` | 2000×2000 | 4.5MB | 20 MiB |
+| fixed (DSH defaults) | 2048×2048 | 1 MiB | 20 MiB |
+
+That hard limit is also passed as the preferred target (`maxImageBytes` and `imageTargetBytes` are the same value). DSH 0.2.3 separates the two: exceeding only the target triggers quality reduction, while exceeding the hard limit shrinks dimensions further.
 
 A model that does not accept image input is rejected before the request is sent (`UNSUPPORTED_CONTENT`), so nothing is uploaded only to be refused by the gateway.
 
@@ -226,7 +226,7 @@ The "OpenCode Go" section shows the live gateway catalog (the count follows the 
 
 ## Compatibility
 
-**Supported**: DSH `0.2.2` releases (`0.2.2-rc.5` and later). `engines.dsh` and every `@deepseek-ai/dsh-*` peer dependency declare `>=0.2.2-rc.5 <0.3.0-0`; everything before `0.2.2-rc.5` (the whole `0.2.0` and `0.2.1` lines included) is unsupported.
+**Supported**: DSH `0.2.3` releases (`0.2.3-alpha.2` and later). `engines.dsh` and every `@deepseek-ai/dsh-*` peer dependency declare `>=0.2.3-alpha.2 <0.3.0-0`; everything before `0.2.3-alpha.2` (the whole `0.2.0` and `0.2.1` lines included) is unsupported.
 
 **Anything before `0.2.0` is no longer supported**: support for the `0.1.7` line and older was removed in v0.1.36 — the runtime seam across that range differs from the one this plugin is built against, and continuing to declare it would only let the gate admit an untested combination. (`0.1.8` and `0.1.9` were never published.)
 
@@ -241,25 +241,25 @@ The verdict:
 - not satisfied → **that plugin row is disabled with a printed reason** (`Plugin … is incompatible with dsh …`), leaving other plugins untouched;
 - to take the risk anyway, grant an **exact-version exemption**: `dsh plugin --profile <profile> allow-version <pkg>@<version> --dsh-version <exact> --accept-risk` (applies only to that package and that exact runtime version); `dsh plugin --profile <profile> version-exemptions` lists what a profile holds.
 
-**This plugin declares `engines.dsh`, so that is the range the gate enforces**; the peer ranges are a declaration for readers and package managers, and only take over the verdict if `engines.dsh` is removed. The upper bound is written `<0.3.0-0` rather than `<0.3.0` precisely because the check includes prereleases: `<0.3.0` would judge `0.3.0-rc.1` and its siblings **compatible** and let them load, while `<0.3.0-0` closes the whole `0.3.0` line. `@deepseek-ai/cordis` is declared separately as `4.1.0` — the runtime DSH has used since `0.2.2-rc.1`; earlier `4.0.x` branches are no longer accepted after the `0.2.2-rc.5` narrowing.
+**This plugin declares `engines.dsh`, so that is the range the gate enforces**; the peer ranges are a declaration for readers and package managers, and only take over the verdict if `engines.dsh` is removed. The upper bound is written `<0.3.0-0` rather than `<0.3.0` precisely because the check includes prereleases: `<0.3.0` would judge `0.3.0-rc.1` and its siblings **compatible** and let them load, while `<0.3.0-0` closes the whole `0.3.0` line. `@deepseek-ai/cordis` is declared separately as `4.2.0-alpha.1` — the runtime DSH has used since `0.2.2-rc.1`; earlier `4.0.x` branches are no longer accepted after the `0.2.3-alpha.2` narrowing.
 
-**Outside the declared range**: everything before `0.2.2-rc.5`, and the whole `0.3.0` line (prereleases included), are refused. If the seam is compatible, widen or drop this plugin's **`engines.dsh`** in your own build — widening the peer range does nothing, since it takes no part in the verdict — or wait for a plugin release.
+**Outside the declared range**: everything before `0.2.3-alpha.2`, and the whole `0.3.0` line (prereleases included), are refused. If the seam is compatible, widen or drop this plugin's **`engines.dsh`** in your own build — widening the peer range does nothing, since it takes no part in the verdict — or wait for a plugin release.
 
 ### Version-binding notes
 
 | Binding layer | Declared | Enforced by |
 | --- | --- | --- |
-| `engines.dsh` | `>=0.2.2-rc.5 <0.3.0-0` | **DSH's gate at plugin load time; declaring it skips the peer verdict entirely** |
-| `peerDependencies` (20 `@deepseek-ai/dsh-*` packages) | all `>=0.2.2-rc.5 <0.3.0-0` | takes over only when `engines.dsh` is absent; this plugin declares it, so the peers take no part today |
-| `@deepseek-ai/cordis` | `4.1.0` | the same peer channel |
-| `engines.node` | `^22.19.0 \|\| >=24.0.0` | the package manager |
-| bundled `@earendil-works/pi-ai` | `1.5.2` (within 1.5.x), **compiled into `lib/`** (devDependency) | an independent coupling: a change in pi-ai's request construction changes this plugin's wire behaviour, and its opencode-go builtin catalog is this plugin's fallback data. Bundling leaves the plugin with **no runtime dependencies** for an installer to resolve |
-| bundled `@deepseek-ai/schemastery` | `~3.19.0`, **compiled into `lib/`** (devDependency) | a build-time dependency |
+| `engines.dsh` | `>=0.2.3-alpha.2 <0.3.0-0` | **DSH's gate at plugin load time; declaring it skips the peer verdict entirely** |
+| `peerDependencies` (20 `@deepseek-ai/dsh-*` packages) | all `>=0.2.3-alpha.2 <0.3.0-0` | takes over only when `engines.dsh` is absent; this plugin declares it, so the peers take no part today |
+| `@deepseek-ai/cordis` | `4.2.0-alpha.1` | the same peer channel |
+| `engines.node` | `^24.22.3 \|\| >=26.13.1` | the package manager |
+| bundled `@earendil-works/pi-ai` | `1.6.0` (within 1.6.x), **compiled into `lib/`** (devDependency) | an independent coupling: a change in pi-ai's request construction changes this plugin's wire behaviour, and its opencode-go builtin catalog is this plugin's fallback data. Bundling leaves the plugin with **no runtime dependencies** for an installer to resolve |
+| bundled `@deepseek-ai/schemastery` | `~3.20.0-alpha.1`, **compiled into `lib/`** (devDependency) | a build-time dependency |
 
 Things to keep in mind when maintaining this:
 
 - **Required versus optional peers**: nine of the twenty-one are marked `optional` (`dsh-api-remotes`, `dsh-client-locale`, `dsh-client-store`, `dsh-client-ui-layout`, `dsh-client-ui-model-selection`, `dsh-client-ui-primitives`, `dsh-client-ui-settings`, `dsh-client-ui-sidebar`, `dsh-client-ui-slots`). The other twelve are required at runtime: `cordis`, `dsh-attachment`, `dsh-brand`, `dsh-client-ui-conversation`, `dsh-client-ui-renderer`, `dsh-credentials`, `dsh-fs`, `dsh-launch-environment`, `dsh-llm`, `dsh-timeout`, `dsh-typert-protocol`, and `dsh-typert-registry`. None of the twenty-one takes part in the load verdict today (see above: `engines.dsh` decides alone); their value is declaring the dependency for the package manager and for readers. `dsh-llm` is the heaviest coupling — more than twenty imports across the source.
-- **Declared range ≠ verified range**: the declaration is `>=0.2.2-rc.5 <0.3.0-0`, and the current dev-dependency and verification baseline is `0.2.2-rc.5` (gate verdict + typecheck + full suite + `npm ci`). After 0.1.107 narrowed the support range, the previously verified `0.2.0-rc.1` through `0.2.2-rc.3` are no longer declared. Other versions inside the range were not verified one by one.
+- **Declared range ≠ verified range**: the declaration is `>=0.2.3-alpha.2 <0.3.0-0`, and the current dev-dependency and verification baseline is `0.2.3-alpha.2` (gate verdict + typecheck + full suite + `npm ci`). After 0.1.107 narrowed the support range, the previously verified `0.2.0-rc.1` through `0.2.2-rc.3` are no longer declared. Other versions inside the range were not verified one by one.
 - **The upper bound is a tracking line**: `<0.3.0-0` means that the moment DSH ships `0.3.0-0` (the first prerelease on the `0.3.0` line), this plugin must ship a new release in the same window or every user loses the plugin. `tests/peer-coverage.spec.ts` asserts both ends — the lower bound accepts the installed version, the upper bound rejects `0.3.0-0` — so a drift here fails locally instead of failing on a user's machine. After changing a range, `npm test` is the verification (local mock gateway, no network, no tokens) — ranges follow what the interfaces declare, and are never "measured" with live probes.
 - **Peer coverage is now guarded both ways**: `dsh-typert-registry`, `dsh-client-ui-conversation`, and `dsh-client-ui-renderer` were imported by the source but absent from `peerDependencies`, invisible to the gate; they are declared now, and `tests/peer-coverage.spec.ts` asserts both directions — anything the source imports must be declared, and anything declared but unreached must be removed (`dsh-settings` went that way: the settings form is actually provided by `dsh-client-ui-settings`).
 - **Exemptions are per profile**: only a profile that ran `dsh plugin allow-version` has one, and no record means the plugin must stay inside the declared range. `dsh plugin version-exemptions` lists a profile's exemptions.

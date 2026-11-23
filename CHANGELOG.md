@@ -2,6 +2,25 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [Unreleased]
+
+兼容性升级到 DSH 0.2.3 与 pi 1.6，并去掉图片预算预设。
+
+### 🔧 适配
+
+- **DSH 0.2.3-alpha.2**：`engines.dsh` 与全部 20 个 `@deepseek-ai/dsh-*` peer 收窄为 `>=0.2.3-alpha.2 <0.3.0-0`，开发依赖同步。旧版不再声明支持——`ImageRequestTarget` 在 0.2.3 改了形状，旧运行时无法被满足。
+- **`@deepseek-ai/cordis` 4.1.0 → 4.2.0-alpha.1**，`cordis-plugin-loader` / `cordis-plugin-include` → `1.2.0-alpha.1`，`schemastery` → `3.20.0-alpha.1`（与 cordis 4.2 的 peer 对齐）。
+- **`@earendil-works/pi-ai` 1.5.2 → 1.6.0**：插件的 pi-ai 用法全是 type-only（`Model` / `Api` / `Usage` / `AssistantMessageEvent`），1.6 的破坏性变更只涉及 coding-agent 扩展的 `render()`，因此升级后 typecheck 与全量用例直接通过。
+- **`engines.node` 对齐 DSH**：`^24.22.3 || >=26.13.1`。
+
+### 🐛 修复
+
+- **图片请求在 DSH 0.2.3 上会失败**。`ImageRequestTarget` 的 `maxBytes` 在 0.2.3 拆成硬上限 `maxImageBytes` 与软目标 `imageTargetBytes`，宿主会逐个校验；插件仍传旧字段，任何带图请求都会抛 `AttachmentError`。现在两个字段都传，硬上限即软目标。这个 break 编译期不可见——插件原先依赖的是 `0.2.2-rc.5` 的旧类型，所以 typecheck 全绿但运行时会崩。
+
+### 🧹 移除
+
+- **图片预算预设设置项整体删除**。此前 `default` / `dsh` 两个选项数值完全相同（2048×2048 / 1 MiB / 20 MiB），第三个 `pi-ai` 也不必要；`imageBudgetPreset` 配置字段、下拉框、`setImageBudgetPreset` 控制器方法与 5 个 locale 键一并移除。插件现在直接使用 DSH 自己的路由默认值（`IMAGE_BUDGET`），设置页少一项，代码少一条分支。
+
 ## [0.2.4] - 2026-11-20
 
 请求日志页面美化，按截图逐项打磨：

@@ -29,7 +29,6 @@ import {
   MAX_REQUEST_LOG_MAX_ENTRIES,
   MIN_REQUEST_LOG_MAX_ENTRIES,
 } from './request-log/limits.ts'
-import type { ImageBudgetPreset } from './image-budget.ts'
 
 export {
   DEFAULT_KEEP_ALIVE_TIMEOUT_MS,
@@ -97,12 +96,6 @@ export interface OpencodeGoConfig {
    * requests.
    */
   keepAliveTimeoutMs: number
-  /**
-   * Which image-budget preset shapes request images. `dsh` is the default:
-   * an unwritten field reads exactly the host route's own budgets, the same
-   * numbers a profile that never configured images would get from DSH itself.
-   */
-  imageBudgetPreset: ImageBudgetPreset
   /** Per-model capacity overrides; an absent field inherits the catalog value. */
   modelLimits: OpencodeGoModelLimits
   /**
@@ -154,7 +147,6 @@ const fields = {
   // once and say so only in a warning on stderr. The bound here is what
   // keeps that unreachable.
   keepAliveTimeoutMs: z.number().step(1).min(1).max(MAX_KEEP_ALIVE_TIMEOUT_MS).default(DEFAULT_KEEP_ALIVE_TIMEOUT_MS),
-  imageBudgetPreset: z.union([z.const('default'), z.const('dsh'), z.const('pi-ai')]).default('default'),
   modelLimits: z.dict(z.union([z.const(null), z.object({
     contextWindow: z.union([z.const(null), z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER)]),
     maxTokens: z.union([z.const(null), z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER)]),

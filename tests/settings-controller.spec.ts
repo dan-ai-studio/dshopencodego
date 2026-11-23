@@ -213,17 +213,13 @@ describe('settings controller', () => {
     expect(test.writes).toEqual([{ field: 'keepAliveTimeoutMs', value: 30_000 }])
   })
 
-  it('defaults the image budget to "take the default" and switches it on choice', async () => {
+  it('exposes no image-budget setting at all', async () => {
     const test = harness()
     const controller = new SectionController(test.services)
     await settle()
-    // An old profile never wrote this field, so the page must read as the
-    // default preset — the same budgets an unwritten field means everywhere else.
-    expect(controller.snapshot().settings).toMatchObject({ imageBudgetPreset: 'default' })
-    await controller.setImageBudgetPreset('bogus')
-    expect(test.writes).toHaveLength(0)
-    await controller.setImageBudgetPreset('pi-ai')
-    expect(test.writes).toEqual([{ field: 'imageBudgetPreset', value: 'pi-ai' }])
+    // The plugin names DSH's own budgets on the wire instead of offering a
+    // preset, so the page has no such switch and nothing to write.
+    expect(Object.hasOwn(controller.snapshot().settings ?? {}, 'imageBudgetPreset')).toBe(false)
   })
 
   it('leaves the request log off with a bounded retention unless told otherwise', async () => {

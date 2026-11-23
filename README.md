@@ -20,7 +20,7 @@
 
 ## 安装
 
-前提：DSH `0.2.2` 系列（`0.2.2-rc.5` 及之后，见「兼容性」）；Node `^22.19.0 || >=24.0.0`；`dsh` 与 `pnpm` 可用。
+前提：DSH `0.2.3` 系列（`0.2.3-alpha.2` 及之后，见「兼容性」）；Node `^24.22.3 || >=26.13.1`；`dsh` 与 `pnpm` 可用。
 
 > **路由互斥**：同一个 profile 里 `opencode-go` 只能由一个适配器提供。装本插件前请先卸载旧插件（`dsh plugin --profile <p> remove @dan-ai-studio/dsh-opencode-go`），或清空 `llm-pi-ai` 配置里名为 `opencode-go` 的 provider。否则插件会记录一条明确的占用诊断，路由不会注册（其余功能照常）。
 
@@ -79,7 +79,7 @@ DSH 桌面端是 Electron 壳 + 完整的 dsh Web 应用，本插件对它同样
 
 原因：桌面端 profile 由 Electron 自己拥有，**CLI 不能启动也不能修改它**（桌面端 README 原文：*The CLI cannot boot or mutate this profile.*）。插件管理由应用内插件页经认证 HTTP API 完成，使用应用自带的 pnpm，不依赖 PATH 里的 `pnpm`；升级与卸载同样在 Plugins 页操作。
 
-版本约束与 CLI 一致：桌面端内置的 DSH 要落在已声明并验证过的版本带内（`>=0.2.2-rc.5 <0.3.0`，见「兼容性」）。若插件导致启动失败，桌面端的原生恢复对话框可以一键**禁用第三方插件、备份 `cordis.patch.yml` 后重启**，不会把应用锁死。
+版本约束与 CLI 一致：桌面端内置的 DSH 要落在已声明并验证过的版本带内（`>=0.2.3-alpha.2 <0.3.0`，见「兼容性」）。若插件导致启动失败，桌面端的原生恢复对话框可以一键**禁用第三方插件、备份 `cordis.patch.yml` 后重启**，不会把应用锁死。
 
 设置页里另有一栏**「桌面版」**：点「检查下载地址」会读取官方发布源 `https://download.deepseek.com/dsh-desk/feeds/win-x64/nightly.yml`，显示当前最新安装包的版本、发布时间、大小、灰度比例、SHA-512 与下载地址，地址可一键复制或用浏览器打开。这里**只读发布源、只显示地址**——插件不会下载、校验或安装任何东西。结果在 Host 侧缓存 6 小时，发布源没响应时会明确说「下载站没有响应」，而不是假装「没有新版本」。
 
@@ -101,7 +101,7 @@ DSH 桌面端是 Electron 壳 + 完整的 dsh Web 应用，本插件对它同样
     keepAliveTimeoutMs: 600000                # 连接空闲保留：两次请求之间连接留多久（毫秒，1 ~ 1800000）
                                                # 每次收到回答后重新计时，所以常用时连接不会被断开；
                                                # 对话中每次停顿较久都要重新握手一次（约 200ms）
-    imageBudgetPreset: default                # 图片预算三选一：default / dsh / pi-ai（默认 default：插件不指定，用 DSH 的）
+    imageBudgetPreset                          # 已移除：插件固定使用 DSH 自己的图片预算
     modelVisibility:                          # 逐模型开关；未写到的模型走默认规则（见「设置页里的模型列表」）
       glm-5: true
     modelLimits:                              # 逐模型容量覆盖
@@ -154,13 +154,13 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 - 记录的是环形缓冲（超限丢最旧），进程重启即清；页面平时只在打开与手动刷新时读快照，有请求中时每秒自动刷新一次直到结束，没人打开的页面零流量。
 - 凭据永远不进记录：记录器根本不接收请求头参数，只收白名单里的会话 id 与 UA；请求一开始就有一条"请求中"占位行（状态列读秒），结束时原位补全为完整记录。失败的请求同样记一条（含错误码）——包括目录解析失败（未知模型）与凭证缺失这类"第一个字节之前"的失败，行里没有用量只有原因；消费者提前终止的流记一条 `ABORTED`，不再无声丢失。
 
-**图片**：三个字段各管一层，超限的图片会被明确拒绝，而不是静默降质或丢弃。预算由 `imageBudgetPreset` 一处选择：`default`（默认）表示插件不指定任何数字、完全用 DSH 自己的默认值（下表数字仅供参考）；`dsh` 表示把同样的值显式传给宿主，`pi-ai` 用 pi-ai 目录的每模型配置。
+**图片**：三个字段各管一层，超限的图片会被明确拒绝，而不是静默降质或丢弃。预算**不可配置**：插件直接使用 DSH 自己的路由默认值，一份预设菜单里放着三个数值相同的选项只会误导人。
 
-| 预设 | 单张像素 | 单张字节（base64 前） | 整单字节（base64 后） |
+| | 单张像素 | 硬字节上限（base64 前） | 整单字节（base64 后） |
 | --- | --- | --- | --- |
-| `default`（默认，插件不指定） | 2048×2048 | 1MB | 20 MiB |
-| `dsh` | 2048×2048 | 1MB | 20 MiB |
-| `pi-ai` | 2000×2000 | 4.5MB | 20 MiB |
+| 固定值（DSH 默认） | 2048×2048 | 1 MiB | 20 MiB |
+
+这个硬上限同时作为软目标传给 `ImageRequestTarget`（`maxImageBytes` 与 `imageTargetBytes` 相同）；DSH 0.2.3 起这两者分开，超过软目标只会触发降质，超过硬上限才会进一步缩尺寸。
 
 模型自身不支持图片输入时，适配器会在发请求前就拒绝（`UNSUPPORTED_CONTENT`），不会把图发出去再等网关报错。
 
@@ -225,7 +225,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 
 ## 兼容性
 
-**支持**：DSH `0.2.2` 系列（`0.2.2-rc.5` 及之后）。插件在 `engines.dsh` 与每个 `@deepseek-ai/dsh-*` 的 `peerDependencies` 上声明 `>=0.2.2-rc.5 <0.3.0-0`；`0.2.2-rc.5` 之前的版本（含 `0.2.0`、`0.2.1` 全系）不再支持。
+**支持**：DSH `0.2.3` 系列（`0.2.3-alpha.2` 及之后）。插件在 `engines.dsh` 与每个 `@deepseek-ai/dsh-*` 的 `peerDependencies` 上声明 `>=0.2.3-alpha.2 <0.3.0-0`；`0.2.3-alpha.2` 之前的版本（含 `0.2.0`、`0.2.1` 全系）不再支持。
 
 **不再支持 `0.2.0` 之前**：`0.1.7` 系列及更早的版本自 v0.1.36 起被移除支持——那段范围内的运行时接口与本插件当前依赖的接口已经不同，继续声明只会让门禁放行一个未经验证的组合。`0.1.8`、`0.1.9` 从未发布。
 
@@ -240,25 +240,25 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 - 不满足 → **该插件行被禁用并打印原因**（`Plugin … is incompatible with dsh …`），其他插件不受影响；
 - 需要冒险时可用**精确版本豁免**：`dsh plugin --profile <profile> allow-version <包>@<版本> --dsh-version <精确版本> --accept-risk`（只对该包与该精确版本生效）；`dsh plugin --profile <profile> version-exemptions` 可列出当前 profile 的豁免。
 
-**本插件声明了 `engines.dsh`，所以生效的门禁就是它**；peer 范围是给读者与包管理器的声明，只在 `engines.dsh` 被删除之后才会接管判定。上界写成 `<0.3.0-0` 而不是 `<0.3.0`，正是因为判定含预发布：`<0.3.0` 会把 `0.3.0-rc.1` 这类**预发布版判为兼容**并放行，`<0.3.0-0` 才真正封住整条 `0.3.0` 线。`@deepseek-ai/cordis` 单独声明为 `4.1.0`——DSH `0.2.2-rc.1` 起的运行时就是它；随 `0.2.2-rc.5` 收窄后，更早的 `4.0.x` 分支不再接受。
+**本插件声明了 `engines.dsh`，所以生效的门禁就是它**；peer 范围是给读者与包管理器的声明，只在 `engines.dsh` 被删除之后才会接管判定。上界写成 `<0.3.0-0` 而不是 `<0.3.0`，正是因为判定含预发布：`<0.3.0` 会把 `0.3.0-rc.1` 这类**预发布版判为兼容**并放行，`<0.3.0-0` 才真正封住整条 `0.3.0` 线。`@deepseek-ai/cordis` 单独声明为 `4.2.0-alpha.1`——DSH `0.2.2-rc.1` 起的运行时就是它；随 `0.2.3-alpha.2` 收窄后，更早的 `4.0.x` 分支不再接受。
 
-**声明范围之外**：`0.2.2-rc.5` 之前的所有版本、以及整条 `0.3.0` 线（含预发布）都会被拒绝加载。如果 DSH 侧接口兼容，可自行放宽或删除该插件的 **`engines.dsh`** 后重新构建（改 peer 范围是无效的——它不参与判定）；否则请等插件跟进发版。
+**声明范围之外**：`0.2.3-alpha.2` 之前的所有版本、以及整条 `0.3.0` 线（含预发布）都会被拒绝加载。如果 DSH 侧接口兼容，可自行放宽或删除该插件的 **`engines.dsh`** 后重新构建（改 peer 范围是无效的——它不参与判定）；否则请等插件跟进发版。
 
 ### 版本绑定的注意事项
 
 | 绑定层 | 声明 | 谁在把关 |
 | --- | --- | --- |
-| `engines.dsh` | `>=0.2.2-rc.5 <0.3.0-0` | **DSH 加载时的真门禁；声明了它，peer 判定被整体跳过** |
-| `peerDependencies`（20 个 `@deepseek-ai/dsh-*`） | 均为 `>=0.2.2-rc.5 <0.3.0-0` | 仅当 `engines.dsh` 缺席时才接管；本插件声明了它，故当前不参与判定 |
-| `@deepseek-ai/cordis` | `4.1.0` | 同上（peer 通道） |
-| `engines.node` | `^22.19.0 \|\| >=24.0.0` | 包管理器 |
-| 已打包依赖 `@earendil-works/pi-ai` | `1.5.2`（1.5.x 内），**打进产物**（devDependency） | 独立耦合：pi-ai 改请求构造即影响本插件的线上行为；其 opencode-go 内置目录同时是本插件的打底数据。打包后本插件**没有任何运行时依赖**，安装者不必再解析它 |
-| 已打包依赖 `@deepseek-ai/schemastery` | `~3.19.0`，**打进产物**（devDependency） | 构建期依赖 |
+| `engines.dsh` | `>=0.2.3-alpha.2 <0.3.0-0` | **DSH 加载时的真门禁；声明了它，peer 判定被整体跳过** |
+| `peerDependencies`（20 个 `@deepseek-ai/dsh-*`） | 均为 `>=0.2.3-alpha.2 <0.3.0-0` | 仅当 `engines.dsh` 缺席时才接管；本插件声明了它，故当前不参与判定 |
+| `@deepseek-ai/cordis` | `4.2.0-alpha.1` | 同上（peer 通道） |
+| `engines.node` | `^24.22.3 \|\| >=26.13.1` | 包管理器 |
+| 已打包依赖 `@earendil-works/pi-ai` | `1.6.0`（1.6.x 内），**打进产物**（devDependency） | 独立耦合：pi-ai 改请求构造即影响本插件的线上行为；其 opencode-go 内置目录同时是本插件的打底数据。打包后本插件**没有任何运行时依赖**，安装者不必再解析它 |
+| 已打包依赖 `@deepseek-ai/schemastery` | `~3.20.0-alpha.1`，**打进产物**（devDependency） | 构建期依赖 |
 
 维护时需要注意：
 
 - **必选与可选之分**：21 个 peer（20 个 `dsh-*` 加框架 `cordis`）中 9 个标了 `optional`（`dsh-api-remotes`、`dsh-client-locale`、`dsh-client-store`、`dsh-client-ui-layout`、`dsh-client-ui-model-selection`、`dsh-client-ui-primitives`、`dsh-client-ui-settings`、`dsh-client-ui-sidebar`、`dsh-client-ui-slots`）；其余 12 个是运行时必需的——`cordis`、`dsh-attachment`、`dsh-brand`、`dsh-client-ui-conversation`、`dsh-client-ui-renderer`、`dsh-credentials`、`dsh-fs`、`dsh-launch-environment`、`dsh-llm`、`dsh-timeout`、`dsh-typert-protocol`、`dsh-typert-registry`。这 21 个当前都**不参与加载判定**（见上：`engines.dsh` 单独决定），它们的价值在于声明依赖并供包管理器与读者使用。其中 `dsh-llm` 是最重的一处耦合（源码 import 二十余处）。
-- **名义范围 ≠ 实测范围**：声明范围是 `>=0.2.2-rc.5 <0.3.0-0`，当前开发依赖与验证基线是 `0.2.2-rc.5`（门禁判定 + typecheck + 全量用例 + `npm ci`）。0.1.107 收窄支持范围后，之前验证过的 `0.2.0-rc.1` 至 `0.2.2-rc.3` 不再声明支持；范围内的其他版本也没有逐个验证过。
+- **名义范围 ≠ 实测范围**：声明范围是 `>=0.2.3-alpha.2 <0.3.0-0`，当前开发依赖与验证基线是 `0.2.3-alpha.2`（门禁判定 + typecheck + 全量用例 + `npm ci`）。0.1.107 收窄支持范围后，之前验证过的 `0.2.0-rc.1` 至 `0.2.2-rc.3` 不再声明支持；范围内的其他版本也没有逐个验证过。
 - **上界就是跟版线**：`<0.3.0-0` 意味着 DSH 一旦发布 `0.3.0-0`（`0.3.0` 线的第一个预发布版），本插件必须同批发新版，否则所有用户加载失败。`tests/peer-coverage.spec.ts` 会同时断言下界接受已安装版本、上界拒绝 `0.3.0-0`，所以这条线漂移会在本地测试里先失败，而不是等用户加载失败。调整范围后用 `npm test` 验证即可（本地 mock 网关，零网络零 token）——范围以接口声明为准，不要用线上探测来"测"出一个范围。
 - **peer 覆盖已双向守住**：`dsh-typert-registry`、`dsh-client-ui-conversation`、`dsh-client-ui-renderer` 曾被源码 import 却未声明、门禁管不到，现已补进 `peerDependencies`；`tests/peer-coverage.spec.ts` 双向断言——源码用到的必须声明，声明了却没人用的必须删（`dsh-settings` 就这样被移除：设置表单实际由 `dsh-client-ui-settings` 提供）。
 - **豁免是按 profile 记的**：只有显式执行过 `dsh plugin allow-version` 的 profile 才享有豁免；没有记录就代表必须落在声明范围内。用 `dsh plugin version-exemptions` 可查看当前 profile 的豁免。
@@ -276,7 +276,7 @@ API Key 通过 Harness 凭证库提供（引用名 `OPENCODE_GO_API_KEY`），�
 | 用量按钮显示「不可用」 | 端点或凭证变化导致旧读数作废；配置正确后点「重试」。数值不会以 0 冒充。 |
 | npm 发布报 `ENEEDAUTH` | OIDC 没匹配上：核对包设置里 Trusted Publisher 的 **workflow 文件名**（必须恰为 `publish-npm.yml`、大小写敏感）与组织/仓库字段；确认跑在 GitHub 托管 runner 上且工作流带 `id-token: write`。`package.json` 的 `repository.url` 与仓库不符也会被拒。 |
 | 日志成片出现 `Accessing non-existent property 'Allow' of module exports inside circular dependency` | 成因是 `pi-ai` 对 `partial-json` 的**具名导入**：Node 解析 CJS 的具名导出时会枚举其 exports，而该包内部 `index.js`/`options.js` 互相 require，读到尚未初始化的 `Allow` 就打印一次——**插件重载会让它成片出现**（重启后往往消失）。**自 v0.1.38 起从机制上消除**：`pi-ai` 与 `partial-json` 已**打包进产物**，Node 的 ESM→CJS 互操作不再参与，因此不存在"枚举读到未初始化属性"这一步（不是过滤，是让该路径不存在）。 |
-| 超长工具调用（多 MB 参数）期间整个 DSH 进程卡顿 | 曾在 pi-ai `0.87.1` 上观测到逐 delta 重解析的固有开销（issue #9265 / PR #9461）。本插件不移植 DSH 的消费者侧补丁（ADR-0005）；当前自带依赖已是 `1.5.0`，若仍复现则属上游行为，随其发版解决。 |
+| 超长工具调用（多 MB 参数）期间整个 DSH 进程卡顿 | 曾在 pi-ai `0.87.1` 上观测到逐 delta 重解析的固有开销（issue #9265 / PR #9461）。本插件不移植 DSH 的消费者侧补丁（ADR-0005）；当前自带依赖已是 `1.6.0`，若仍复现则属上游行为，随其发版解决。 |
 
 ## 开发
 

@@ -112,8 +112,8 @@ export interface PiImageRequestContext {
   readonly resolveImageAccess: ImageAttachmentAccessResolver
   /** Request-level bound on the base64 payload of retained images. */
   readonly maxRequestImageBytes?: number
-  /** Route pixel and encoded-byte budgets. */
-  readonly requestImagePolicy?: { readonly maxPixels: number; readonly maxBytes: number }
+  /** Route pixel budget and hard encoded-byte limit. */
+  readonly requestImagePolicy?: { readonly maxPixels: number; readonly maxImageBytes: number }
 }
 
 /** Every image occurrence this request will actually send. */
@@ -127,7 +127,7 @@ function collectImageRefs(blocks: readonly ContentBlock[], refs: Map<AttachmentI
 async function prepareRequestImages(
   messages: readonly RequestMessage[],
   attachments: AttachmentStore,
-  policy: { maxPixels: number; maxBytes: number },
+  policy: { maxPixels: number; maxImageBytes: number },
   signal?: AbortSignal,
 ): Promise<Map<AttachmentId, RequestImageAttachment>> {
   const refs = new Map<AttachmentId, ImageAttachmentRef>()
@@ -135,7 +135,14 @@ async function prepareRequestImages(
   const ordered = [...refs.values()]
   const prepared = await Promise.all(ordered.map(ref => attachments.readImageRequest(
     ref,
-    { ...requestImageDimensions(ref.width, ref.height, policy.maxPixels), maxBytes: policy.maxBytes },
+    {
+      ...requestImageDimensions(ref.width, ref.height, policy.maxPixels),
+      // The hard limit is also the preferred target: DSH splits the two so a
+      // route can shrink toward a goal without ever exceeding the ceiling, and
+      // this provider has no reason to ask for less than all of it.
+      maxImageBytes: policy.maxImageBytes,
+      imageTargetBytes: policy.maxImageBytes,
+    },
     signal,
   )))
   const versions = new Map<AttachmentId, RequestImageAttachment>()
@@ -234,9 +241,8 @@ export async function toPiContext(
   const resolveImageAccess: ImageAttachmentAccessResolver = images?.resolveImageAccess ?? (() => undefined)
   // No policy named by the caller: use DSH's own route defaults
   // (`DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET` / `DEFAULT_REQUEST_IMAGE_MAX_BYTES`
-  // in llm-pi-ai), not this plugin's historic tighter numbers. This is what
-  // the "take the default" preset relies on to let the host decide.
-  const policy = images?.requestImagePolicy ?? { maxPixels: 2048 * 2048, maxBytes: 1024 * 1024 }
+  // in llm-pi-ai), not this plugin's historic tighter numbers.
+  const policy = images?.requestImagePolicy ?? { maxPixels: 2048 * 2048, maxImageBytes: 1024 * 1024 }
   const requestImages = images === undefined
     ? new Map<AttachmentId, RequestImageAttachment>()
     : await prepareRequestImages(split.messages, images.attachments, policy, options.signal)

@@ -107,12 +107,12 @@ describe('toPiContext', () => {
   })
 
   it('uses DSH image budgets when the caller names no policy', async () => {
-    const seen: { maxBytes?: number }[] = []
+    const seen: { maxImageBytes?: number; imageTargetBytes?: number }[] = []
     const ref = {
       attachmentId: 'img-1', mediaType: 'image/png', bytes: 10, width: 3000, height: 3000,
     }
     const store = {
-      readImageRequest: async (_ref: unknown, target: { maxBytes: number }) => {
+      readImageRequest: async (_ref: unknown, target: { maxImageBytes: number; imageTargetBytes: number }) => {
         seen.push(target)
         return {
           variantId: 'v1', attachment: ref as never, data: new Uint8Array(10), mediaType: 'image/png',
@@ -127,9 +127,11 @@ describe('toPiContext', () => {
       resolveImageAccess: () => undefined,
     } as never)
     expect(context.messages).toHaveLength(1)
-    // The host's own default (1 MiB), not this plugin's historic 400 KB.
+    // The host's own default (1 MiB), not this plugin's historic 400 KB, and
+    // the hard limit doubles as the preferred target.
     expect(seen).toHaveLength(1)
-    expect(seen[0]?.maxBytes).toBe(1024 * 1024)
+    expect(seen[0]?.maxImageBytes).toBe(1024 * 1024)
+    expect(seen[0]?.imageTargetBytes).toBe(1024 * 1024)
   })
 
   it('refuses an image when no attachment machinery is provided', async () => {

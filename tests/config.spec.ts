@@ -23,7 +23,7 @@ import {
   readConfig,
   TIMER_CEILING_MS,
 } from '../src/config.ts'
-import { IMAGE_BUDGETS, isHostImageBudget } from '../src/image-budget.ts'
+import { IMAGE_BUDGET } from '../src/image-budget.ts'
 import type { LiveConfig } from '../src/config.ts'
 
 function liveOf(values: Record<string, unknown>): LiveConfig {
@@ -166,25 +166,17 @@ describe('readConfig', () => {
       baseURL: 'https://opencode.ai/zen/go/v1',
       refreshMinutes: 30,
       streamIdleTimeoutMs: 1_000,
-      imageBudgetPreset: 'pi-ai',
       modelLimits: {},
       modelProtocols: {},
     }))
     expect(config.refreshMinutes).toBe(30)
     expect(config.modelVisibility).toEqual({ 'glm-5': true })
-    expect(config.imageBudgetPreset).toBe('pi-ai')
   })
 
-  it('defaults the image budget to "take the default"', () => {
-    expect(PlainConfig({}).imageBudgetPreset).toBe('default')
-    // `default` mirrors DSH's own numbers for the request-log estimate only;
-    // it names no budget on the request itself.
-    expect(IMAGE_BUDGETS.default).toEqual({ maxPixels: 4194304, maxBytes: 1048576, maxRequestBytes: 20971520 })
-    expect(IMAGE_BUDGETS.dsh).toEqual({ maxPixels: 4194304, maxBytes: 1048576, maxRequestBytes: 20971520 })
-    expect(IMAGE_BUDGETS['pi-ai']).toEqual({ maxPixels: 4000000, maxBytes: 4718592, maxRequestBytes: 20971520 })
-    expect(isHostImageBudget('default')).toBe(true)
-    expect(isHostImageBudget('dsh')).toBe(false)
-    expect(() => PlainConfig({ imageBudgetPreset: 'dshopencodego' as never })).toThrow()
-    expect(() => PlainConfig({ imageBudgetPreset: 'nope' as never })).toThrow()
+  it('names the DSH image budgets directly, with no setting to disagree', () => {
+    // The numbers are DSH's own route defaults (`llm-pi-ai`); there is no
+    // preset field, so a profile cannot pick a different set.
+    expect(IMAGE_BUDGET).toEqual({ maxPixels: 4194304, maxImageBytes: 1048576, maxRequestBytes: 20971520 })
+    expect(Object.hasOwn(PlainConfig({}), 'imageBudgetPreset')).toBe(false)
   })
 })

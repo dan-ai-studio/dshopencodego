@@ -61,20 +61,21 @@ describe('peer coverage', () => {
     expect(unused).toEqual([])
   })
 
-  it('supports DSH 0.2.2-rc.5 and later only', () => {
+  it('supports DSH 0.2.3-alpha.2 and later only', () => {
     // Narrowing the range was deliberate: the gate admits whatever the range
-    // says, so a range that reaches back into `0.2.0`/`0.2.1` would let a
-    // runtime this plugin is not built against load it — the failure such a
-    // combination produces is not one this project has verified.
+    // says, so a range that reaches back into `0.2.2` would let a runtime this
+    // plugin is not built against load it — `ImageRequestTarget` changed shape
+    // in 0.2.3 (`maxBytes` became `maxImageBytes` plus `imageTargetBytes`), and
+    // the older shape is not one this project can satisfy at run time.
     const dshPeers = Object.entries(packageJson.peerDependencies)
       .filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
     expect(dshPeers.length).toBeGreaterThan(0)
     for (const [name, range] of dshPeers) {
       expect(range, name).not.toMatch(/0\.1\./)
-      expect(range, name).toContain('>=0.2.2-rc.5')
+      expect(range, name).toContain('>=0.2.3-alpha.2')
     }
     expect(packageJson.engines.dsh).not.toMatch(/0\.1\./)
-    expect(packageJson.engines.dsh).toContain('>=0.2.2-rc.5')
+    expect(packageJson.engines.dsh).toContain('>=0.2.3-alpha.2')
     // The upper bound has to close the whole 0.3.0 line, prereleases included:
     // DSH judges with `includePrerelease`, so a plain `<0.3.0` would admit
     // `0.3.0-rc.1` — a major version this plugin has never been verified
@@ -83,8 +84,8 @@ describe('peer coverage', () => {
     for (const [name, range] of dshPeers) {
       expect(range, name).toContain('<0.3.0-0')
     }
-    // Only the runtime DSH 0.2.2-rc.5 ships: the 4.0.x branches went with the
-    // earlier support range.
-    expect(packageJson.peerDependencies['@deepseek-ai/cordis']).toBe('4.1.0')
+    // Only the runtime DSH 0.2.3-alpha.2 ships: the 4.1.x branches went with
+    // the earlier support range.
+    expect(packageJson.peerDependencies['@deepseek-ai/cordis']).toBe('4.2.0-alpha.1')
   })
 })
