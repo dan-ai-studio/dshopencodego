@@ -2,6 +2,20 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
+## [0.3.1] - 2026-11-23
+
+只兼容 DSH `0.2.3-alpha.2` 及以上，把为旧版本保留的兼容写法全部移除。
+
+### 🧹 移除
+
+- **API key 校验不再自带一份策略**。此前为同时兼容 `0.2.2`（`dsh-llm.assertUsableApiKey`）与新版（`dsh-credentials.normalizeApiKey`），插件自己复制了 `LEGAL_API_KEY` 正则、`ApiKeyCheck` 类型和本地 `normalizeApiKey`。现在直接使用 `@deepseek-ai/dsh-credentials` 的实现，只保留插件自己的 `INVALID_CREDENTIAL` 错误包装——接受的 key 与同版本其他 provider 不可能再漂移。
+- **`internal/config` 钩子只按单一签名读取**。原先为兼容 Cordis 4.0.5（fiber 在 `this`）与 4.0.6（fiber 在第一个参数）两种形态，代码用 `first === ctx.fiber || this === ctx.fiber` 双边判断；现在只认 `(fiber, next)`。
+- **删除对应的兼容测试**：`index-apply.spec.ts` 里「fiber 从 `this` 到达（cordis 4.0.5）」用例与「both shapes」断言。
+
+### 📄 文档
+
+- README 删除整段 `0.1.7` 系列移除支持的历史沿革，并化简 cordis 版本与验证基线处的旧版本表述，只陈述当前事实。
+
 ## [0.3.0] - 2026-11-23
 
 兼容性升级到 DSH 0.2.3 与 pi 1.6，并去掉图片预算预设。
