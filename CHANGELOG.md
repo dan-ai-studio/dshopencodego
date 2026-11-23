@@ -2,7 +2,7 @@
 
 本文件记录 `@dan-ai-studio/dshopencodego` 插件的所有重要变更。
 
-## [Unreleased]
+## [0.3.0] - 2026-11-23
 
 兼容性升级到 DSH 0.2.3 与 pi 1.6，并去掉图片预算预设。
 
